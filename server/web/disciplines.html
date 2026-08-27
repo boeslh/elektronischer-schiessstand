@@ -112,6 +112,10 @@ form textarea { resize: vertical; min-height: 56px; }
         <option value="">– bitte wählen –</option>
       </select>
 
+      <label for="f-standpc-no">StandPC-Scheibe Nr.</label>
+      <input type="number" id="f-standpc-no" min="0" max="99" placeholder="0 = nicht gesetzt">
+      <div class="hint">Nur nötig für "Disziplinen auf StandPC übertragen" (Standaktionen) - dort werden nur Disziplinen mit gesetzter Nummer angeboten.</div>
+
       <div class="form-row2">
         <div>
           <label for="f-scoring">Wertungsschüsse *</label>
@@ -189,7 +193,7 @@ function renderTable() {
     const timeMin = d.match_time_s != null ? Math.round(d.match_time_s/60) + ' min' : '–';
     tr.innerHTML = `
       <td><strong>${esc(d.name)}</strong>${d.rule_no ? `<br><small>${esc(d.rule_no)}</small>` : ''}</td>
-      <td style="font-size:.8rem">${esc(d.target_name)}</td>
+      <td style="font-size:.8rem">${esc(d.target_name)}${d.standpc_target_no ? `<br><small>StandPC #${d.standpc_target_no}</small>` : ''}</td>
       <td>${d.match_shot_count}${d.decimal_scoring ? ' <span class="badge decimal">Z</span>' : ''}</td>
       <td>${probe}</td>
       <td>${d.shots_per_series}</td>
@@ -223,6 +227,7 @@ function editRow(id) {
   document.getElementById('f-ruleno').value = d.rule_no || '';
   document.getElementById('f-dist').value = d.distance_m;
   renderTargetSelect(d.target_id);
+  document.getElementById('f-standpc-no').value = d.standpc_target_no || '';
   document.getElementById('f-scoring').value = d.match_shot_count;
   document.getElementById('f-series').value = d.shots_per_series;
   document.getElementById('f-sighting').value = d.max_sighting_shots != null ? d.max_sighting_shots : '';
@@ -270,6 +275,7 @@ async function saveForm(e) {
     rule_no:            document.getElementById('f-ruleno').value.trim(),
     distance_m:         parseFloat(document.getElementById('f-dist').value) || 10,
     target_id:          document.getElementById('f-target').value,
+    standpc_target_no:  parseInt(document.getElementById('f-standpc-no').value) || 0,
     match_shot_count:   parseInt(document.getElementById('f-scoring').value) || 40,
     shots_per_series:   parseInt(document.getElementById('f-series').value) || 10,
     max_sighting_shots: sighting !== '' ? parseInt(sighting) : null,

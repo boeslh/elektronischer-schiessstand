@@ -45,11 +45,13 @@ type APIServer struct {
 	store      *Store
 	live       *LiveHub
 	listen     string
+	dsn        string // fuer pg_dump/pg_restore (Import/Export-Kachel, siehe backup.go)
+	backupDir  string
 	liveStates sync.Map // key=laneNo(int) → LaneLiveState
 }
 
-func NewAPIServer(store *Store, live *LiveHub, listen string) *APIServer {
-	return &APIServer{store: store, live: live, listen: listen}
+func NewAPIServer(store *Store, live *LiveHub, listen, dsn, backupDir string) *APIServer {
+	return &APIServer{store: store, live: live, listen: listen, dsn: dsn, backupDir: backupDir}
 }
 
 func serveHTML(fsys fs.FS, name string) http.HandlerFunc {
@@ -88,6 +90,23 @@ func (a *APIServer) Run(ctx context.Context) error {
 			return
 		}
 		serveHTML(webSub, "benutzerverwaltung.html")(w, r)
+	})
+
+	mux.HandleFunc("GET /api/admin/backups", a.h(a.listBackupsHandler))
+	mux.HandleFunc("POST /api/admin/backups", a.h(a.createBackupHandler))
+	mux.HandleFunc("GET /api/admin/backups/{filename}/download", a.downloadBackupHandler)
+	mux.HandleFunc("PUT /api/admin/backups/{filename}/rename", a.h(a.renameBackupHandler))
+	mux.HandleFunc("POST /api/admin/backups/{filename}/restore", a.h(a.restoreBackupHandler))
+	mux.HandleFunc("POST /api/admin/restore-upload", a.h(a.restoreUploadHandler))
+	mux.HandleFunc("POST /api/admin/backups/upload", a.h(a.uploadBackupHandler))
+	mux.HandleFunc("POST /api/admin/export-selection", a.h(a.exportSelectionHandler))
+	mux.HandleFunc("POST /api/admin/import-selection", a.h(a.importSelectionHandler))
+	mux.HandleFunc("GET /import-export", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := a.requireAdmin(w, r); err != nil {
+			writeAccessDeniedPage(w, err)
+			return
+		}
+		serveHTML(webSub, "import-export.html")(w, r)
 	})
 
 	mux.HandleFunc("GET /api/lanes", a.h(a.listLanes))

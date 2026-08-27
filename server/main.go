@@ -31,6 +31,8 @@ func main() {
 		"postgres://schiessstand:test@127.0.0.1/schiessstand",
 		"PostgreSQL DSN")
 	listen := flag.String("listen", ":8090", "HTTP Listen-Adresse")
+	backupDir := flag.String("backup-dir", "../db-backups",
+		"Verzeichnis fuer DB-Backups (Import/Export-Kachel, admin-only)")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(),
@@ -46,7 +48,7 @@ func main() {
 	live := NewLiveHub()
 	go live.RunListener(ctx, *dsn) // pg LISTEN shot_fired -> SSE
 
-	srv := NewAPIServer(store, live, *listen)
+	srv := NewAPIServer(store, live, *listen, *dsn, *backupDir)
 	log.Printf("Server: http://localhost%s", *listen)
 	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("FATAL HTTP: %v", err)

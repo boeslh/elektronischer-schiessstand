@@ -127,7 +127,7 @@
   function hideDisallowedTiles(role) {
     document.querySelectorAll('a.card[href]').forEach(a => {
       const path = a.getAttribute('href');
-      if (path === '/benutzerverwaltung') {
+      if (path === '/benutzerverwaltung' || path === '/import-export') {
         // nicht Teil der Kachel-Matrix, hart auf Admin beschraenkt (siehe roles.go)
         if (role.role_key !== 'admin') a.style.display = 'none';
         return;

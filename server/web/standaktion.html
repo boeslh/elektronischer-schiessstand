@@ -289,7 +289,7 @@ let impLaneNo     = 0;
 async function init() {
   const [lanes, shooters, comps, discs, discsFull] = await Promise.all([
     api('/api/lanes').catch(() => []),
-    api('/api/shooters/list').catch(() => []),
+    api('/api/shooters').catch(() => []),
     api('/api/competitions').catch(() => []),
     api('/api/disciplines').catch(() => []),
     api('/api/disciplines/full').catch(() => []),
