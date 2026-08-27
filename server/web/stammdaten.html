@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stammdaten – Schießstand</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0; min-height: 100vh; }
+
+header { background: #1a1a2e; border-bottom: 2px solid #e94560; padding: 14px 24px;
+         display: flex; align-items: center; gap: 16px; }
+header a.back { color: #e94560; text-decoration: none; font-size: 1.2rem; }
+header a.back:hover { color: #ff6b81; }
+header h1 { font-size: 1.4rem; color: #e94560; }
+
+.tabs { display: flex; gap: 2px; background: #0d0d1a; padding: 0 24px;
+        border-bottom: 1px solid #2a2a4a; }
+.tab-btn { background: none; border: none; color: #a0a0c0; padding: 12px 24px;
+           cursor: pointer; font-size: .95rem; border-bottom: 3px solid transparent;
+           transition: color .15s, border-color .15s; }
+.tab-btn:hover { color: #e0e0e0; }
+.tab-btn.active { color: #e94560; border-bottom-color: #e94560; }
+
+.tab-content { display: none; padding: 24px 16px; max-width: 1200px; margin: 0 auto; }
+.tab-content.active { display: block; }
+
+.split { display: grid; grid-template-columns: 1fr 360px; gap: 20px; }
+@media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
+
+.card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; }
+.card h2 { font-size: .9rem; color: #a0a0c0; text-transform: uppercase;
+           letter-spacing: .08em; margin-bottom: 14px; }
+.card h2 span { color: #e94560; }
+
+.search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.search-row input { flex: 1; background: #111; border: 1px solid #3a3a5a; border-radius: 5px;
+                    color: #e0e0e0; padding: 7px 10px; font-size: .85rem; }
+.search-row input:focus { outline: none; border-color: #e94560; }
+
+.btn-new { background: #e94560; color: #fff; border: none; border-radius: 5px;
+           padding: 7px 14px; cursor: pointer; font-size: .85rem; white-space: nowrap; }
+.btn-new:hover { background: #c73652; }
+
+table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+th { text-align: left; color: #a0a0c0; font-weight: 500; padding: 6px 8px;
+     border-bottom: 1px solid #2a2a4a; }
+td { padding: 7px 8px; border-bottom: 1px solid #1e1e3a; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+.row-actions { white-space: nowrap; }
+.btn-edit, .btn-del { border: none; border-radius: 4px; padding: 3px 9px; cursor: pointer; font-size: .78rem; margin-left: 3px; }
+.btn-edit { background: #2a2a5a; color: #90caf9; }
+.btn-edit:hover { background: #3a3a7a; }
+.btn-del  { background: #3a1a1a; color: #ef9a9a; }
+.btn-del:hover  { background: #5a2a2a; }
+.badge-count    { background: #1a2a3a; color: #64b5f6; border-radius: 10px;
+                  padding: 1px 7px; font-size: .75rem; }
+.badge-inactive { background: #3a2a1a; color: #ffb347; border-radius: 10px;
+                  padding: 1px 7px; font-size: .7rem; margin-left: 4px; }
+
+/* Form */
+.form-card { position: sticky; top: 16px; }
+form label { display: block; font-size: .8rem; color: #a0a0c0; margin-top: 11px; margin-bottom: 3px; }
+form input[type=text], form input[type=number], form select {
+    width: 100%; background: #111; border: 1px solid #3a3a5a; border-radius: 5px;
+    color: #e0e0e0; padding: 7px 10px; font-size: .88rem; }
+form input:focus, form select:focus { outline: none; border-color: #e94560; }
+.form-actions { margin-top: 16px; display: flex; gap: 8px; }
+.btn-save { flex: 1; background: #e94560; color: #fff; border: none; border-radius: 5px;
+            padding: 8px; cursor: pointer; font-size: .9rem; }
+.btn-save:hover { background: #c73652; }
+.btn-cancel { background: #2a2a4a; color: #a0a0c0; border: none; border-radius: 5px;
+              padding: 8px 14px; cursor: pointer; font-size: .85rem; }
+.btn-cancel:hover { background: #3a3a5a; }
+.msg { margin-top: 9px; padding: 7px 11px; border-radius: 5px; font-size: .83rem; }
+.msg.ok  { background: #1a3a2a; color: #81c784; }
+.msg.err { background: #3a1a1a; color: #ef9a9a; }
+
+/* Import */
+.import-card { margin-top: 20px; }
+.import-card h2 { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.import-card h2 .toggle { font-size: .8rem; color: #e94560; margin-left: auto; }
+.import-body { display: none; margin-top: 14px; }
+.import-body.open { display: block; }
+.file-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.file-row input[type=file] { color: #a0a0c0; font-size: .85rem; flex: 1; }
+.check-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: .85rem; }
+.check-row input[type=checkbox] { accent-color: #e94560; }
+.preview-table { max-height: 260px; overflow-y: auto; margin-top: 10px; }
+.preview-table table { font-size: .8rem; }
+.preview-table td, .preview-table th { padding: 4px 7px; }
+.btn-import { background: #2a4a6a; color: #90caf9; border: none; border-radius: 5px;
+              padding: 8px 18px; cursor: pointer; font-size: .88rem; margin-top: 10px; }
+.btn-import:hover { background: #3a5a8a; }
+.btn-import:disabled { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/" title="Zurück">&#8592;</a>
+  <h1>Stammdaten</h1>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('gaue', this)">Gaue</button>
+  <button class="tab-btn"        onclick="switchTab('vereine', this)">Vereine</button>
+  <button class="tab-btn"        onclick="switchTab('mitglieder', this)">Mitglieder</button>
+  <button class="tab-btn"        onclick="switchTab('mannschaften', this)">Mannschaften</button>
+</div>
+
+<!-- ====== TAB GAUE ====== -->
+<div id="tab-gaue" class="tab-content active">
+  <div class="split">
+    <!-- Liste -->
+    <div class="card">
+      <h2>Alle Gaue</h2>
+      <div class="search-row">
+        <input type="search" id="gau-search" placeholder="Suchen…" oninput="filterGaue()">
+        <button class="btn-new" onclick="newGau()">+ Neuer Gau</button>
+      </div>
+      <table>
+        <thead><tr><th>Gau-Nr.</th><th>Name</th><th>Vereine</th><th></th></tr></thead>
+        <tbody id="gau-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Formular -->
+    <div class="card form-card">
+      <h2>Gau <span id="gf-title">anlegen</span></h2>
+      <form id="gau-form" onsubmit="saveGau(event)">
+        <input type="hidden" id="gf-id">
+        <label for="gf-no">Gau-Nummer *</label>
+        <input type="text" id="gf-no" placeholder="z.B. 418" required>
+        <label for="gf-name">Name *</label>
+        <input type="text" id="gf-name" placeholder="z.B. Massenhausen" required>
+        <div class="form-actions">
+          <button type="submit" class="btn-save">Speichern</button>
+          <button type="button" class="btn-cancel" onclick="clearGauForm()">Abbrechen</button>
+        </div>
+        <div id="gf-msg" style="display:none"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ====== TAB VEREINE ====== -->
+<div id="tab-vereine" class="tab-content">
+  <div class="split">
+    <!-- Liste -->
+    <div class="card">
+      <h2>Alle Vereine</h2>
+      <div class="search-row">
+        <input type="search" id="club-search" placeholder="Suchen…" oninput="filterClubs()">
+        <button class="btn-new" onclick="newClub()">+ Neuer Verein</button>
+      </div>
+      <table>
+        <thead><tr><th>Nr.</th><th>Name</th><th>Gau</th><th>Mitglieder</th><th></th></tr></thead>
+        <tbody id="club-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Formular -->
+    <div class="card form-card">
+      <h2>Verein <span id="cf-title">anlegen</span></h2>
+      <form id="club-form" onsubmit="saveClub(event)">
+        <input type="hidden" id="cf-id">
+        <label for="cf-name">Name *</label>
+        <input type="text" id="cf-name" placeholder="z.B. SV Musterverein" required>
+        <label for="cf-short">Kurzname</label>
+        <input type="text" id="cf-short" placeholder="z.B. SVM">
+        <label for="cf-no">Vereinsnummer</label>
+        <input type="text" id="cf-no" placeholder="z.B. 418001">
+        <label for="cf-gau">Gau</label>
+        <select id="cf-gau"><option value="">– kein Gau –</option></select>
+        <label for="cf-members">Mitglieder</label>
+        <input type="number" id="cf-members" min="0" placeholder="z.B. 120">
+        <div class="form-actions">
+          <button type="submit" class="btn-save">Speichern</button>
+          <button type="button" class="btn-cancel" onclick="clearClubForm()">Abbrechen</button>
+        </div>
+        <div id="cf-msg" style="display:none"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Import -->
+  <div class="card import-card">
+    <h2 onclick="toggleImport()">
+      CSV-Import
+      <span class="toggle" id="import-toggle">▼ öffnen</span>
+    </h2>
+    <div class="import-body" id="import-body">
+      <div class="file-row">
+        <input type="file" id="import-file" accept=".csv" onchange="parseCSV()">
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="import-create-gaue" checked>
+        <label for="import-create-gaue">Fehlende Gaue automatisch anlegen</label>
+      </div>
+      <div id="import-preview" class="preview-table"></div>
+      <div id="import-info" style="font-size:.83rem;color:#a0a0c0;margin-top:6px"></div>
+      <button class="btn-import" id="btn-import" onclick="runImport()" disabled>
+        Importieren
+      </button>
+      <div id="import-msg" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== TAB MITGLIEDER ====== -->
+<div id="tab-mitglieder" class="tab-content">
+  <div class="split">
+    <!-- Liste -->
+    <div class="card">
+      <h2>Mitglieder</h2>
+      <div class="search-row">
+        <input type="search" id="sh-search" placeholder="Name, Passnummer…" oninput="searchShooters()">
+        <select id="sh-club-filter" onchange="searchShooters()" style="background:#111;border:1px solid #3a3a5a;border-radius:5px;color:#e0e0e0;padding:6px 8px;font-size:.83rem">
+          <option value="">Alle Vereine</option>
+        </select>
+        <button class="btn-new" onclick="newShooter()">+ Neu</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Geb.</th><th>Verein</th><th>Passnr.</th><th></th></tr></thead>
+        <tbody id="sh-tbody"></tbody>
+      </table>
+      <div id="sh-pager" style="margin-top:10px;display:flex;gap:8px;align-items:center;font-size:.83rem;color:#a0a0c0"></div>
+    </div>
+
+    <!-- Formular -->
+    <div class="card form-card" style="max-height:calc(100vh - 140px);overflow-y:auto">
+      <h2>Mitglied <span id="shf-title">anlegen</span></h2>
+      <form id="sh-form" onsubmit="saveShooter(event)">
+        <input type="hidden" id="shf-id">
+
+        <div style="font-size:.75rem;color:#e94560;text-transform:uppercase;margin-top:4px">Basisdaten</div>
+        <div class="form-row2">
+          <div><label for="shf-last">Nachname *</label><input type="text" id="shf-last" required></div>
+          <div><label for="shf-first">Vorname *</label><input type="text" id="shf-first" required></div>
+        </div>
+        <div class="form-row2">
+          <div><label for="shf-title">Titel</label><input type="text" id="shf-title-f" placeholder="Dr., Ing. …"></div>
+          <div><label for="shf-gender">Geschlecht</label>
+            <select id="shf-gender"><option value="">–</option><option value="M">Männlich</option><option value="W">Weiblich</option></select>
+          </div>
+        </div>
+        <div class="form-row2">
+          <div><label for="shf-birth">Geburtsdatum</label><input type="date" id="shf-birth"></div>
+          <div><label for="shf-pass">Passnummer</label><input type="text" id="shf-pass" placeholder="z.B. 41800080"></div>
+        </div>
+
+        <div style="font-size:.75rem;color:#e94560;text-transform:uppercase;margin-top:12px">Verein & Sport</div>
+        <label for="shf-club">Verein</label>
+        <select id="shf-club"><option value="">– kein –</option></select>
+        <div class="form-row2">
+          <div><label for="shf-entry">Eintrittsdatum</label><input type="date" id="shf-entry"></div>
+          <div><label for="shf-class">Sportklasse</label><input type="number" id="shf-class" min="1" max="99" placeholder="z.B. 13"></div>
+        </div>
+        <label for="shf-interests">Interessen / Disziplinen</label>
+        <input type="text" id="shf-interests" placeholder="z.B. Luftgewehr,Luftpistole">
+
+        <div style="font-size:.75rem;color:#e94560;text-transform:uppercase;margin-top:12px">Kontakt</div>
+        <div class="form-row2">
+          <div><label for="shf-street">Straße</label><input type="text" id="shf-street"></div>
+          <div><label for="shf-zip">PLZ</label><input type="text" id="shf-zip" placeholder="z.B. 85716"></div>
+        </div>
+        <label for="shf-city">Ort</label>
+        <input type="text" id="shf-city">
+        <div class="form-row2">
+          <div><label for="shf-phone">Telefon</label><input type="text" id="shf-phone"></div>
+          <div><label for="shf-mobile">Mobil</label><input type="text" id="shf-mobile"></div>
+        </div>
+        <label for="shf-email">E-Mail</label>
+        <input type="text" id="shf-email">
+
+        <div class="form-actions" style="margin-top:14px">
+          <button type="submit" class="btn-save">Speichern</button>
+          <button type="button" class="btn-cancel" onclick="clearShooterForm()">Abbrechen</button>
+        </div>
+        <div id="shf-msg" style="display:none"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Import -->
+  <div class="card import-card" style="margin-top:20px">
+    <h2 onclick="toggleMemberImport()">
+      CSV-Import Mitgliederliste
+      <span class="toggle" id="mimport-toggle">▼ öffnen</span>
+    </h2>
+    <div class="import-body" id="mimport-body">
+      <p style="font-size:.83rem;color:#a0a0c0;margin-bottom:10px">
+        Importiert aus der Mitgliederliste-CSV (ISO-8859-1, Semikolon-getrennt).<br>
+        Auswahllogik: Erstverein im Gau → Erstverein zuordnen; sonst Verein mit
+        den meisten Mitgliedsjahren (MITGLIEDSJAHREVEREIN).
+      </p>
+      <div class="file-row">
+        <input type="file" id="mimport-file" accept=".csv" onchange="parseMemberCSV()">
+      </div>
+      <div id="mimport-preview" class="preview-table"></div>
+      <div id="mimport-info" style="font-size:.83rem;color:#a0a0c0;margin-top:6px"></div>
+      <button class="btn-import" id="btn-mimport" onclick="runMemberImport()" disabled>
+        Importieren
+      </button>
+      <div id="mimport-msg" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== TAB MANNSCHAFTEN ====== -->
+<div id="tab-mannschaften" class="tab-content">
+  <div class="split">
+
+    <!-- Mannschaftsliste -->
+    <div class="card">
+      <h2>Mannschaften</h2>
+      <div class="search-row">
+        <select id="team-club-filter" onchange="loadTeams()" style="background:#111;border:1px solid #3a3a5a;border-radius:5px;color:#e0e0e0;padding:6px 8px;font-size:.83rem">
+          <option value="">Alle Vereine</option>
+        </select>
+        <select id="team-gau-filter" onchange="loadTeams()" style="background:#111;border:1px solid #3a3a5a;border-radius:5px;color:#e0e0e0;padding:6px 8px;font-size:.83rem">
+          <option value="">Alle Gaue</option>
+        </select>
+        <button class="btn-new" onclick="newTeam()">+ Neu</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Disziplin</th><th>Saison</th><th>Zuordnung</th><th>Mitgl.</th><th></th></tr></thead>
+        <tbody id="team-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Team-Formular -->
+    <div class="card form-card">
+      <h2>Mannschaft <span id="tf-title">anlegen</span></h2>
+      <form id="team-form" onsubmit="saveTeam(event)">
+        <input type="hidden" id="tf-id">
+        <label for="tf-name">Name *</label>
+        <input type="text" id="tf-name" required placeholder="z.B. LG Mannschaft 1">
+        <div class="form-row2">
+          <div><label for="tf-short">Kurzname</label><input type="text" id="tf-short" placeholder="LGM1"></div>
+          <div><label for="tf-season">Saison</label><input type="text" id="tf-season" placeholder="2024/25"></div>
+        </div>
+        <label for="tf-disc">Disziplin</label>
+        <input type="text" id="tf-disc" placeholder="z.B. Luftgewehr, Luftpistole">
+        <label for="tf-club">Verein</label>
+        <select id="tf-club" onchange="if(this.value) document.getElementById('tf-gau').value=''">
+          <option value="">– kein –</option>
+        </select>
+        <label for="tf-gau">Gau <small style="color:#a0a0c0">(alternativ zu Verein)</small></label>
+        <select id="tf-gau" onchange="if(this.value) document.getElementById('tf-club').value=''">
+          <option value="">– kein –</option>
+        </select>
+        <label for="tf-notes">Notizen</label>
+        <input type="text" id="tf-notes">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
+          <input type="checkbox" id="tf-active" checked>
+          <span>Aktiv</span>
+        </label>
+        <div class="form-actions" style="margin-top:14px">
+          <button type="submit" class="btn-save">Speichern</button>
+          <button type="button" class="btn-cancel" onclick="clearTeamForm()">Abbrechen</button>
+        </div>
+        <div id="tf-msg" style="display:none"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Mitglieder einer Mannschaft -->
+  <div id="team-members-card" class="card" style="margin-top:20px;display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h2 style="margin:0">Mitglieder: <span id="tm-team-name" style="color:#e94560"></span></h2>
+      <button class="btn-new" onclick="showAddMember()">+ Mitglied hinzufügen</button>
+    </div>
+
+    <!-- Suchzeile zum Hinzufügen -->
+    <div id="tm-add-row" style="display:none;background:#1a1a2e;border:1px solid #3a3a5a;border-radius:6px;padding:12px;margin-bottom:14px">
+      <div style="font-size:.8rem;color:#a0a0c0;margin-bottom:6px">Schütze suchen und hinzufügen:</div>
+      <div class="search-row">
+        <input type="search" id="tm-search" placeholder="Name oder Passnummer…" oninput="searchForMember()">
+        <button type="button" class="btn-cancel" onclick="hideAddMember()">Abbrechen</button>
+      </div>
+      <div id="tm-search-results" style="margin-top:8px"></div>
+    </div>
+
+    <table>
+      <thead><tr><th>Pos.</th><th>Name</th><th>Verein</th><th>Passnr.</th><th></th></tr></thead>
+      <tbody id="tm-tbody"></tbody>
+    </table>
+    <div id="tm-msg" style="display:none;margin-top:8px"></div>
+  </div>
+</div>
+
+<script src="/settings.js"></script>
+<script>
+let gaue   = [];
+let clubs  = [];
+let importRows = [];
+let memberRows = [];
+let shPage = 1;
+let shTotal = 0;
+let shPageSize = getSettings().pageSize;
+
+// ──── Tabs ────────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ──── Helpers ─────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
+}
+function hideMsg(id) {
+  const el = document.getElementById(id);
+  el.style.display = 'none'; el.textContent = '';
+}
+async function api(path, opts = {}) {
+  const r = await fetch('/api' + path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+// ──── Gaue laden & anzeigen ───────────────────────────────────────────────
+async function loadGaue() {
+  gaue = await api('/gaue') || [];
+  renderGaue(gaue);
+  fillGauSelect();
+}
+
+function renderGaue(list) {
+  const tbody = document.getElementById('gau-tbody');
+  tbody.innerHTML = '';
+  for (const g of list) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${esc(g.gau_no)}</strong></td>
+      <td>${esc(g.name)}</td>
+      <td><span class="badge-count">${g.club_count}</span></td>
+      <td class="row-actions">
+        <button class="btn-edit" onclick="editGau('${g.id}')">Bearbeiten</button>
+        <button class="btn-del"  onclick="deleteGau('${g.id}','${esc(g.name)}')">Löschen</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function filterGaue() {
+  const q = document.getElementById('gau-search').value.toLowerCase();
+  renderGaue(q ? gaue.filter(g =>
+    g.name.toLowerCase().includes(q) || g.gau_no.toLowerCase().includes(q)) : gaue);
+}
+
+function fillGauSelect(selectedID) {
+  const sel = document.getElementById('cf-gau');
+  const cur = selectedID || sel.value;
+  sel.innerHTML = '<option value="">– kein Gau –</option>';
+  for (const g of gaue) {
+    const o = document.createElement('option');
+    o.value = g.id; o.textContent = `${g.gau_no} – ${g.name}`;
+    if (g.id === cur) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+// ──── Gau CRUD ────────────────────────────────────────────────────────────
+function newGau() {
+  clearGauForm();
+  document.getElementById('gf-title').textContent = 'anlegen';
+}
+function clearGauForm() {
+  document.getElementById('gf-id').value = '';
+  document.getElementById('gau-form').reset();
+  document.getElementById('gf-title').textContent = 'anlegen';
+  hideMsg('gf-msg');
+}
+function editGau(id) {
+  const g = gaue.find(x => x.id === id);
+  if (!g) return;
+  document.getElementById('gf-title').textContent = 'bearbeiten';
+  document.getElementById('gf-id').value = g.id;
+  document.getElementById('gf-no').value = g.gau_no;
+  document.getElementById('gf-name').value = g.name;
+  hideMsg('gf-msg');
+  switchTab('gaue', document.querySelector('.tab-btn'));
+}
+async function saveGau(e) {
+  e.preventDefault();
+  const id = document.getElementById('gf-id').value;
+  const body = {
+    gau_no: document.getElementById('gf-no').value.trim(),
+    name:   document.getElementById('gf-name').value.trim(),
+  };
+  try {
+    if (id) await api(`/gaue/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    else     await api('/gaue',       {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    showMsg('gf-msg', id ? 'Gespeichert.' : 'Gau angelegt.', 'ok');
+    clearGauForm();
+    await loadGaue();
+    await loadClubs();
+  } catch(err) { showMsg('gf-msg', 'Fehler: ' + err.message, 'err'); }
+}
+async function deleteGau(id, name) {
+  if (!confirm(`Gau "${name}" wirklich löschen?\nNur möglich wenn keine Vereine zugeordnet sind.`)) return;
+  try {
+    await api(`/gaue/${id}`, {method:'DELETE'});
+    await loadGaue();
+  } catch(err) { alert('Fehler: ' + err.message); }
+}
+
+// ──── Vereine laden & anzeigen ────────────────────────────────────────────
+async function loadClubs() {
+  clubs = await api('/clubs') || [];
+  renderClubs(clubs);
+}
+
+function renderClubs(list) {
+  const tbody = document.getElementById('club-tbody');
+  tbody.innerHTML = '';
+  for (const c of list) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="font-size:.8rem;color:#a0a0c0">${esc(c.external_no)}</td>
+      <td><strong>${esc(c.name)}</strong>${c.short_name ? `<br><small style="color:#888">${esc(c.short_name)}</small>` : ''}</td>
+      <td style="font-size:.82rem">${esc(c.gau_name)}</td>
+      <td style="text-align:right">${c.member_count != null ? c.member_count : '–'}</td>
+      <td class="row-actions">
+        <button class="btn-edit" onclick="editClub('${c.id}')">Bearbeiten</button>
+        <button class="btn-del"  onclick="deleteClub('${c.id}','${esc(c.name)}')">Löschen</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function filterClubs() {
+  const q = document.getElementById('club-search').value.toLowerCase();
+  renderClubs(q ? clubs.filter(c =>
+    c.name.toLowerCase().includes(q) ||
+    (c.external_no || '').toLowerCase().includes(q) ||
+    (c.gau_name || '').toLowerCase().includes(q)) : clubs);
+}
+
+// ──── Verein CRUD ─────────────────────────────────────────────────────────
+function newClub() {
+  clearClubForm();
+  document.getElementById('cf-title').textContent = 'anlegen';
+}
+function clearClubForm() {
+  document.getElementById('cf-id').value = '';
+  document.getElementById('club-form').reset();
+  document.getElementById('cf-title').textContent = 'anlegen';
+  fillGauSelect('');
+  hideMsg('cf-msg');
+}
+function editClub(id) {
+  const c = clubs.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cf-title').textContent = 'bearbeiten';
+  document.getElementById('cf-id').value = c.id;
+  document.getElementById('cf-name').value = c.name;
+  document.getElementById('cf-short').value = c.short_name || '';
+  document.getElementById('cf-no').value = c.external_no || '';
+  document.getElementById('cf-members').value = c.member_count != null ? c.member_count : '';
+  fillGauSelect(c.gau_id);
+  hideMsg('cf-msg');
+  switchTab('vereine', document.querySelectorAll('.tab-btn')[1]);
+}
+async function saveClub(e) {
+  e.preventDefault();
+  const id = document.getElementById('cf-id').value;
+  const mc = document.getElementById('cf-members').value;
+  const body = {
+    name:         document.getElementById('cf-name').value.trim(),
+    short_name:   document.getElementById('cf-short').value.trim(),
+    external_no:  document.getElementById('cf-no').value.trim(),
+    gau_id:       document.getElementById('cf-gau').value,
+    member_count: mc !== '' ? parseInt(mc) : null,
+  };
+  try {
+    if (id) await api(`/clubs/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    else     await api('/clubs',       {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    showMsg('cf-msg', id ? 'Gespeichert.' : 'Verein angelegt.', 'ok');
+    clearClubForm();
+    await loadClubs();
+  } catch(err) { showMsg('cf-msg', 'Fehler: ' + err.message, 'err'); }
+}
+async function deleteClub(id, name) {
+  if (!confirm(`Verein "${name}" wirklich löschen?\nNur möglich wenn keine Schützen zugeordnet sind.`)) return;
+  try {
+    await api(`/clubs/${id}`, {method:'DELETE'});
+    await loadClubs();
+  } catch(err) { alert('Fehler: ' + err.message); }
+}
+
+// ──── CSV-Import ──────────────────────────────────────────────────────────
+function toggleImport() {
+  const body = document.getElementById('import-body');
+  const tog  = document.getElementById('import-toggle');
+  const open = body.classList.toggle('open');
+  tog.textContent = open ? '▲ schließen' : '▼ öffnen';
+}
+
+function parseCSV() {
+  const file = document.getElementById('import-file').files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = new TextDecoder('iso-8859-1').decode(e.target.result);
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) {
+      document.getElementById('import-info').textContent = 'Datei leer oder ungültig.';
+      return;
+    }
+    const headers = lines[0].split(';').map(h => h.trim());
+    const idx = h => headers.indexOf(h);
+    const iVNR  = idx('VEREINNR');
+    const iVN   = idx('VEREINNAME');
+    const iGNR  = idx('GAUNR');
+    const iGN   = idx('GAUNAME');
+    const iANZ  = idx('ANZAHL');
+    if (iVNR < 0 || iVN < 0) {
+      document.getElementById('import-info').textContent =
+        'Spalten VEREINNR und VEREINNAME nicht gefunden.';
+      return;
+    }
+
+    importRows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(';');
+      const vNr  = cols[iVNR]?.trim();
+      const vN   = cols[iVN ]?.trim();
+      if (!vNr || !vN) continue;
+      const mc = iANZ >= 0 ? parseInt(cols[iANZ]?.trim()) : null;
+      importRows.push({
+        external_no:  vNr,
+        name:         vN,
+        gau_no:       iGNR >= 0 ? cols[iGNR]?.trim() : '',
+        gau_name:     iGN  >= 0 ? cols[iGN ]?.trim() : '',
+        member_count: isNaN(mc) ? null : mc,
+      });
+    }
+
+    // Vorschau
+    const preview = document.getElementById('import-preview');
+    const shown = importRows.slice(0, 8);
+    preview.innerHTML = `<table>
+      <thead><tr><th>Vereinsnr.</th><th>Name</th><th>Gau</th><th>Mitglieder</th></tr></thead>
+      <tbody>${shown.map(r => `<tr>
+        <td>${esc(r.external_no)}</td>
+        <td>${esc(r.name)}</td>
+        <td>${esc(r.gau_no)} ${r.gau_name ? '– '+esc(r.gau_name) : ''}</td>
+        <td style="text-align:right">${r.member_count ?? '–'}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+
+    document.getElementById('import-info').textContent =
+      `${importRows.length} Vereine erkannt${importRows.length > 8 ? ` (${importRows.length - 8} weitere nicht angezeigt)` : ''}.`;
+    document.getElementById('btn-import').disabled = importRows.length === 0;
+    hideMsg('import-msg');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function runImport() {
+  if (!importRows.length) return;
+  const createGaue = document.getElementById('import-create-gaue').checked;
+  document.getElementById('btn-import').disabled = true;
+  try {
+    const result = await api('/clubs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({clubs: importRows, create_gaue: createGaue}),
+    });
+    showMsg('import-msg',
+      `Import abgeschlossen: ${result.created} neu, ${result.updated} aktualisiert.`, 'ok');
+    await loadGaue();
+    await loadClubs();
+  } catch(err) {
+    showMsg('import-msg', 'Fehler: ' + err.message, 'err');
+  } finally {
+    document.getElementById('btn-import').disabled = false;
+  }
+}
+
+// ──── Mitglieder ─────────────────────────────────────────────────────────
+function fillClubSelects() {
+  // Vereins-Filter im Mitglieder-Tab
+  const filter = document.getElementById('sh-club-filter');
+  const cur = filter.value;
+  filter.innerHTML = '<option value="">Alle Vereine</option>';
+  for (const c of clubs) {
+    const o = document.createElement('option');
+    o.value = c.id; o.textContent = c.name;
+    if (c.id === cur) o.selected = true;
+    filter.appendChild(o);
+  }
+  // Vereinsfeld im Formular
+  const sel = document.getElementById('shf-club');
+  const curF = sel.value;
+  sel.innerHTML = '<option value="">– kein –</option>';
+  for (const c of clubs) {
+    const o = document.createElement('option');
+    o.value = c.id; o.textContent = c.name;
+    if (c.id === curF) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+let shTimer = null;
+function searchShooters() {
+  clearTimeout(shTimer);
+  shTimer = setTimeout(() => { shPage = 1; loadShooters(); }, 300);
+}
+
+async function loadShooters() {
+  const q = document.getElementById('sh-search').value;
+  const clubID = document.getElementById('sh-club-filter').value;
+  const data = await api(`/shooters/list?q=${encodeURIComponent(q)}&club_id=${encodeURIComponent(clubID)}&page=${shPage}&page_size=${shPageSize}`);
+  shTotal = data.total || 0;
+  renderShooters(data.shooters || []);
+  renderPager(data.page, data.page_size);
+}
+
+function renderShooters(list) {
+  const tbody = document.getElementById('sh-tbody');
+  tbody.innerHTML = '';
+  for (const sh of list) {
+    const bd = sh.birth_date ? sh.birth_date.slice(0,10) : '–';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${esc(sh.last_name)}</strong>, ${esc(sh.first_name)}${sh.title ? ' <small>'+esc(sh.title)+'</small>' : ''}</td>
+      <td style="font-size:.8rem">${bd}</td>
+      <td style="font-size:.8rem">${esc(sh.club_name)}</td>
+      <td style="font-size:.8rem;color:#a0a0c0">${esc(sh.pass_no)}</td>
+      <td class="row-actions">
+        <button class="btn-edit" onclick='editShooter(${JSON.stringify(sh)})'>Bearb.</button>
+        <button class="btn-del"  onclick="deleteShooterRow('${sh.id}','${esc(sh.last_name+', '+sh.first_name)}')">Löschen</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+  document.getElementById('shf-msg') && hideMsg('shf-msg');
+}
+
+function renderPager(page, pageSize) {
+  const pages = Math.ceil(shTotal / pageSize);
+  const el = document.getElementById('sh-pager');
+  el.innerHTML = `
+    <button onclick="gotoPage(${page-1})" ${page<=1?'disabled':''} style="background:#2a2a4a;border:none;color:#e0e0e0;border-radius:4px;padding:4px 10px;cursor:pointer">‹</button>
+    <span>Seite ${page} / ${pages || 1} (${shTotal} gesamt)</span>
+    <button onclick="gotoPage(${page+1})" ${page>=pages?'disabled':''} style="background:#2a2a4a;border:none;color:#e0e0e0;border-radius:4px;padding:4px 10px;cursor:pointer">›</button>`;
+}
+
+function gotoPage(p) { shPage = p; loadShooters(); }
+
+function newShooter() { clearShooterForm(); }
+function clearShooterForm() {
+  document.getElementById('shf-id').value = '';
+  document.getElementById('sh-form').reset();
+  document.getElementById('shf-title').textContent = 'anlegen';
+  fillClubSelects();
+  hideMsg('shf-msg');
+}
+function editShooter(sh) {
+  document.getElementById('shf-title').textContent = 'bearbeiten';
+  document.getElementById('shf-id').value      = sh.id;
+  document.getElementById('shf-last').value    = sh.last_name || '';
+  document.getElementById('shf-first').value   = sh.first_name || '';
+  document.getElementById('shf-title-f').value = sh.title || '';
+  document.getElementById('shf-gender').value  = sh.gender || '';
+  document.getElementById('shf-birth').value   = (sh.birth_date||'').slice(0,10);
+  document.getElementById('shf-pass').value    = sh.pass_no || '';
+  document.getElementById('shf-entry').value   = (sh.entry_date||'').slice(0,10);
+  document.getElementById('shf-class').value   = sh.sports_class ?? '';
+  document.getElementById('shf-interests').value = sh.interests || '';
+  document.getElementById('shf-street').value  = sh.street || '';
+  document.getElementById('shf-zip').value     = sh.zip || '';
+  document.getElementById('shf-city').value    = sh.city || '';
+  document.getElementById('shf-phone').value   = sh.phone || '';
+  document.getElementById('shf-mobile').value  = sh.mobile || '';
+  document.getElementById('shf-email').value   = sh.email || '';
+  fillClubSelects();
+  document.getElementById('shf-club').value    = sh.club_id || '';
+  hideMsg('shf-msg');
+  document.getElementById('sh-form').scrollIntoView({behavior:'smooth'});
+}
+async function saveShooter(e) {
+  e.preventDefault();
+  const id = document.getElementById('shf-id').value;
+  const sc = document.getElementById('shf-class').value;
+  const body = {
+    last_name:    document.getElementById('shf-last').value.trim(),
+    first_name:   document.getElementById('shf-first').value.trim(),
+    title:        document.getElementById('shf-title-f').value.trim(),
+    gender:       document.getElementById('shf-gender').value,
+    birth_date:   document.getElementById('shf-birth').value,
+    pass_no:      document.getElementById('shf-pass').value.trim(),
+    club_id:      document.getElementById('shf-club').value,
+    entry_date:   document.getElementById('shf-entry').value,
+    sports_class: sc !== '' ? parseInt(sc) : null,
+    interests:    document.getElementById('shf-interests').value.trim(),
+    street:       document.getElementById('shf-street').value.trim(),
+    zip:          document.getElementById('shf-zip').value.trim(),
+    city:         document.getElementById('shf-city').value.trim(),
+    phone:        document.getElementById('shf-phone').value.trim(),
+    mobile:       document.getElementById('shf-mobile').value.trim(),
+    email:        document.getElementById('shf-email').value.trim(),
+  };
+  try {
+    if (id) await api(`/shooters/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    else     await api('/shooters/full',  {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    showMsg('shf-msg', id ? 'Gespeichert.' : 'Angelegt.', 'ok');
+    clearShooterForm();
+    await loadShooters();
+  } catch(err) { showMsg('shf-msg', 'Fehler: '+err.message, 'err'); }
+}
+async function deleteShooterRow(id, name) {
+  if (!confirm(`"${name}" wirklich löschen?\nNur möglich wenn keine Sitzungen zugeordnet sind.`)) return;
+  try { await api(`/shooters/${id}`, {method:'DELETE'}); await loadShooters(); }
+  catch(err) { alert('Fehler: '+err.message); }
+}
+
+// ──── Mitglieder CSV-Import ───────────────────────────────────────────────
+function toggleMemberImport() {
+  const body = document.getElementById('mimport-body');
+  const tog  = document.getElementById('mimport-toggle');
+  const open = body.classList.toggle('open');
+  tog.textContent = open ? '▲ schließen' : '▼ öffnen';
+}
+
+function parseMemberCSV() {
+  const file = document.getElementById('mimport-file').files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = new TextDecoder('iso-8859-1').decode(e.target.result);
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) { document.getElementById('mimport-info').textContent = 'Datei leer.'; return; }
+    const headers = lines[0].split(';').map(h => h.trim());
+    const get = (cols, name) => (cols[headers.indexOf(name)] || '').trim();
+    const toInt = s => { const n = parseInt(s); return isNaN(n) ? null : n; };
+
+    memberRows = [];
+    let noPass = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(';');
+      const passnr = get(cols, 'PASSNUMMER');
+      if (!passnr) { noPass++; continue; }
+      memberRows.push({
+        vereinnr:      get(cols, 'VEREINNR'),
+        passnr,
+        last_name:     get(cols, 'NAMEN'),
+        first_name:    get(cols, 'VORNAME'),
+        title:         get(cols, 'TITEL'),
+        birth_date:    get(cols, 'GEBURTSDATUM'),
+        gender:        get(cols, 'GESCHLECHT'),
+        street:        get(cols, 'STRASSE'),
+        zip:           get(cols, 'PLZ'),
+        city:          get(cols, 'ORT'),
+        erst_vereinnr: get(cols, 'ERSTVEREINNR'),
+        entry_date:    get(cols, 'EINTRITTVEREIN'),
+        member_years:  toInt(get(cols, 'MITGLIEDSJAHREVEREIN')) ?? 0,
+        sports_class:  toInt(get(cols, 'SPORTKLASSE')),
+        age_group:     toInt(get(cols, 'ALTERSGRUPPE')),
+        interests:     get(cols, 'INTERESSENLISTE'),
+        phone:         get(cols, 'Telefon'),
+        mobile:        get(cols, 'Mobil'),
+        email:         get(cols, 'Mail'),
+      });
+    }
+
+    // Statistik
+    const unique = new Set(memberRows.map(r => r.passnr)).size;
+    const gau = memberRows[0]?.vereinnr?.slice(0,3) || '';
+    const crossGau = new Set(memberRows.filter(r => r.erst_vereinnr && !r.erst_vereinnr.startsWith(gau)).map(r => r.passnr)).size;
+
+    const shown = memberRows.slice(0, 6);
+    document.getElementById('mimport-preview').innerHTML = `<table>
+      <thead><tr><th>Passnr.</th><th>Name</th><th>Vereinsnr.</th><th>Erstverein</th><th>Jahre</th></tr></thead>
+      <tbody>${shown.map(r=>`<tr>
+        <td>${esc(r.passnr)}</td>
+        <td>${esc(r.last_name)}, ${esc(r.first_name)}</td>
+        <td>${esc(r.vereinnr)}</td>
+        <td>${esc(r.erst_vereinnr)}</td>
+        <td style="text-align:right">${r.member_years}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+
+    document.getElementById('mimport-info').textContent =
+      `${memberRows.length} Zeilen, ${unique} Personen` +
+      (noPass ? `, ${noPass} ohne Passnummer übersprungen` : '') +
+      `, ${crossGau} Personen mit Erstverein außerhalb Gau ${gau}.`;
+
+    document.getElementById('btn-mimport').disabled = memberRows.length === 0;
+    hideMsg('mimport-msg');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function runMemberImport() {
+  if (!memberRows.length) return;
+  document.getElementById('btn-mimport').disabled = true;
+  try {
+    const result = await api('/shooters/import', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({rows: memberRows}),
+    });
+    showMsg('mimport-msg',
+      `Import abgeschlossen: ${result.created} neu, ${result.updated} aktualisiert, ${result.skipped} übersprungen.`,
+      'ok');
+    await loadShooters();
+  } catch(err) {
+    showMsg('mimport-msg', 'Fehler: '+err.message, 'err');
+  } finally {
+    document.getElementById('btn-mimport').disabled = false;
+  }
+}
+
+// ──── Mannschaften ───────────────────────────────────────────────────────
+let teams = [];
+let activeTeamID = null;
+
+function fillTeamSelects() {
+  // Verein-Filter
+  const cf = document.getElementById('team-club-filter');
+  const curCf = cf.value;
+  cf.innerHTML = '<option value="">Alle Vereine</option>';
+  for (const c of clubs) {
+    const o = document.createElement('option');
+    o.value = c.id; o.textContent = c.name;
+    if (c.id === curCf) o.selected = true;
+    cf.appendChild(o);
+  }
+  // Gau-Filter
+  const gf = document.getElementById('team-gau-filter');
+  const curGf = gf.value;
+  gf.innerHTML = '<option value="">Alle Gaue</option>';
+  for (const g of gaue) {
+    const o = document.createElement('option');
+    o.value = g.id; o.textContent = g.name;
+    if (g.id === curGf) o.selected = true;
+    gf.appendChild(o);
+  }
+  // Formular-Selects
+  const tfClub = document.getElementById('tf-club');
+  const curTc = tfClub.value;
+  tfClub.innerHTML = '<option value="">– kein –</option>';
+  for (const c of clubs) {
+    const o = document.createElement('option');
+    o.value = c.id; o.textContent = c.name;
+    if (c.id === curTc) o.selected = true;
+    tfClub.appendChild(o);
+  }
+  const tfGau = document.getElementById('tf-gau');
+  const curTg = tfGau.value;
+  tfGau.innerHTML = '<option value="">– kein –</option>';
+  for (const g of gaue) {
+    const o = document.createElement('option');
+    o.value = g.id; o.textContent = g.name;
+    if (g.id === curTg) o.selected = true;
+    tfGau.appendChild(o);
+  }
+}
+
+async function loadTeams() {
+  const clubID = document.getElementById('team-club-filter').value;
+  const gauID  = document.getElementById('team-gau-filter').value;
+  const params = new URLSearchParams();
+  if (clubID) params.set('club_id', clubID);
+  if (gauID)  params.set('gau_id',  gauID);
+  const list = await api('/teams?' + params.toString());
+  teams = list || [];
+  renderTeams();
+}
+
+function renderTeams() {
+  const tbody = document.getElementById('team-tbody');
+  tbody.innerHTML = '';
+  for (const t of teams) {
+    const assoc = t.club_name || t.gau_name || '–';
+    const assocLabel = t.club_name
+      ? `<span style="color:#a0a0c0;font-size:.75rem">Verein</span> ${esc(t.club_name)}`
+      : t.gau_name
+        ? `<span style="color:#a0a0c0;font-size:.75rem">Gau</span> ${esc(t.gau_name)}`
+        : '–';
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    if (t.id === activeTeamID) tr.style.background = '#1a1a2e';
+    tr.innerHTML = `
+      <td>
+        <strong>${esc(t.name)}</strong>
+        ${t.short_name ? `<small style="color:#a0a0c0"> (${esc(t.short_name)})</small>` : ''}
+        ${!t.active ? `<span class="badge-inactive">inaktiv</span>` : ''}
+      </td>
+      <td style="font-size:.8rem">${esc(t.discipline)||'–'}</td>
+      <td style="font-size:.8rem">${esc(t.season)||'–'}</td>
+      <td style="font-size:.8rem">${assocLabel}</td>
+      <td style="text-align:center"><span style="background:#2a2a4a;border-radius:10px;padding:2px 8px;font-size:.75rem">${t.member_count}</span></td>
+      <td class="row-actions">
+        <button class="btn-edit"   onclick="editTeam('${t.id}'); event.stopPropagation()">Bearb.</button>
+        <button class="btn-del"    onclick="deleteTeamRow('${t.id}','${esc(t.name)}'); event.stopPropagation()">Löschen</button>
+      </td>`;
+    tr.onclick = () => openTeamMembers(t.id, t.name);
+    tbody.appendChild(tr);
+  }
+}
+
+function newTeam() { clearTeamForm(); }
+function clearTeamForm() {
+  document.getElementById('tf-id').value = '';
+  document.getElementById('team-form').reset();
+  document.getElementById('tf-active').checked = true;
+  document.getElementById('tf-title').textContent = 'anlegen';
+  fillTeamSelects();
+  hideMsg('tf-msg');
+}
+function editTeam(id) {
+  const t = teams.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('tf-title').textContent = 'bearbeiten';
+  document.getElementById('tf-id').value     = t.id;
+  document.getElementById('tf-name').value   = t.name;
+  document.getElementById('tf-short').value  = t.short_name || '';
+  document.getElementById('tf-season').value = t.season || '';
+  document.getElementById('tf-disc').value   = t.discipline || '';
+  document.getElementById('tf-notes').value  = t.notes || '';
+  document.getElementById('tf-active').checked = t.active;
+  fillTeamSelects();
+  document.getElementById('tf-club').value = t.club_id || '';
+  document.getElementById('tf-gau').value  = t.gau_id  || '';
+  hideMsg('tf-msg');
+  document.getElementById('team-form').scrollIntoView({behavior:'smooth'});
+}
+async function saveTeam(e) {
+  e.preventDefault();
+  const id = document.getElementById('tf-id').value;
+  const body = {
+    name:       document.getElementById('tf-name').value.trim(),
+    short_name: document.getElementById('tf-short').value.trim(),
+    season:     document.getElementById('tf-season').value.trim(),
+    discipline: document.getElementById('tf-disc').value.trim(),
+    club_id:    document.getElementById('tf-club').value,
+    gau_id:     document.getElementById('tf-gau').value,
+    notes:      document.getElementById('tf-notes').value.trim(),
+    active:     document.getElementById('tf-active').checked,
+  };
+  try {
+    if (id) await api(`/teams/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    else     await api('/teams',       {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    showMsg('tf-msg', id ? 'Gespeichert.' : 'Angelegt.', 'ok');
+    clearTeamForm();
+    await loadTeams();
+    if (activeTeamID) openTeamMembers(activeTeamID, '');
+  } catch(err) { showMsg('tf-msg', 'Fehler: '+err.message, 'err'); }
+}
+async function deleteTeamRow(id, name) {
+  if (!confirm(`Mannschaft "${name}" wirklich löschen?`)) return;
+  try {
+    await api(`/teams/${id}`, {method:'DELETE'});
+    if (activeTeamID === id) closeTeamMembers();
+    await loadTeams();
+  } catch(err) { alert('Fehler: '+err.message); }
+}
+
+// ──── Mannschafts-Mitglieder ─────────────────────────────────────────────
+async function openTeamMembers(teamID, teamName) {
+  activeTeamID = teamID;
+  const t = teams.find(x => x.id === teamID);
+  document.getElementById('tm-team-name').textContent = teamName || (t && t.name) || '';
+  document.getElementById('team-members-card').style.display = 'block';
+  hideAddMember();
+  await loadTeamMembers();
+  renderTeams(); // Zeile hervorheben
+  document.getElementById('team-members-card').scrollIntoView({behavior:'smooth'});
+}
+function closeTeamMembers() {
+  activeTeamID = null;
+  document.getElementById('team-members-card').style.display = 'none';
+}
+
+async function loadTeamMembers() {
+  if (!activeTeamID) return;
+  const list = await api(`/teams/${activeTeamID}/members`);
+  renderTeamMembers(list || []);
+}
+function renderTeamMembers(list) {
+  const tbody = document.getElementById('tm-tbody');
+  tbody.innerHTML = '';
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#a0a0c0;text-align:center;font-size:.83rem">Noch keine Mitglieder</td></tr>';
+    return;
+  }
+  for (const m of list) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="text-align:center;font-size:.8rem;color:#a0a0c0">${m.position ?? '–'}</td>
+      <td><strong>${esc(m.last_name)}</strong>, ${esc(m.first_name)}</td>
+      <td style="font-size:.8rem">${esc(m.club_name)}</td>
+      <td style="font-size:.8rem;color:#a0a0c0">${esc(m.pass_no)}</td>
+      <td class="row-actions">
+        <button class="btn-del" onclick="removeMember('${m.shooter_id}','${esc(m.last_name+', '+m.first_name)}')">Entfernen</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function showAddMember() { document.getElementById('tm-add-row').style.display = 'block'; document.getElementById('tm-search').focus(); }
+function hideAddMember() { document.getElementById('tm-add-row').style.display = 'none'; document.getElementById('tm-search').value = ''; document.getElementById('tm-search-results').innerHTML = ''; }
+
+let tmSearchTimer = null;
+function searchForMember() {
+  clearTimeout(tmSearchTimer);
+  tmSearchTimer = setTimeout(async () => {
+    const q = document.getElementById('tm-search').value.trim();
+    if (q.length < 2) { document.getElementById('tm-search-results').innerHTML = ''; return; }
+    const data = await api(`/shooters/list?q=${encodeURIComponent(q)}&page=1`);
+    const list = data.shooters || [];
+    const el = document.getElementById('tm-search-results');
+    if (!list.length) { el.innerHTML = '<div style="font-size:.8rem;color:#a0a0c0">Keine Treffer</div>'; return; }
+    el.innerHTML = list.map(s => `
+      <div onclick="addMember('${s.id}','${esc(s.last_name+', '+s.first_name)}')"
+           style="padding:6px 10px;background:#1a1a2e;border-radius:5px;margin-bottom:4px;cursor:pointer;font-size:.83rem;display:flex;justify-content:space-between;align-items:center"
+           onmouseover="this.style.background='#2a2a4a'" onmouseout="this.style.background='#1a1a2e'">
+        <span><strong>${esc(s.last_name)}</strong>, ${esc(s.first_name)}</span>
+        <span style="color:#a0a0c0">${esc(s.club_name)} ${s.pass_no ? '· '+esc(s.pass_no) : ''}</span>
+      </div>`).join('');
+  }, 250);
+}
+
+async function addMember(shooterID, name) {
+  try {
+    await api(`/teams/${activeTeamID}/members`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({shooter_id: shooterID}),
+    });
+    hideAddMember();
+    await loadTeamMembers();
+    await loadTeams(); // Mitgliederzahl aktualisieren
+  } catch(err) {
+    showMsg('tm-msg', 'Fehler: '+err.message, 'err');
+  }
+}
+async function removeMember(shooterID, name) {
+  if (!confirm(`"${name}" aus der Mannschaft entfernen?`)) return;
+  try {
+    await api(`/teams/${activeTeamID}/members/${shooterID}`, {method:'DELETE'});
+    await loadTeamMembers();
+    await loadTeams();
+  } catch(err) { showMsg('tm-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+// ──── Init ────────────────────────────────────────────────────────────────
+(async () => {
+  await loadGaue();
+  await loadClubs();
+  fillClubSelects();
+  fillTeamSelects();
+  await loadShooters();
+  await loadTeams();
+})();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

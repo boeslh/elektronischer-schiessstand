@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Einstellungen – Schießstand</title>
+<style>
+  :root {
+    --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+    --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+  header{border-bottom:1px solid var(--line);padding:14px 24px;display:flex;align-items:center;gap:12px}
+  header a{color:var(--dim);text-decoration:none;font-size:13px}
+  header a:hover{color:var(--text)}
+  header h1{font-size:20px;font-weight:700}
+  main{flex:1;padding:32px 24px;max-width:640px;width:100%}
+
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px;margin-bottom:20px}
+  .section h2{font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:18px}
+
+  .field{margin-bottom:16px}
+  .field label{display:block;font-size:13px;color:var(--dim);margin-bottom:6px}
+  .field .desc{font-size:11px;color:#6a7a8a;margin-top:4px}
+  input[type=number],input[type=url]{
+    background:#0e1218;border:1px solid var(--line);border-radius:6px;
+    color:var(--text);font-size:14px;padding:8px 12px;
+    transition:border-color .15s;
+  }
+  input[type=number]{width:120px}
+  input[type=url]{width:100%;font-family:monospace;font-size:13px}
+  input[type=number]:focus,input[type=url]:focus{outline:none;border-color:var(--acc)}
+
+  .range-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .range-row span{color:var(--dim);font-size:13px}
+
+  .actions{display:flex;gap:10px;margin-top:4px;align-items:center}
+  .btn-save{background:var(--acc);border:none;border-radius:6px;color:#0d1a16;
+            font-size:13px;font-weight:600;padding:9px 20px;cursor:pointer;transition:opacity .15s}
+  .btn-save:hover{opacity:.85}
+  .btn-reset{background:none;border:1px solid var(--line);border-radius:6px;
+             color:var(--dim);font-size:13px;padding:9px 16px;cursor:pointer;transition:border-color .15s}
+  .btn-reset:hover{border-color:var(--text);color:var(--text)}
+
+  .msg{font-size:13px;padding:8px 12px;border-radius:6px;display:none}
+  .msg.ok{background:#1a3a2a;color:#4ab8a0}
+  .msg.err{background:#3a1a1a;color:#e05c5c}
+
+  footer{padding:12px 24px;font-size:11px;color:var(--dim);border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/">← Startseite</a>
+  <h1 style="margin-left:8px">Einstellungen</h1>
+</header>
+
+<main>
+
+  <div class="section">
+    <h2>Anzeige</h2>
+
+    <div class="field">
+      <label for="s-pagesize">Einträge pro Seite</label>
+      <input type="number" id="s-pagesize" min="10" max="500" step="10" value="50">
+      <div class="desc">Gilt für alle paginierten Listen (z.B. Mitglieder). Standardwert: 50.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Schießstände</h2>
+
+    <div class="field">
+      <label>Anzeigebereich der Stände</label>
+      <div class="range-row">
+        <input type="number" id="s-lane-from" min="1" max="99" value="1">
+        <span>bis</span>
+        <input type="number" id="s-lane-to"   min="1" max="99" value="10">
+      </div>
+      <div class="desc">
+        Nur Stände in diesem Bereich werden in der Standsteuerung angezeigt.
+        Beim ersten Laden werden die Stände bis zum Maximalwert automatisch angelegt.
+        Standardwert: 1 – 10.
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>StandPC-Verbindungen</h2>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:4px">
+      HTTP-Basis-URL jedes StandPC (z.B. <code style="font-family:monospace;color:var(--text)">http://192.168.1.10:8080</code>).
+      Wird für Standaktionen verwendet: Schüsse aus lokalem Log abrufen, Disziplinen übertragen.
+    </p>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px">
+      Wenn der StandPC mit <code style="font-family:monospace;color:var(--text)">server_url</code> konfiguriert ist,
+      meldet er sich <strong style="color:var(--text)">automatisch</strong> beim Server an –
+      die URL wird dann beim nächsten Heartbeat eingetragen.
+    </p>
+    <div id="lane-url-list">
+      <div style="color:var(--dim);font-size:13px">Lade Stände…</div>
+    </div>
+    <div class="actions" style="margin-top:16px">
+      <button class="btn-save" onclick="saveAllURLs()">Alle speichern</button>
+      <div id="msg-urls" class="msg"></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-save" onclick="save()">Speichern</button>
+    <button class="btn-reset" onclick="resetDefaults()">Zurücksetzen</button>
+    <div id="msg" class="msg"></div>
+  </div>
+
+</main>
+
+<footer>Schießstand-Management &middot; Einstellungen</footer>
+
+<script src="/settings.js"></script>
+<script>
+function load() {
+  const s = getSettings();
+  document.getElementById('s-pagesize').value  = s.pageSize;
+  document.getElementById('s-lane-from').value = s.laneFrom;
+  document.getElementById('s-lane-to').value   = s.laneTo;
+}
+
+function save() {
+  const pageSize  = parseInt(document.getElementById('s-pagesize').value);
+  const laneFrom  = parseInt(document.getElementById('s-lane-from').value);
+  const laneTo    = parseInt(document.getElementById('s-lane-to').value);
+
+  if (isNaN(pageSize) || pageSize < 10 || pageSize > 500) {
+    showMsg('Einträge pro Seite muss zwischen 10 und 500 liegen.', 'err'); return;
+  }
+  if (isNaN(laneFrom) || isNaN(laneTo) || laneFrom < 1 || laneTo > 99 || laneFrom > laneTo) {
+    showMsg('Standbereich ungültig (1–99, Von ≤ Bis).', 'err'); return;
+  }
+  saveSettings({ pageSize, laneFrom, laneTo });
+  showMsg('Einstellungen gespeichert.', 'ok');
+}
+
+function resetDefaults() {
+  localStorage.removeItem('schiessstand_settings');
+  load();
+  showMsg('Standardwerte wiederhergestellt.', 'ok');
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3000);
+}
+
+load();
+loadLaneURLs();
+
+async function loadLaneURLs() {
+  const wrap = document.getElementById('lane-url-list');
+  try {
+    const lanes = await fetch('/api/lanes').then(r => r.json());
+    if (!lanes || !lanes.length) {
+      wrap.innerHTML = '<div style="color:var(--dim);font-size:13px">Keine Stände konfiguriert.</div>';
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    wrap.innerHTML = lanes.map(l => {
+      const seenAgo  = l.live_last_seen ? (now - l.live_last_seen) : null;
+      const online   = seenAgo !== null && seenAgo < 10;
+      const dot      = `<span title="${online ? 'Verbunden' : (seenAgo ? 'Zuletzt vor ' + seenAgo + 's' : 'Nie gesehen')}"
+                              style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                                     background:${online ? 'var(--acc)' : (seenAgo ? '#e05c5c' : '#3a4a5a')};
+                                     flex-shrink:0"></span>`;
+      const autoTag  = (l.standpc_url && online)
+        ? `<span style="font-size:10px;background:#1a2a1a;color:var(--acc);padding:1px 6px;
+                        border-radius:3px;white-space:nowrap">auto</span>` : '';
+      return `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          ${dot}
+          <div style="min-width:100px;font-size:13px;color:var(--dim);white-space:nowrap">
+            Stand ${l.lane_no}${l.name ? ' – ' + esc(l.name) : ''}
+          </div>
+          ${autoTag}
+          <input type="url" id="url-lane-${l.lane_no}"
+                 value="${esc(l.standpc_url||'')}"
+                 placeholder="http://192.168.x.x:8080"
+                 style="flex:1">
+          <button class="btn-save" style="white-space:nowrap;padding:6px 14px"
+                  onclick="saveSingleURL(${l.lane_no})">Speichern</button>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    wrap.innerHTML = '<div style="color:var(--err);font-size:13px">Fehler beim Laden der Stände.</div>';
+  }
+}
+
+// Stände alle 5 Sekunden neu laden um Verbindungsstatus aktuell zu halten
+setInterval(loadLaneURLs, 5000);
+
+async function saveSingleURL(laneNo) {
+  const url = document.getElementById(`url-lane-${laneNo}`).value.trim();
+  try {
+    const r = await fetch(`/api/lanes/${laneNo}/standpc-url`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({url}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showMsgEl('msg-urls', `Stand ${laneNo} gespeichert.`, 'ok');
+  } catch(e) {
+    showMsgEl('msg-urls', `Fehler Stand ${laneNo}: ${e.message}`, 'err');
+  }
+}
+
+async function saveAllURLs() {
+  const inputs = document.querySelectorAll('[id^="url-lane-"]');
+  let errors = 0;
+  for (const inp of inputs) {
+    const laneNo = +inp.id.replace('url-lane-','');
+    try {
+      const r = await fetch(`/api/lanes/${laneNo}/standpc-url`, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({url: inp.value.trim()}),
+      });
+      if (!r.ok) errors++;
+    } catch { errors++; }
+  }
+  if (errors === 0) {
+    showMsgEl('msg-urls', `${inputs.length} Stand${inputs.length !== 1 ? 'PC-URLs' : 'PC-URL'} gespeichert.`, 'ok');
+  } else {
+    showMsgEl('msg-urls', `${errors} Fehler beim Speichern.`, 'err');
+  }
+}
+
+function showMsgEl(id, text, type) {
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3500);
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

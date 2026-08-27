@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Standsteuerung</title>
+<style>
+  :root {
+    --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+    --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+    --free:#2b3542; --sighting:#b89a3a; --match:#3a8a5c; --paused:#8a6a3a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);
+       font-family:system-ui,sans-serif;padding:16px}
+  header{border-bottom:1px solid var(--line);padding:12px 0;display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  header a.back{color:var(--dim);text-decoration:none;font-size:1.2rem}
+  header a.back:hover{color:var(--text)}
+  h1{font-size:18px;margin:0}
+  .sub{font-size:12px;color:var(--dim);margin-bottom:16px}
+  #status{margin-left:auto;font-size:12px;color:var(--dim)}
+  #status.live{color:var(--acc)}
+
+  /* Stand-Raster */
+  #lanes{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+         gap:12px;margin-bottom:20px}
+  .lane{background:var(--panel);border:1px solid var(--line);
+        border-radius:8px;padding:12px;cursor:pointer;transition:border .15s;
+        position:relative}
+  .lane:hover{border-color:var(--acc)}
+  .lane .no{font-size:13px;color:var(--dim)}
+  /* Verbindungs-Statusdot rechts oben */
+  .conn-dot{position:absolute;top:10px;right:10px;width:9px;height:9px;
+            border-radius:50%;transition:background .4s}
+  .conn-dot.gray  {background:#555}
+  .conn-dot.green {background:#3dcc6e;box-shadow:0 0 5px #3dcc6e88}
+  .conn-dot.red   {background:#e04040;box-shadow:0 0 5px #e0404088}
+  .lane .who{font-size:15px;font-weight:600;margin:4px 0;min-height:20px}
+  .lane .disc{font-size:12px;color:var(--dim);min-height:16px}
+  .lane .event{font-size:11px;color:var(--acc);min-height:14px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lane .score{font-size:22px;font-weight:700;margin-top:6px}
+  .lane .state{display:inline-block;font-size:10px;text-transform:uppercase;
+    letter-spacing:1px;padding:2px 8px;border-radius:3px;margin-top:8px}
+  .state.frei{background:var(--free);color:var(--dim)}
+  .state.assigned{background:#3a4a8a;color:#cdd8ff}
+  .state.sighting{background:var(--sighting);color:#fff6d8}
+  .state.match{background:var(--match);color:#d8ffe8}
+
+
+  /* Detail-Panel */
+  #detail{background:var(--panel);border:1px solid var(--line);
+          border-radius:8px;padding:16px;display:none}
+  #detail h2{font-size:15px;margin-bottom:12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  select,input{background:var(--bg);color:var(--text);
+    border:1px solid var(--line);border-radius:4px;padding:7px 10px;font-size:13px}
+  button{background:var(--acc);color:#0c1410;border:none;border-radius:4px;
+    padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
+  button.sec{background:var(--line);color:var(--text)}
+  button.warn{background:var(--warn);color:#241a08}
+  button.err{background:var(--err);color:#fff}
+  button:disabled{opacity:.4;cursor:default}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+  th,td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--line)}
+  th{color:var(--dim);font-size:11px;text-transform:uppercase}
+  td:first-child,th:first-child{text-align:left}
+  tr.annulled td{color:var(--dim);text-decoration:line-through}
+  #ticker{margin-top:20px;font-size:12px;color:var(--dim)}
+  #ticker div{padding:3px 0;border-bottom:1px solid var(--line)}
+  #ticker .hl{color:var(--acc)}
+
+  /* ── Wettkampf-Schnellbelegung ── */
+  #wk-panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+            margin-bottom:20px}
+  #wk-toggle{display:flex;align-items:center;justify-content:space-between;
+             padding:11px 16px;cursor:pointer;user-select:none}
+  #wk-toggle:hover{background:#202830;border-radius:8px}
+  #wk-toggle h2{font-size:14px;font-weight:700;margin:0;color:var(--text)}
+  #wk-toggle .chevron{font-size:11px;color:var(--dim);transition:transform .2s}
+  #wk-toggle .chevron.open{transform:rotate(180deg)}
+  #wk-body{padding:14px 16px;border-top:1px solid var(--line);display:none}
+  #wk-body.open{display:block}
+
+  .wk-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  .wk-toolbar select{flex:1;min-width:200px}
+
+  .wk-section-hdr{font-size:11px;font-weight:600;letter-spacing:1.2px;
+                  text-transform:uppercase;color:var(--dim);
+                  padding:8px 0 4px;border-bottom:1px solid var(--line);margin-bottom:6px}
+
+  .wk-row{display:grid;
+          grid-template-columns: 36px 1fr 120px 80px 160px auto;
+          gap:6px;align-items:center;padding:5px 0;
+          border-bottom:1px solid #1e2530}
+  .wk-row:last-child{border-bottom:none}
+  .wk-row.assigned-row{opacity:.6}
+  .wk-name{font-size:.85rem;line-height:1.3}
+  .wk-name small{display:block;font-size:.72rem;color:var(--dim)}
+  .wk-role{font-size:.7rem;font-weight:700;padding:1px 5px;border-radius:3px;
+           border:1px solid;text-align:center}
+  .wk-role.S{border-color:#4ab8a0;color:#4ab8a0;background:#1a3a2a}
+  .wk-role.E{border-color:#e8a030;color:#e8a030;background:#2e2510}
+  .wk-role.AK{border-color:#555;color:#666;background:#1e1e1e}
+  .wk-lane-sel{width:100%;background:var(--bg);color:var(--text);
+               border:1px solid var(--line);border-radius:4px;padding:4px 6px;font-size:.8rem}
+  .wk-assign-btn{font-size:.78rem;padding:4px 10px;background:var(--acc);
+                 color:#0c1410;border:none;border-radius:4px;cursor:pointer;font-weight:700;
+                 white-space:nowrap}
+  .wk-assign-btn:disabled{opacity:.35;cursor:default}
+  .wk-done{font-size:.78rem;color:var(--acc);font-weight:600;white-space:nowrap}
+  .wk-done.running{color:var(--warn)}
+  .wk-msg{font-size:.8rem;padding:6px 10px;border-radius:5px;margin-top:8px;display:none}
+  .wk-msg.ok{background:#1a3a2a;color:#4ab8a0}
+  .wk-msg.err{background:#3a1a1a;color:#e05c5c}
+  @media(max-width:700px){
+    .wk-row{grid-template-columns:28px 1fr 70px 110px auto}
+    .wk-row .wk-club{display:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/" title="Zur Startseite">&#8592;</a>
+  <h1>Standsteuerung</h1>
+  <div id="status">verbinde…</div>
+</header>
+<div class="sub">Aufsicht – Stände belegen, Sitzungen steuern, Schüsse prüfen</div>
+
+<div id="lanes"></div>
+
+<!-- ── Wettkampf-Schnellbelegung ─────────────────────────────────────── -->
+<div id="wk-panel">
+  <div id="wk-toggle" onclick="toggleWK()">
+    <h2>⚔ Wettkampf-Schnellbelegung</h2>
+    <span class="chevron" id="wk-chevron">▼</span>
+  </div>
+  <div id="wk-body">
+    <div class="wk-toolbar">
+      <select id="wk-comp-sel" onchange="loadWKStarters()">
+        <option value="">– Wettkampf wählen –</option>
+      </select>
+      <button class="sec" style="font-size:.8rem;padding:5px 12px" onclick="refreshWKView()">↺ Aktualisieren</button>
+    </div>
+    <div id="wk-content"></div>
+    <div class="wk-msg" id="wk-msg"></div>
+  </div>
+</div>
+
+<div id="detail">
+  <h2 id="dTitle"></h2>
+
+  <!-- Belegen (wenn frei) -->
+  <div id="assignBox">
+    <div class="row">
+      <input id="shooterSearch" placeholder="Schütze suchen…" size="18">
+      <select id="shooterSel"><option value="">– anonym (Training) –</option></select>
+      <select id="discSel"></select>
+      <button onclick="assign()">Stand belegen</button>
+    </div>
+    <div class="row">
+      <input id="newLast" placeholder="Nachname" size="12">
+      <input id="newFirst" placeholder="Vorname" size="12">
+      <input id="newPass" placeholder="Passnr." size="10">
+      <button class="sec" onclick="createShooter()">Neu anlegen</button>
+    </div>
+  </div>
+
+  <!-- Steuern (wenn belegt) -->
+  <div id="controlBox" style="display:none">
+    <div class="row">
+      <button onclick="setStatus('sighting')">Probe</button>
+      <button onclick="setStatus('match')">Wertung</button>
+      <button class="warn" onclick="setStatus('finished')">Beenden</button>
+      <button class="err" onclick="setStatus('aborted')">Abbrechen</button>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Art</th><th>Ring</th><th>Zehntel</th><th>x/y mm</th>
+        <th>Status</th><th></th></tr></thead>
+      <tbody id="shotRows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="ticker"></div>
+
+<script src="/settings.js"></script>
+<script>
+let lanes = [], current = null, disciplines = [];
+
+const api = (path, opts) => fetch('/api'+path, opts).then(async r => {
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+});
+
+const STATUS_DE = {
+  assigned:  'Belegt',
+  sighting:  'Probe',
+  match:     'Wertung',
+  paused:    'Pause',
+  finished:  'Beendet',
+  aborted:   'Abgebrochen',
+};
+const STATUS_CSS = {
+  assigned: 'assigned',
+  sighting: 'sighting',
+  match:    'match',
+  finished: 'frei',
+  aborted:  'frei',
+};
+
+function laneStatus(l) {
+  if (!l.session_id) return {cls: 'frei', label: 'Frei'};
+  if (l.live_mode === 'probe')   return {cls: 'sighting', label: 'Probe'};
+  if (l.live_mode === 'wertung') return {cls: 'match',    label: 'Wertung'};
+  const s = l.session_state || 'assigned';
+  return {cls: STATUS_CSS[s] || 'assigned', label: STATUS_DE[s] || s};
+}
+
+// Verbindungsstatus des StandPC:
+//   gray  = nie gemeldet
+//   green = letzte Meldung < 10 s
+//   red   = war grün, jetzt > 10 s still
+const EVENT_TYPE_DE = { einzel: 'Einzelwettkampf', runde: 'Rundenwettkampf', gruppe: 'Gruppenwettkampf' };
+
+function eventLabel(l) {
+  if (!l.event_name) return '';
+  const type = EVENT_TYPE_DE[l.event_type] || '';
+  return type ? `${l.event_name} · ${type}` : l.event_name;
+}
+
+function connDotClass(l) {
+  const seen = l.live_last_seen; // Unix-Sekunden, 0 = nie
+  if (!seen) return 'gray';
+  const age = Math.floor(Date.now() / 1000) - seen;
+  return age <= 10 ? 'green' : 'red';
+}
+
+// Dots ohne API-Aufruf sekündlich aktualisieren
+function updateConnDots() {
+  for (const l of lanes) {
+    const dot = document.querySelector(`[data-lane-status="${l.lane_no}"]`);
+    if (dot) dot.className = 'conn-dot ' + connDotClass(l);
+  }
+}
+
+function laneScore(l) {
+  if (!l.session_id) return '';
+  const rings = l.live_total_rings   ?? l.total_rings;
+  const shots = l.live_wertung_count || l.shot_count;
+  const dec   = l.live_total_decimal ?? 0;
+  const mode  = l.live_mode;
+  if (shots === 0 && mode === 'probe') return '<span style="font-size:12px;color:var(--dim)">Probe</span>';
+  const rStr  = (l.live_total_decimal > 0)
+    ? dec.toFixed(1)
+    : String(rings);
+  return `${rStr} <span style="font-size:12px;color:var(--dim)">(${shots} Schuss)</span>`;
+}
+
+async function refreshLanes() {
+  const { laneFrom, laneTo } = getSettings();
+
+  lanes = await api('/lanes') || [];
+  // Stände bis zum konfigurierten Maximum initialisieren falls nötig
+  const maxExisting = lanes.reduce((m, l) => Math.max(m, l.lane_no), 0);
+  if (maxExisting < laneTo) {
+    await api('/lanes/init', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({count: laneTo})});
+    lanes = await api('/lanes') || [];
+  }
+
+  // Auf konfigurierten Bereich filtern
+  const visible = lanes.filter(l => l.lane_no >= laneFrom && l.lane_no <= laneTo);
+
+  const el = document.getElementById('lanes');
+  el.innerHTML = '';
+  for (const l of visible) {
+    const {cls, label} = laneStatus(l);
+    const d = document.createElement('div');
+    d.className = 'lane';
+    d.innerHTML = `<div class="conn-dot ${connDotClass(l)}" data-lane-status="${l.lane_no}"></div>
+      <div class="no">Stand ${l.lane_no}</div>
+      <div class="who">${l.shooter_name || (l.session_id ? 'anonym' : '—')}</div>
+      <div class="disc">${l.discipline || ''}</div>
+      <div class="event">${eventLabel(l)}</div>
+      <div class="score">${laneScore(l)}</div>
+      <div class="state ${cls}">${label}</div>`;
+    d.onclick = () => openLane(l);
+    el.appendChild(d);
+  }
+  if (current) {
+    const upd = lanes.find(x => x.lane_no === current.lane_no);
+    if (upd) { current = upd; renderDetail(); }
+  }
+}
+
+async function openLane(l) {
+  current = l;
+  document.getElementById('detail').style.display = 'block';
+  renderDetail();
+  if (l.session_id) loadShots();
+}
+
+function renderDetail() {
+  const l = current;
+  document.getElementById('dTitle').textContent =
+    `Stand ${l.lane_no}` + (l.shooter_name ? ' – ' + l.shooter_name : '');
+  document.getElementById('assignBox').style.display = l.session_id ? 'none' : '';
+  document.getElementById('controlBox').style.display = l.session_id ? '' : 'none';
+}
+
+async function loadShots() {
+  if (!current?.session_id) return;
+  const shots = await api(`/sessions/${current.session_id}/shots`) || [];
+  const tb = document.getElementById('shotRows');
+  tb.innerHTML = '';
+  for (const s of shots) {
+    const tr = document.createElement('tr');
+    if (s.status === 'annulled') tr.className = 'annulled';
+    const kindLabel = STATUS_DE[s.kind] || s.kind;
+    tr.innerHTML = `<td>${s.shot_no}</td>
+      <td>${s.kind === 'sighting' ? `<span class="state sighting" style="font-size:10px">${kindLabel}</span>` : kindLabel}</td>
+      <td>${s.ring}</td>
+      <td>${s.decimal.toFixed(1)}${s.inner_ten ? ' ★' : ''}</td>
+      <td>${s.x_mm.toFixed(1)} / ${s.y_mm.toFixed(1)}</td>
+      <td>${s.status}</td>
+      <td>${s.status==='valid' && window.SCHIESSSTAND_ROLE?.can_correct_results
+        ? `<button class="err" style="padding:2px 8px;font-size:11px"
+        onclick="annul(${s.shot_no})">annullieren</button>` : ''}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+async function annul(no) {
+  const reason = prompt('Grund der Annullierung:');
+  if (reason === null) return;
+  await api(`/sessions/${current.session_id}/shots/${no}/annul`,
+    {method:'POST', headers:{'Content-Type':'application/json'},
+     body: JSON.stringify({reason})});
+  loadShots(); refreshLanes();
+}
+
+async function setStatus(status) {
+  await api(`/sessions/${current.session_id}/status`,
+    {method:'POST', headers:{'Content-Type':'application/json'},
+     body: JSON.stringify({status})});
+  if (status === 'finished' || status === 'aborted') {
+    document.getElementById('detail').style.display = 'none';
+    current = null;
+  }
+  refreshLanes();
+}
+
+async function assign() {
+  try {
+    await api(`/lanes/${current.lane_no}/assign`,
+      {method:'POST', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({
+         shooter_id: document.getElementById('shooterSel').value,
+         discipline_id: document.getElementById('discSel').value})});
+    await refreshLanes();
+    current = lanes.find(x => x.lane_no === current.lane_no);
+    renderDetail(); loadShots();
+  } catch (e) { alert(e.message); }
+}
+
+async function createShooter() {
+  const last  = document.getElementById('newLast').value.trim();
+  const first = document.getElementById('newFirst').value.trim();
+  if (!last) return alert('Nachname fehlt');
+  const r = await api('/shooters', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({last_name:last, first_name:first,
+      pass_no: document.getElementById('newPass').value.trim()})});
+  await loadShooters('');
+  document.getElementById('shooterSel').value = r.id;
+}
+
+async function loadShooters(q) {
+  const list = await api('/shooters?q=' + encodeURIComponent(q)) || [];
+  const sel = document.getElementById('shooterSel');
+  sel.innerHTML = '<option value="">– anonym (Training) –</option>';
+  for (const s of list) {
+    const o = document.createElement('option');
+    o.value = s.id;
+    o.textContent = `${s.last_name}, ${s.first_name}` +
+      (s.pass_no ? ` (${s.pass_no})` : '');
+    sel.appendChild(o);
+  }
+}
+
+document.getElementById('shooterSearch').addEventListener('input',
+  e => loadShooters(e.target.value));
+
+function ticker(msg, hl) {
+  const t = document.getElementById('ticker');
+  const d = document.createElement('div');
+  if (hl) d.className = 'hl';
+  d.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  t.insertBefore(d, t.firstChild);
+  while (t.children.length > 12) t.removeChild(t.lastChild);
+}
+
+// Live: jeder Schuss aller Staende via SSE
+const es = new EventSource('/events');
+const st = document.getElementById('status');
+es.onopen = () => { st.textContent = '● live'; st.className = 'live'; };
+es.onerror = () => { st.textContent = 'reconnect…'; st.className=''; };
+es.onmessage = ev => {
+  const s = JSON.parse(ev.data);
+  ticker(`Schuss #${s.shot_no}: Ring ${s.ring} (${s.decimal})`, true);
+  refreshLanes();
+  if (current?.session_id === s.session_id) loadShots();
+};
+
+// ── Wettkampf-Schnellbelegung ────────────────────────────────────────────────
+
+let wkOpen = false;
+let wkStarters = [];   // Starter des gewählten Wettkampfs
+let wkPendingLane = {}; // shooterID → vorgewählter Stand (laneNo)
+
+function toggleWK() {
+  wkOpen = !wkOpen;
+  document.getElementById('wk-body').classList.toggle('open', wkOpen);
+  document.getElementById('wk-chevron').classList.toggle('open', wkOpen);
+  if (wkOpen && !document.getElementById('wk-comp-sel').options.length > 1) loadWKCompetitions();
+}
+
+async function loadWKCompetitions() {
+  const comps = await api('/competitions?active=true') || [];
+  const sel = document.getElementById('wk-comp-sel');
+  sel.innerHTML = '<option value="">– Wettkampf wählen –</option>';
+  for (const c of comps) {
+    const o = document.createElement('option');
+    o.value = c.id;
+    o.textContent = `${c.name}${c.starts_on ? '  ('+c.starts_on+')' : ''}  [${
+      c.type === 'runde' ? 'Runde' : c.type === 'gruppe' ? 'Gruppe' : 'Einzel'}]`;
+    sel.appendChild(o);
+  }
+}
+
+async function loadWKStarters() {
+  const cid = document.getElementById('wk-comp-sel').value;
+  wkStarters = [];
+  wkPendingLane = {};
+  if (!cid) { document.getElementById('wk-content').innerHTML = ''; return; }
+  wkStarters = await api(`/competitions/${cid}/starters`) || [];
+  renderWKView();
+}
+
+async function refreshWKView() {
+  await refreshLanes();
+  renderWKView();
+}
+
+function renderWKView() {
+  const content = document.getElementById('wk-content');
+  if (!wkStarters.length) {
+    content.innerHTML = '<p style="color:var(--dim);font-size:.82rem">Keine Starter für diesen Wettkampf.</p>';
+    return;
+  }
+
+  const { laneFrom, laneTo } = getSettings();
+
+  // Starte durch aktuelle Lane-Daten anreichern
+  const assignedMap = {};  // shooterID → Lane
+  for (const l of lanes) {
+    if (l.shooter_id) assignedMap[l.shooter_id] = l;
+  }
+  const freeLanes = lanes.filter(l =>
+    !l.session_id && l.lane_no >= laneFrom && l.lane_no <= laneTo);
+
+  const pending  = wkStarters.filter(s => !assignedMap[s.shooter_id]);
+  const assigned = wkStarters.filter(s =>  assignedMap[s.shooter_id]);
+
+  let html = '';
+
+  // ── Noch nicht zugewiesen ──
+  html += `<div class="wk-section-hdr">Noch nicht zugewiesen (${pending.length})</div>`;
+  if (!pending.length) {
+    html += '<p style="color:var(--acc);font-size:.82rem;padding:4px 0">Alle Starter sind bereits auf einem Stand.</p>';
+  } else {
+    // Kopfzeile
+    html += `<div class="wk-row" style="border-bottom:2px solid var(--line);padding-bottom:4px">
+      <span style="font-size:.7rem;color:var(--dim)">Nr.</span>
+      <span style="font-size:.7rem;color:var(--dim)">Name</span>
+      <span style="font-size:.7rem;color:var(--dim)">Verein</span>
+      <span style="font-size:.7rem;color:var(--dim)">Rolle</span>
+      <span style="font-size:.7rem;color:var(--dim)">Stand wählen</span>
+      <span></span>
+    </div>`;
+    for (const s of pending) {
+      const savedLane = wkPendingLane[s.shooter_id] || '';
+      const laneOpts = freeLanes.map(l =>
+        `<option value="${l.lane_no}" ${String(l.lane_no)===String(savedLane)?'selected':''}>Stand ${l.lane_no}</option>`
+      ).join('');
+      html += `<div class="wk-row" id="wk-row-${s.id}">
+        <span style="font-size:.78rem;color:var(--dim);text-align:center">${s.start_no||'–'}</span>
+        <div class="wk-name"><strong>${esc(s.last_name)}</strong>, ${esc(s.first_name)}
+          ${s.team_name ? `<small>${esc(s.team_name)}</small>` : ''}</div>
+        <span class="wk-club" style="font-size:.75rem;color:var(--dim)">${esc(s.club_name)}</span>
+        <span class="wk-role ${s.role}">${s.role}</span>
+        <select class="wk-lane-sel" id="wk-lane-${s.id}"
+          onchange="wkPendingLane['${s.shooter_id}']=this.value">
+          <option value="">– Stand –</option>
+          ${laneOpts}
+        </select>
+        <button class="wk-assign-btn" onclick="wkAssign('${s.id}','${s.shooter_id}','${s.discipline_id}')"
+          ${!freeLanes.length ? 'disabled title="Kein freier Stand"' : ''}>
+          Zuweisen
+        </button>
+      </div>`;
+    }
+    if (!freeLanes.length) {
+      html += `<p style="color:var(--warn);font-size:.8rem;margin-top:8px">
+        ⚠ Keine freien Stände im konfigurierten Bereich (${laneFrom}–${laneTo}).
+      </p>`;
+    }
+  }
+
+  // ── Bereits auf Stand ──
+  if (assigned.length) {
+    html += `<div class="wk-section-hdr" style="margin-top:14px">Bereits auf Stand (${assigned.length})</div>`;
+    for (const s of assigned) {
+      const l = assignedMap[s.shooter_id];
+      const stateDE = {assigned:'Belegt',sighting:'Probe',match:'Wertung',paused:'Pause'}[l.session_state]||l.session_state;
+      const stateColor = l.session_state === 'match' ? 'var(--acc)' : l.session_state === 'sighting' ? 'var(--warn)' : 'var(--dim)';
+      html += `<div class="wk-row assigned-row">
+        <span style="font-size:.78rem;color:var(--dim);text-align:center">${s.start_no||'–'}</span>
+        <div class="wk-name"><strong>${esc(s.last_name)}</strong>, ${esc(s.first_name)}
+          ${s.team_name ? `<small>${esc(s.team_name)}</small>` : ''}</div>
+        <span class="wk-club" style="font-size:.75rem;color:var(--dim)">${esc(s.club_name)}</span>
+        <span class="wk-role ${s.role}">${s.role}</span>
+        <span style="font-size:.8rem;color:var(--dim)">Stand ${l.lane_no}</span>
+        <span class="wk-done" style="color:${stateColor}">✓ ${stateDE}</span>
+      </div>`;
+    }
+  }
+
+  content.innerHTML = html;
+}
+
+async function wkAssign(starterID, shooterID, disciplineID) {
+  const laneNo = document.getElementById(`wk-lane-${starterID}`)?.value;
+  if (!laneNo) { showWKMsg('Bitte zuerst einen Stand auswählen.', 'err'); return; }
+  const eventID = document.getElementById('wk-comp-sel')?.value || '';
+
+  try {
+    await api(`/lanes/${laneNo}/assign`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ shooter_id: shooterID, discipline_id: disciplineID, event_id: eventID }),
+    });
+    delete wkPendingLane[shooterID];
+    await refreshLanes();
+    renderWKView();
+    showWKMsg(`Stand ${laneNo} belegt.`, 'ok');
+  } catch(e) { showWKMsg('Fehler: ' + e.message, 'err'); }
+}
+
+function showWKMsg(text, type) {
+  const el = document.getElementById('wk-msg');
+  el.textContent = text;
+  el.className = 'wk-msg ' + type;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+(async () => {
+  disciplines = await api('/disciplines') || [];
+  const sel = document.getElementById('discSel');
+  for (const d of disciplines) {
+    const o = document.createElement('option');
+    o.value = d.id; o.textContent = d.name;
+    sel.appendChild(o);
+  }
+  await loadShooters('');
+  await refreshLanes();
+  await loadWKCompetitions();
+  setInterval(refreshLanes, 10000);   // Fallback-Poll
+  setInterval(updateConnDots, 1000);  // Dots ohne API-Aufruf aktualisieren
+})();
+// role.js laedt die Korrektur-Berechtigung asynchron nach - Schussliste
+// neu rendern, sobald sie feststeht (fuer den annullieren-Button).
+window.addEventListener('schiessstand-role-ready', () => { if (current?.session_id) loadShots(); });
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

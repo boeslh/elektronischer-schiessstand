@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ergebnisse – Schießstand</title>
+<style>
+  :root {
+    --bg:#0f0f1a; --panel:#1a1a2e; --line:#2a2a45; --text:#e0e0f0;
+    --dim:#7070a0; --acc:#7ba7ff; --green:#3dcc6e; --red:#e04040;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+
+  /* ── Header ── */
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;
+         background:var(--panel);border-bottom:1px solid var(--line)}
+  header a{color:var(--dim);text-decoration:none;font-size:18px}
+  header a:hover{color:var(--text)}
+  header h1{font-size:17px;font-weight:600}
+
+  /* ── Filter-Leiste ── */
+  .filters{display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;
+           background:var(--panel);border-bottom:1px solid var(--line);align-items:flex-end}
+  .filter-group{display:flex;flex-direction:column;gap:4px}
+  .filter-group label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .filter-group input,
+  .filter-group select{
+    background:var(--bg);color:var(--text);border:1px solid var(--line);
+    border-radius:5px;padding:6px 10px;font-size:13px;min-width:160px}
+  .filter-group input:focus,
+  .filter-group select:focus{outline:none;border-color:var(--acc)}
+  .filter-actions{display:flex;gap:8px;align-items:flex-end}
+  .btn{background:var(--acc);color:#000;border:none;border-radius:5px;
+       padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn:hover{opacity:.85}
+  .btn-sec{background:transparent;color:var(--dim);border:1px solid var(--line);
+            border-radius:5px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .btn-sec:hover{color:var(--text);border-color:var(--text)}
+
+  /* ── Tabelle ── */
+  main{padding:20px}
+  #status{color:var(--dim);font-size:13px;margin-bottom:12px;min-height:18px}
+  table{width:100%;border-collapse:collapse}
+  thead th{text-align:left;font-size:11px;text-transform:uppercase;
+           letter-spacing:.5px;color:var(--dim);padding:6px 10px;
+           border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr.result-row{cursor:pointer;transition:background .1s}
+  tbody tr.result-row:hover{background:var(--panel)}
+  tbody tr.result-row.open{background:var(--panel)}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .score-main{font-size:18px;font-weight:700}
+  .score-sub{font-size:11px;color:var(--dim)}
+
+  /* Status-Badge */
+  .badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:3px;
+         text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+  .badge.finished {background:#1a3a1a;color:#3dcc6e}
+  .badge.match    {background:#1a2a1a;color:#80c080}
+  .badge.sighting {background:#2a2a10;color:#c0c040}
+  .badge.paused   {background:#2a1a00;color:#c07030}
+  .badge.assigned {background:#1a1a2e;color:#7ba7ff}
+  .badge.aborted  {background:#2a1a1a;color:#a06060}
+  .live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;
+            background:#7ba7ff;margin-right:4px;vertical-align:middle;
+            animation:pulse 1.5s infinite}
+
+  /* ── Detail-Zeile ── */
+  tr.detail-row td{padding:0;border-bottom:1px solid var(--line)}
+  .detail-inner{padding:12px 20px;background:var(--panel)}
+  .series-grid{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px}
+  .series-box{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+              padding:10px 14px;min-width:160px}
+  .series-box .series-label{font-size:11px;color:var(--dim);margin-bottom:6px}
+  .series-box .shots{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+  .series-box .shot-chip{background:var(--line);border-radius:3px;padding:2px 6px;
+                          font-size:12px;font-variant-numeric:tabular-nums}
+  .series-box .shot-chip.ten{background:#1a3a1a;color:#3dcc6e}
+  .series-box .shot-chip.annulled{opacity:.4;text-decoration:line-through}
+  .series-box .shot-chip.corrected{outline:1px solid var(--acc)}
+  .series-box .series-total{font-size:14px;font-weight:700;color:var(--acc)}
+  .detail-summary{font-size:13px;color:var(--dim)}
+  .detail-summary span{color:var(--text);font-weight:600}
+  .loading{color:var(--dim);font-size:13px;padding:12px 20px}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/" title="Zurück">←</a>
+  <h1>Ergebnisse</h1>
+</header>
+
+<div class="filters">
+  <div class="filter-group">
+    <label>Datum</label>
+    <input type="date" id="f-date">
+  </div>
+  <div class="filter-group">
+    <label>Schütze</label>
+    <input type="text" id="f-name" placeholder="Name…" style="min-width:200px">
+  </div>
+  <div class="filter-group">
+    <label>Veranstaltung</label>
+    <select id="f-event">
+      <option value="">– Alle –</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>&nbsp;</label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:6px 0">
+      <input type="checkbox" id="f-archived" onchange="reloadEvents()"> Archivierte Veranstaltungen
+    </label>
+  </div>
+  <div class="filter-actions">
+    <button class="btn" onclick="search()">Suchen</button>
+    <button class="btn-sec" onclick="resetFilters()">Zurücksetzen</button>
+  </div>
+</div>
+
+<main>
+  <div id="status"></div>
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>Schütze</th>
+        <th>Datum</th>
+        <th>Uhrzeit</th>
+        <th>Veranstaltung</th>
+        <th>Disziplin</th>
+        <th style="text-align:right">Schüsse</th>
+        <th style="text-align:right">Ergebnis</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</main>
+
+<script>
+const EVENT_TYPE_DE = { einzel:'Einzelwettkampf', runde:'Rundenwettkampf', gruppe:'Gruppenwettkampf' };
+const STATUS_DE     = { finished:'Beendet', match:'Wertung', sighting:'Probe', paused:'Pausiert', assigned:'Aktiv', aborted:'Abgebrochen' };
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── Initialisierung ──────────────────────────────────────────────────────────
+async function loadEventOptions() {
+  try {
+    const incl = document.getElementById('f-archived').checked ? '&include_archived=1' : '';
+    const comps = await api('/api/competitions?' + incl) || [];
+    const sel = document.getElementById('f-event');
+    const prevVal = sel.value;
+    sel.innerHTML = '<option value="">– Alle –</option>';
+    for (const c of comps) {
+      const o = document.createElement('option');
+      o.value = c.id;
+      const arch = c.status === 'archived' ? ' [Archiv]' : '';
+      o.textContent = c.name + (c.starts_on ? '  (' + c.starts_on + ')' : '') + arch;
+      if (c.status === 'archived') o.style.fontStyle = 'italic';
+      sel.appendChild(o);
+    }
+    sel.value = prevVal;
+  } catch(e) { /* ignorieren */ }
+}
+
+async function reloadEvents() {
+  await loadEventOptions();
+}
+
+async function init() {
+  // Heutiges Datum als Standard
+  document.getElementById('f-date').value = todayISO();
+  await loadEventOptions();
+  await search();
+}
+
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-'
+    + String(d.getMonth()+1).padStart(2,'0') + '-'
+    + String(d.getDate()).padStart(2,'0');
+}
+
+function resetFilters() {
+  document.getElementById('f-date').value = todayISO();
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-event').value = '';
+  search();
+}
+
+// ── Suche ───────────────────────────────────────────────────────────────────
+async function search() {
+  const date    = document.getElementById('f-date').value;
+  const name    = document.getElementById('f-name').value.trim();
+  const eventID = document.getElementById('f-event').value;
+
+  const params = new URLSearchParams();
+  if (date)    params.set('date',     date);
+  if (name)    params.set('name',     name);
+  if (eventID) params.set('event_id', eventID);
+
+  setStatus('Lade…');
+  try {
+    const rows = await api('/api/results?' + params) || [];
+    renderTable(rows);
+    setStatus(rows.length === 0
+      ? 'Keine Ergebnisse gefunden.'
+      : `${rows.length} Ergebnis${rows.length === 1 ? '' : 'se'}`);
+  } catch(e) {
+    setStatus('Fehler: ' + e.message);
+  }
+}
+
+function setStatus(txt) {
+  document.getElementById('status').textContent = txt;
+}
+
+// ── Tabelle rendern ──────────────────────────────────────────────────────────
+function renderTable(rows) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    tr.className = 'result-row';
+    tr.dataset.sid = r.session_id;
+
+    const dt   = r.started_at ? new Date(r.started_at) : null;
+    const date = dt ? dt.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'}) : '–';
+    const time = dt ? dt.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '–';
+
+    const evLabel = r.event_name
+      ? (r.event_type ? `${r.event_name} · ${EVENT_TYPE_DE[r.event_type]||r.event_type}` : r.event_name)
+      : '<span style="color:var(--dim)">–</span>';
+
+    const score = fmtScore(r);
+    const liveDot = r.live_data ? '<span class="live-dot"></span>' : '';
+    const badge = `<span class="badge ${r.status}">${liveDot}${STATUS_DE[r.status]||r.status}</span>`;
+
+    tr.innerHTML = `
+      <td>${esc(r.shooter_name)}</td>
+      <td>${date}</td>
+      <td>${time}</td>
+      <td>${evLabel}</td>
+      <td>${esc(r.discipline)}</td>
+      <td class="num">${r.shot_count || '–'}</td>
+      <td class="num">${score}</td>
+      <td>${badge}</td>
+      <td><a class="btn-sec" href="${scorecardURL(r)}" target="_blank" rel="noopener"
+             onclick="event.stopPropagation()"
+             style="text-decoration:none;display:inline-block;white-space:nowrap">🎯 Grafische Ansicht</a></td>`;
+
+    tr.onclick = () => toggleDetail(tr, r);
+    tbody.appendChild(tr);
+  }
+}
+
+function fmtScore(r) {
+  if (!r.shot_count && !r.total_rings) return '<span style="color:var(--dim)">–</span>';
+  // Ob Zehntel angezeigt werden, richtet sich nach der Disziplin
+  // (decimal_scoring), nicht danach ob total_decimal zufaellig vom
+  // Ganzring abweicht - der Scorer liefert immer einen Dezimalwert, auch
+  // bei reiner Ringwertung (z.B. nach einer Trefferwert-Korrektur).
+  const val = r.decimal_scoring ? r.total_decimal.toFixed(1) : String(r.total_rings);
+  return `<span class="score-main">${val}</span>`
+    + (r.inner_tens > 0 ? ` <span class="score-sub">${r.inner_tens}×10i</span>` : '');
+}
+
+// ── Detail-Zeile ────────────────────────────────────────────────────────────
+function toggleDetail(tr, r) {
+  // Bereits offen?
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('detail-row')) {
+    next.remove();
+    tr.classList.remove('open');
+    return;
+  }
+  // Andere offene Details schließen
+  document.querySelectorAll('.detail-row').forEach(el => el.remove());
+  document.querySelectorAll('.result-row.open').forEach(el => el.classList.remove('open'));
+
+  tr.classList.add('open');
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'detail-row';
+  detailTr.innerHTML = '<td colspan="9"><div class="loading">Lade Details…</div></td>';
+  tr.after(detailTr);
+
+  loadDetail(detailTr, r);
+}
+
+async function loadDetail(detailTr, r) {
+  let shots;
+  try {
+    shots = await api(`/api/sessions/${r.session_id}/shots`) || [];
+  } catch(e) {
+    detailTr.querySelector('td').innerHTML =
+      `<div class="detail-inner" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    return;
+  }
+  detailTr.querySelector('td').innerHTML = renderDetail(r, shots);
+}
+
+function scorecardURL(r) {
+  const p = new URLSearchParams({
+    session_id:       r.session_id,
+    shooter:          r.shooter_name || '',
+    discipline:       r.discipline || '',
+    event:            r.event_name || '',
+    event_type:       r.event_type || '',
+    started:          r.started_at || '',
+    shots_per_series: r.shots_per_series || 10,
+    decimal:          r.decimal_scoring ? '1' : '0',
+  });
+  return '/ergebnis-ansicht?' + p.toString();
+}
+
+// Baut Serien-Boxen (Chips + Summe) fuer eine Liste von Schuessen - identisch
+// verwendet fuer Probe- und Wertungsschuesse, nur mit anderem Label-Praefix.
+// Bei mehr Schuessen als shotsPerSeries wird in mehrere Boxen aufgeteilt
+// (Praefix 1/2/... ), sonst eine einzelne Box ohne Nummer.
+// Korrigierte Werte (Simulator "Übernehmen" oder manuelle Revisor-Korrektur,
+// siehe ergebnis-ansicht.html) haben Vorrang vor der Originalmessung -
+// ueberall wo Schuesse summiert/dargestellt werden.
+function isCorrected(s) { return s.corrected_ring != null; }
+function effRing(s)     { return isCorrected(s) ? s.corrected_ring : s.ring; }
+function effDecimal(s)  { return isCorrected(s) ? s.corrected_decimal : s.decimal; }
+
+function seriesBoxesHTML(list, labelPrefix, shotsPerSeries, showDec) {
+  const grouped = {};
+  list.forEach((s, i) => {
+    const no = Math.floor(i / shotsPerSeries) + 1;
+    if (!grouped[no]) grouped[no] = [];
+    grouped[no].push(s);
+  });
+  const nos = Object.keys(grouped).map(Number).sort((a,b) => a-b);
+  const multi = nos.length > 1;
+
+  let html = '';
+  for (const no of nos) {
+    const sg = grouped[no];
+    const total    = sg.reduce((acc, s) => acc + (s.status === 'annulled' ? 0 : effRing(s)), 0);
+    const decTotal = sg.reduce((acc, s) => acc + (s.status === 'annulled' ? 0 : (effDecimal(s) || effRing(s))), 0);
+    const totalStr = showDec ? decTotal.toFixed(1) : String(total);
+    const label    = multi ? `${labelPrefix} ${no}` : labelPrefix;
+
+    html += `<div class="series-box">
+      <div class="series-label">${label}</div>
+      <div class="shots">`;
+    for (const s of sg) {
+      const annulled  = s.status === 'annulled' ? ' annulled' : '';
+      const corrected = isCorrected(s) ? ' corrected' : '';
+      const ring      = effRing(s);
+      const ten       = (ring >= 10 && !annulled) ? ' ten' : '';
+      const val       = showDec && effDecimal(s) ? effDecimal(s).toFixed(1) : String(ring);
+      const origVal   = showDec && s.decimal != null ? s.decimal.toFixed(1) : String(s.ring);
+      const title     = isCorrected(s)
+        ? `Schuss ${s.shot_no} · korrigiert (Original: ${origVal})`
+        : `Schuss ${s.shot_no}`;
+      const mark      = isCorrected(s) ? '<sup style="font-size:8px">✎</sup>' : '';
+      html += `<span class="shot-chip${ten}${annulled}${corrected}" title="${title}">${val}${mark}</span>`;
+    }
+    html += `</div><div class="series-total">${totalStr}</div></div>`;
+  }
+  return html;
+}
+
+// Technisch verworfene/virtuelle Eintraege (kein echter Treffer, siehe
+// v_scoring_shots) werden in Standard-Ansichten nie dargestellt - sonst
+// verschieben sie die Serien-Nummerierung. Nur der Simulator zeigt sie
+// (dort geht es genau um die Analyse solcher Rohdaten).
+const DISPLAY_STATUSES = ['valid', 'annulled', 'cross_shot_in'];
+
+function renderDetail(r, rawShots) {
+  const shots = rawShots.filter(s => DISPLAY_STATUSES.indexOf(s.status) !== -1);
+
+  const viewBtn = `<div style="margin-bottom:12px">
+    <a class="btn-sec" href="${scorecardURL(r)}" target="_blank" rel="noopener"
+       style="text-decoration:none;display:inline-block">🎯 Grafische Ansicht</a>
+  </div>`;
+
+  if (!shots.length) {
+    return `<div class="detail-inner">${viewBtn}<span style="color:var(--dim)">Noch keine Schüsse.</span></div>`;
+  }
+
+  // Probe-/Sighting-Schüsse zählen nicht zur Wertung (siehe v_scoring_shots),
+  // werden aber genauso dargestellt wie Wertungsschüsse (Serien-Boxen mit Summe).
+  const sighting = shots.filter(s => s.kind === 'sighting');
+  const scoring  = shots.filter(s => s.kind !== 'sighting');
+
+  let html = '<div class="detail-inner">' + viewBtn;
+
+  if (!sighting.length && !scoring.length) {
+    html += '<span style="color:var(--dim)">Noch keine Schüsse.</span></div>';
+    return html;
+  }
+
+  const shotsPerSeries = r.shots_per_series || 10;
+
+  html += '<div class="series-grid">';
+  if (sighting.length) html += seriesBoxesHTML(sighting, 'Probe', shotsPerSeries, !!r.decimal_scoring);
+  if (scoring.length)  html += seriesBoxesHTML(scoring, 'Serie', shotsPerSeries, !!r.decimal_scoring);
+  html += '</div>';
+
+  if (!scoring.length) {
+    html += '<span style="color:var(--dim)">Noch keine Wertungsschüsse.</span></div>';
+    return html;
+  }
+
+  // Gesamtzusammenfassung
+  const total = fmtScore(r);
+  let summary = `Gesamt: <span>${total.replace(/<[^>]+>/g,'')}</span>`;
+  if (r.best_center_distance && r.best_center_distance > 0 && r.best_center_distance < 999) {
+    summary += ` &nbsp;·&nbsp; Bester Teiler: <span>${r.best_center_distance.toFixed(1)}</span>`;
+  }
+  if (r.inner_tens > 0) {
+    summary += ` &nbsp;·&nbsp; Innere Zehner: <span>${r.inner_tens}</span>`;
+  }
+  html += `<div class="detail-summary">${summary}</div></div>`;
+  return html;
+}
+
+// ── Hilfsfunktionen ─────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Enter in Filterfeldern löst Suche aus
+document.getElementById('f-name').addEventListener('keydown', e => { if (e.key==='Enter') search(); });
+document.getElementById('f-date').addEventListener('change', search);
+document.getElementById('f-event').addEventListener('change', search);
+
+init();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

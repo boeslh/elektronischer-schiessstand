@@ -1,0 +1,59 @@
+{
+  "lane_no": 1,
+
+  "_kommentar_transport": "serial = ESP32 per USB | tcp = ESP32 per WLAN/LAN verbindet sich hierher | both = beide parallel. Bei tcp in der Firmware SERVER_HOST auf die IP dieses PCs setzen.",
+  "transport": "tcp",
+  "serial_port": "/dev/ttyUSB0",
+  "baud_rate": 115200,
+  "tcp_listen": ":9201",
+
+  "_kommentar_sensoren": "Positionen auf dem Blech in mm, Reihenfolge = ESP32-Sensorindex (GPIO 34,35,32,33). Beispiel: 250x250mm Blech, Sensoren in den Ecken.",
+  "sensors": [
+    { "x_mm": 0,   "y_mm": 0   },
+    { "x_mm": 250, "y_mm": 0   },
+    { "x_mm": 250, "y_mm": 250 },
+    { "x_mm": 0,   "y_mm": 250 }
+  ],
+
+  "_kommentar_schall": "Koerperschall im Blech! Startwert 3000 m/s, exakten Wert per Kalibrierschuessen ermitteln.",
+  "sound_speed_mps": 3000,
+  "plate_angle_deg": 30,
+  "plate_offset_x_mm": 0,
+  "plate_offset_y_mm": 0,
+
+  "_kommentar_kaliber": "Waffen-/Kalibereigenschaften fuer alle Disziplinen an diesem Stand. caliber_mm: Geschossdurchmesser in mm (Standard 4.5). edge_scoring: true = Rand zaehlt zum naechsten Ring (ISSF-Regel).",
+  "caliber_mm": 4.5,
+  "edge_scoring": true,
+
+  "shot_log_dir": "./shotlog",
+
+  "_kommentar_db": "Leer lassen fuer reinen Offline-Betrieb. Eigenes Passwort eintragen, NICHT committen.",
+  "postgres_dsn": "postgres://schiessstand:CHANGEME@127.0.0.1/schiessstand",
+
+  "_kommentar_server": "URL des zentralen Servers. Wenn gesetzt, holt der Stand-PC Session + Kalibrierung automatisch (Poll alle 3s). Leer = statische session_id unten.",
+  "server_url": "http://localhost:8090",
+  "session_id": "",
+  "http_listen": ":9001",
+
+  "hybrid": {
+    "_kommentar": "Luft-TOA-Feinmessung (Firmware: SET HYBRID=1). 4 Mikrofone seitlich VOR dem Blech, akustisch entkoppelt. z_mm = Abstand vor der Blechebene.",
+    "enabled": false,
+    "air_sound_speed_mps": 343,
+    "gate_us": 15,
+    "air_sensors": [
+      { "x_mm": -20,  "y_mm": -20,  "z_mm": 40 },
+      { "x_mm": 270,  "y_mm": -20,  "z_mm": 40 },
+      { "x_mm": 270,  "y_mm": 270,  "z_mm": 40 },
+      { "x_mm": -20,  "y_mm": 270,  "z_mm": 40 }
+    ]
+  },
+
+  "shot_display": {
+    "color_ring10":     "#FF0000",
+    "color_ring9":      "#F3FB06",
+    "color_other":      "#0209F9",
+    "color_previous":   "#AAAAAA",
+    "opacity_previous": 0.85,
+    "fill_color":       "#000000"
+  }
+}

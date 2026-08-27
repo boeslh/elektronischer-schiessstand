@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schützenanzeige</title>
+<style>
+  :root {
+    --bg: #11151a; --panel: #1a2028; --line: #2a3340;
+    --text: #d8e0e8; --dim: #6a7888; --acc: #4ab8a0; --hit: #ffb347;
+    --probe-bg: #2a2010; --probe-fg: #f0a830;
+    --wertung-bg: #0d2318; --wertung-fg: #3ecf7a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, sans-serif;
+    display: grid; grid-template-columns: 1fr 320px;
+    grid-template-rows: auto 1fr; gap: 12px;
+    height: 100vh; padding: 12px;
+  }
+  header {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 12px;
+    padding: 4px 8px;
+  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  #shooter   { font-size: 16px; font-weight: 600; }
+  #discipline { font-size: 13px; color: var(--dim); }
+  #eventName  { font-size: 11px; color: var(--acc, #7ba7ff); margin-top: 1px; min-height: 14px; }
+  #connStatus { font-size: 12px; color: var(--dim); margin-left: auto; }
+  #connStatus.live { color: var(--acc); }
+
+  #modeWrap { display: flex; align-items: center; gap: 8px; }
+  #modeBadge {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; padding: 3px 10px; border-radius: 4px;
+    transition: background 0.2s, color 0.2s;
+  }
+  #modeBadge.probe   { background: var(--probe-bg);   color: var(--probe-fg); }
+  #modeBadge.wertung { background: var(--wertung-bg); color: var(--wertung-fg); }
+  #modeBtn {
+    font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  }
+  #modeBtn:hover:not(:disabled) { background: var(--line); }
+  #modeBtn:disabled { opacity: 0.35; cursor: default; }
+
+  /* ── Menü-Button ── */
+  #menuBtn {
+    font-size: 16px; padding: 3px 10px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    line-height: 1;
+  }
+  #menuBtn:hover { background: var(--line); }
+
+  /* ── Menü-Modal ── */
+  #menuOverlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55); z-index: 100;
+    align-items: flex-start; justify-content: flex-end;
+  }
+  #menuOverlay.open { display: flex; }
+  #menuPanel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; margin: 48px 12px 0 0;
+    width: 280px; overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .menu-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+    font-size: 13px; font-weight: 600; color: var(--dim);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  #menuClose {
+    background: none; border: none; color: var(--dim); font-size: 16px;
+    cursor: pointer; padding: 0 2px; line-height: 1;
+  }
+  #menuClose:hover { color: var(--text); }
+  .menu-section { padding: 10px 0; }
+  .menu-section-label {
+    font-size: 10px; color: var(--dim); text-transform: uppercase;
+    letter-spacing: 1px; padding: 2px 14px 6px;
+  }
+  .disc-btn {
+    display: block; width: 100%; text-align: left;
+    padding: 9px 14px; background: none; border: none;
+    color: var(--text); font-size: 14px; cursor: pointer;
+  }
+  .disc-btn:hover { background: var(--line); }
+  .disc-btn.active { color: var(--acc); font-weight: 600; }
+  .disc-btn .disc-detail {
+    font-size: 11px; color: var(--dim); margin-top: 1px;
+  }
+  .menu-section + .menu-section {
+    border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px;
+  }
+
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; overflow: hidden; }
+  #targetWrap { display: flex; align-items: center; justify-content: center; }
+
+  /* ── Sidebar ── */
+  #sidebar { display: flex; flex-direction: column; }
+
+  #last {
+    text-align: center; padding: 14px 12px 10px;
+    border-bottom: 1px solid var(--line); flex-shrink: 0;
+  }
+  #lastRing { font-size: 64px; font-weight: 700; color: var(--acc); line-height: 1; }
+  #lastInfo { font-size: 12px; color: var(--dim); margin-top: 6px; }
+
+  /* ── Gesamt + Serien ── */
+  #scoreArea { flex-shrink: 0; border-bottom: 1px solid var(--line); }
+
+  #totalLine {
+    display: flex; align-items: baseline; justify-content: center; gap: 8px;
+    padding: 8px 12px 6px; border-bottom: 1px solid var(--line);
+  }
+  #totalLine .tv { font-size: 28px; font-weight: 700; color: var(--acc); }
+  #totalLine .tl { font-size: 11px; color: var(--dim); text-transform: uppercase;
+                   letter-spacing: 1px; }
+
+  #seriesGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px; background: var(--line);
+    max-height: 198px; /* ~4.5 Reihen → 12 Serien ohne Scrollen */
+    overflow-y: auto;
+  }
+  .serie-cell {
+    background: var(--panel); text-align: center;
+    padding: 5px 2px 4px;
+  }
+  .serie-cell .sn { font-size: 9px; color: var(--dim); text-transform: uppercase; }
+  .serie-cell .sv { font-size: 19px; font-weight: 700; line-height: 1.1; }
+  .serie-cell.current .sv { color: var(--hit); }  /* laufende Serie */
+  .serie-cell .si { font-size: 9px; color: var(--dim); }  /* x/10 bei unvollständig */
+
+  /* ── Schussliste ── */
+  #list { flex: 1; overflow-y: auto; font-size: 13px; }
+  #list table { width: 100%; border-collapse: collapse; }
+  #list td, #list th {
+    padding: 6px 10px; text-align: right;
+    border-bottom: 1px solid var(--line);
+  }
+  #list th {
+    color: var(--dim); font-size: 11px; text-transform: uppercase;
+    position: sticky; top: 0; background: var(--panel);
+  }
+  #list td:first-child, #list th:first-child { text-align: left; }
+  #list tr:first-child td { color: var(--hit); font-weight: 600; }
+  tr.probe-shot td { color: var(--dim); }
+
+/* ── Benachrichtigungs-Banner ─────────────────────────────────────────────── */
+#notification {
+  position: fixed; top: 0; left: 0; right: 0;
+  padding: 0.7em 1em;
+  background: #e65c00; color: #fff;
+  font-size: 1.3em; font-weight: bold; text-align: center;
+  z-index: 2000;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+#notification.visible { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="notification"></div>
+<header>
+  <h1 id="shooter">Schützenanzeige</h1>
+  <span id="discipline"></span>
+  <div id="eventName"></div>
+  <div id="modeWrap">
+    <span id="modeBadge" class="probe">Probe</span>
+    <button id="modeBtn">→ Wertung</button>
+  </div>
+  <button id="menuBtn" title="Menü">☰</button>
+  <span id="connStatus">verbinde…</span>
+</header>
+
+<!-- Menü-Modal -->
+<div id="menuOverlay">
+  <div id="menuPanel">
+    <div class="menu-header">
+      <span>Einstellungen</span>
+      <button id="menuClose">✕</button>
+    </div>
+    <div class="menu-section">
+      <div class="menu-section-label">Disziplin wählen</div>
+      <div id="discList"><!-- wird per JS befüllt --></div>
+    </div>
+    <div class="menu-section">
+      <div class="menu-section-label">Zoom</div>
+      <div id="zoomList"><!-- wird per JS befüllt --></div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="targetWrap">
+  <svg id="target" viewBox="-30 -30 60 60" width="90%" height="90%"></svg>
+</div>
+
+<div class="panel" id="sidebar">
+  <div id="last">
+    <div id="lastRing">–</div>
+    <div id="lastInfo">Warte auf ersten Schuss</div>
+  </div>
+
+  <div id="scoreArea">
+    <div id="totalLine">
+      <span class="tv" id="totRings">–</span>
+      <span class="tl">Ringe gesamt</span>
+    </div>
+    <div id="seriesGrid"></div>
+  </div>
+
+  <div id="list">
+    <table>
+      <thead><tr><th>#</th><th>Ring</th><th>Zehntel</th><th>Teiler</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ── Konstanten ───────────────────────────────────────────────────────────────
+const CALIBER = 4.5; // Kaliberdurchmesser mm (4,5 mm Diabolo)
+// SVG-Strokes liegen mittig auf dem Pfad (halb innen/halb außen) - der
+// Kreisradius wird um die halbe Randbreite verkleinert, damit die
+// AUSSENkante von Fläche+Rand exakt CALIBER entspricht (kein optisch
+// vergrößerter Schuss durch den Rand).
+const SHOT_STROKE_W = CALIBER * 0.05;
+const SHOT_R = CALIBER / 2 - SHOT_STROKE_W / 2;
+const NS = 'http://www.w3.org/2000/svg';
+
+let currentMode   = 'probe';
+let currentHistoryGen = null; // history_gen der letzten angewandten Statusmeldung
+let discipline    = null;
+let currentTarget = null;   // aktives TargetGeometry-Objekt
+let targetsMap    = {};     // von /targets geladen: {"1": {...}, "7": {...}}
+let zoomMode      = 'auto'; // 'auto' | '1'..'5'
+let currentOuterR = 0;      // Außenradius der aktuellen Scheibe in mm
+
+// Schussdarstellung – Defaults; werden von /display überschrieben
+let shotDisplay = {
+  color_ring10:     '#FF0000',
+  color_ring9:      '#F3FB06',
+  color_other:      '#0209F9',
+  color_previous:   '#AAAAAA',
+  opacity_previous: 0.85,
+  fill_color:       '#000000',
+};
+let lastShotEl = null; // SVG-<g>-Element des zuletzt dargestellten Schusses
+
+// ── Zoom ─────────────────────────────────────────────────────────────────────
+// 5 feste Zoomstufen als Bruchteile des Außenradius + Auto-Modus.
+// Stufung ca. ×2 je Stufe → log. Skala, funktioniert für alle Scheibengrößen.
+// Stufen-Radien als Bruchteil des Scheiben-Außenradius. Komplett (1.00) und
+// Groß (0.60) sind fix, Mittel/Fein/Maximal linear (gleicher Abstand)
+// gestaffelt darunter - kalibriert auf einen Schuss bei 8,5 Ringen/550
+// Teiler (5,5 mm Abstand) auf der LG-10m-ISSF-Scheibe (Außenradius 22,75 mm,
+// 5,5/22,75 ≈ 0,2418), der damit noch auf Stufe "Fein" landet statt wie
+// zuvor auf "Mittel".
+const ZOOM_OPTIONS = [
+  {key: 'auto', label: 'Auto (Standard)', fraction: null},
+  {key: '1',    label: 'Komplett',        fraction: 1.00},
+  {key: '2',    label: 'Groß',            fraction: 0.60},
+  {key: '3',    label: 'Mittel',          fraction: 0.4209},
+  {key: '4',    label: 'Fein',            fraction: 0.2418},
+  {key: '5',    label: 'Maximal',         fraction: 0.0626},
+];
+// Feste Stufen aufsteigend sortiert (kleinste Anzeige zuerst) für Auto-Zoom
+const ZOOM_FIXED = ZOOM_OPTIONS.filter(z => z.fraction !== null)
+                               .sort((a, b) => a.fraction - b.fraction);
+
+function getSeriesShots() {
+  const n = discipline ? discipline.shots_per_series : 10;
+  return shots.slice(-n); // letzte n Schüsse = aktuelle Serie
+}
+
+function applyZoomViewBox(r) {
+  if (r <= 0) return;
+  const pad = Math.max(r * 0.07, CALIBER * 0.8);
+  svg.setAttribute('viewBox',
+    `${-(r+pad)} ${-(r+pad)} ${2*(r+pad)} ${2*(r+pad)}`);
+}
+
+function computeViewR() {
+  if (currentOuterR <= 0) return 0;
+
+  if (zoomMode !== 'auto') {
+    const lvl = ZOOM_OPTIONS.find(z => z.key === zoomMode);
+    return lvl && lvl.fraction ? lvl.fraction * currentOuterR : currentOuterR;
+  }
+
+  // Auto: kleinste Stufe wählen, bei der mindestens der MITTELPUNKT jedes
+  // Schusses der aktuellen Serie noch im Bild ist (der Rand des Geschoss-
+  // kreises darf dabei über den Sichtbereich hinausragen). Schüsse außerhalb
+  // des kleinsten Zoom-Bereichs erzwingen keinen Rücksprung.
+  const series = getSeriesShots().filter(s => !s.rejected);
+  if (series.length === 0) return currentOuterR; // keine Schüsse → ganze Scheibe
+
+  let maxR = 0;
+  for (const s of series) {
+    const d = Math.sqrt(s.x_mm * s.x_mm + s.y_mm * s.y_mm);
+    maxR = Math.max(maxR, d);
+  }
+
+  // Von kleinster zur größten Stufe: erste die passt zurückgeben
+  for (const lvl of ZOOM_FIXED) {
+    const r = lvl.fraction * currentOuterR;
+    if (r >= maxR) return r;
+  }
+  return currentOuterR; // Fallback: ganze Scheibe
+}
+
+function updateZoom() { applyZoomViewBox(computeViewR()); }
+
+function setZoomMode(key) {
+  zoomMode = key;
+  updateZoom();
+  document.querySelectorAll('#zoomList .disc-btn').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.zoom === key));
+}
+
+function buildZoomMenu() {
+  const c = document.getElementById('zoomList');
+  c.innerHTML = '';
+  ZOOM_OPTIONS.forEach(opt => {
+    const btn  = document.createElement('button');
+    btn.className  = 'disc-btn' + (opt.key === zoomMode ? ' active' : '');
+    btn.dataset.zoom = opt.key;
+    const detail = opt.fraction
+      ? `±${(opt.fraction * currentOuterR).toFixed(1)} mm Radius`
+      : 'passt sich der aktuellen Serie an';
+    btn.innerHTML = `<div>${opt.label}</div><div class="disc-detail">${detail}</div>`;
+    btn.addEventListener('click', () => { setZoomMode(opt.key); closeMenu(); });
+    c.appendChild(btn);
+  });
+}
+
+// ── SVG-Scheibe ─────────────────────────────────────────────────────────────
+const svg = document.getElementById('target');
+let shotLayer;
+
+function buildTarget(target) {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  shotLayer    = null;
+  currentOuterR = 0;
+  if (!target || !target.rings || !target.rings.length) { updateZoom(); return; }
+
+  // Ringe absteigend nach Durchmesser sortieren (außen → innen)
+  const rings   = [...target.rings].sort((a, b) => b.d - a.d);
+  const outerR  = rings[0].d / 2;
+  currentOuterR = outerR; // für Zoom-Berechnung merken
+
+  // Proportionale Maße
+  const strokeW = Math.max(outerR * 0.004, 0.08);
+  // Kleinsten Ringabstand (Radius) ermitteln → Schriftgröße
+  let minStep = Infinity;
+  for (let i = 0; i < rings.length - 1; i++)
+    minStep = Math.min(minStep, (rings[i].d - rings[i+1].d) / 2);
+  const fontSize = Math.max(minStep * 0.58, outerR * 0.045);
+
+  // 1. Hintergrund: helle Kreisfläche (Scheibenpapier)
+  const bg = document.createElementNS(NS, 'circle');
+  bg.setAttribute('r', outerR);
+  bg.setAttribute('fill', '#e8e4dc');
+  svg.appendChild(bg);
+
+  // 2. Schwarzer Spiegel: Kreis bis zum äußersten "filled=true"-Ring
+  let darkR = 0;
+  for (const r of rings) if (r.filled) darkR = Math.max(darkR, r.d / 2);
+  if (darkR > 0) {
+    const sp = document.createElementNS(NS, 'circle');
+    sp.setAttribute('r', darkR);
+    sp.setAttribute('fill', '#1c1c1c');
+    svg.appendChild(sp);
+  }
+
+  // 3. Ringlinien (nur Kontur, kein Fill)
+  for (const r of rings) {
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('r', r.d / 2);
+    c.setAttribute('fill', 'none');
+    c.setAttribute('stroke', r.filled ? '#888' : '#555');
+    c.setAttribute('stroke-width', strokeW);
+    svg.appendChild(c);
+  }
+
+  // 4. Innenzehner-Kreis (gestrichelt für Scheiben 4 und 7)
+  if (target.inner10_d > 0) {
+    const inn = document.createElementNS(NS, 'circle');
+    inn.setAttribute('r', target.inner10_d / 2);
+    inn.setAttribute('fill', 'none');
+    inn.setAttribute('stroke', '#888');
+    inn.setAttribute('stroke-width', strokeW);
+    if (target.inner10_dashed) {
+      const dl = strokeW * 5;
+      inn.setAttribute('stroke-dasharray', `${dl} ${dl}`);
+    }
+    svg.appendChild(inn);
+  }
+
+  // 5. Ringbeschriftung: Ringe 1–9, jeweils an 4 Positionen (N/O/S/W)
+  //    Beschriftungsradius = Mittelpunkt zwischen äußerem und nächst-innerem Ring
+  const labelPositions = [
+    {nx:  0, ny: -1},  // oben
+    {nx:  1, ny:  0},  // rechts
+    {nx:  0, ny:  1},  // unten
+    {nx: -1, ny:  0},  // links
+  ];
+
+  for (let i = 0; i < rings.length; i++) {
+    const r = rings[i];
+    if (r.v < 1 || r.v > 9) continue;
+
+    const outerRadius = r.d / 2;
+    const innerRadius = (i + 1 < rings.length) ? rings[i + 1].d / 2 : 0;
+    const labelR      = (outerRadius + innerRadius) / 2;
+    const fillColor   = r.filled ? '#bbb' : '#555';
+
+    for (const p of labelPositions) {
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', p.nx * labelR);
+      t.setAttribute('y', p.ny * labelR);
+      t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('dominant-baseline', 'middle');
+      t.setAttribute('font-size', fontSize);
+      t.setAttribute('font-family', 'sans-serif');
+      t.setAttribute('font-weight', '400');
+      t.setAttribute('fill', fillColor);
+      t.setAttribute('pointer-events', 'none');
+      t.textContent = r.v;
+      svg.appendChild(t);
+    }
+  }
+
+  // 6. Schuss-Layer ganz oben
+  shotLayer = document.createElementNS(NS, 'g');
+  svg.appendChild(shotLayer);
+
+  updateZoom(); // viewBox je nach aktuellem Zoom-Modus setzen
+}
+
+// ── Zustand ─────────────────────────────────────────────────────────────────
+let shots = [];
+
+function shotsPerSeries() {
+  return discipline ? discipline.shots_per_series : 10;
+}
+function ringSum(list) { return list.reduce((a, s) => a + s.ring, 0); }
+function scoreSum(list) {
+  const dec = discipline && discipline.decimal_scoring;
+  return list.reduce((a, s) => a + (dec ? s.decimal : s.ring), 0);
+}
+function fmtScore(val) {
+  return (discipline && discipline.decimal_scoring) ? val.toFixed(1) : String(val);
+}
+
+function updateScore() {
+  const total = shots.length ? scoreSum(shots) : null;
+  document.getElementById('totRings').textContent = total !== null ? fmtScore(total) : '–';
+
+  const n   = shotsPerSeries();
+  const grid = document.getElementById('seriesGrid');
+  grid.innerHTML = '';
+  if (shots.length === 0) return;
+
+  for (let i = 0; i < shots.length; i += n) {
+    const chunk    = shots.slice(i, i + n);
+    const serNo    = Math.floor(i / n) + 1;
+    const score    = scoreSum(chunk);
+    const complete = chunk.length === n;
+
+    const cell = document.createElement('div');
+    cell.className = 'serie-cell' + (complete ? '' : ' current');
+    cell.innerHTML =
+      `<div class="sn">S ${serNo}</div>` +
+      `<div class="sv">${fmtScore(score)}</div>` +
+      (complete ? '' : `<div class="si">${chunk.length} / ${n}</div>`);
+    grid.appendChild(cell);
+  }
+}
+
+function clearDisplay() {
+  shots = [];
+  renderShots();
+  document.getElementById('rows').innerHTML = '';
+  document.getElementById('lastRing').textContent = '–';
+  document.getElementById('lastInfo').textContent  = 'Warte auf ersten Schuss';
+  updateScore();
+  updateZoom();
+  lastShotEl = null;
+}
+
+// ── Schuss darstellen ──────────────────────────────────────────────────────────────────
+function shotColorByRing(ring) {
+  if (ring >= 10) return shotDisplay.color_ring10;
+  if (ring === 9)  return shotDisplay.color_ring9;
+  return shotDisplay.color_other;
+}
+
+// Liefert #000000 oder #FFFFFF für maximalen Kontrast zur Füllfarbe.
+function contrastColor(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#000000' : '#FFFFFF';
+}
+
+// Zeichnet alle Schüsse der aktuellen Serie neu (kompletter Re-Render).
+function renderShots() {
+  while (shotLayer.firstChild) shotLayer.removeChild(shotLayer.firstChild);
+  if (shots.length === 0) return;
+
+  const n = shotsPerSeries();
+  const serStart = Math.floor((shots.length - 1) / n) * n;
+  const series   = shots.slice(serStart);
+
+  series.forEach((s, i) => {
+    const isLast    = (i === series.length - 1);
+    const fillColor = s.overcount
+      ? '#FFA500'
+      : (isLast ? shotColorByRing(s.ring) : shotDisplay.color_previous);
+    const shotNo    = serStart + i + 1;
+
+    const g = document.createElementNS(NS, 'g');
+    if (!s.overcount && !isLast) g.setAttribute('opacity', shotDisplay.opacity_previous);
+
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', s.x_mm); c.setAttribute('cy', -s.y_mm);
+    c.setAttribute('r', SHOT_R);
+    c.setAttribute('fill', fillColor);
+    c.setAttribute('fill-opacity', '0.82');
+    c.setAttribute('stroke', '#1a1a1a');
+    c.setAttribute('stroke-width', SHOT_STROKE_W);
+
+    const t = document.createElementNS(NS, 'text');
+    t.setAttribute('x', s.x_mm); t.setAttribute('y', -s.y_mm);
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('dominant-baseline', 'central');
+    t.setAttribute('font-size', CALIBER * 0.42);
+    t.setAttribute('font-family', 'sans-serif');
+    t.setAttribute('font-weight', 'bold');
+    t.setAttribute('fill', contrastColor(fillColor));
+    t.setAttribute('pointer-events', 'none');
+    t.textContent = String(shotNo);
+
+    g.appendChild(c); g.appendChild(t);
+    shotLayer.appendChild(g);
+  });
+}
+
+function addShot(s, isNew) {
+  if (s.rejected) return;
+  // Probe-Schuss ignorieren wenn Browser bereits im Wertungsmodus ist
+  // (passiert wenn der letzte Probe-Schuss den Auto-Switch ausloest und
+  //  das Shot-Event nach dem Status-Event eintrifft)
+  if (s.mode === 'probe' && currentMode === 'wertung') return;
+  shots.push(s);
+
+  renderShots();
+
+  const showDec = discipline ? discipline.decimal_scoring : false;
+  const ringDisplay = showDec ? s.decimal.toFixed(1) : String(s.ring);
+
+  document.getElementById('lastRing').textContent = ringDisplay;
+  document.getElementById('lastInfo').textContent =
+    `Schuss ${shots.length} · x ${s.x_mm.toFixed(1)} / y ${s.y_mm.toFixed(1)} mm` +
+    (s.inner_ten ? ' · Innenzehner' : '');
+
+  updateScore();
+  if (isNew) updateZoom();
+
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    `<td>${shots.length}</td>` +
+    `<td>${s.ring}</td>` +
+    `<td>${s.decimal.toFixed(1)}</td>` +
+    `<td>${s.center_distance.toFixed(1)}</td>`;
+  const rows = document.getElementById('rows');
+  rows.insertBefore(tr, rows.firstChild);
+}
+
+// ── Modus-UI ─────────────────────────────────────────────────────────────────
+const modeBadge = document.getElementById('modeBadge');
+const modeBtn   = document.getElementById('modeBtn');
+
+function applyStatus(st) {
+  currentMode       = st.mode || 'probe';
+  currentHistoryGen = st.history_gen;
+  discipline        = st.discipline || null;
+
+  modeBadge.textContent = currentMode === 'wertung' ? 'Wertung' : 'Probe';
+  modeBadge.className   = currentMode === 'wertung' ? 'wertung' : 'probe';
+
+  if (currentMode === 'probe') {
+    modeBtn.textContent = '→ Wertung';
+    modeBtn.disabled    = false;
+  } else {
+    modeBtn.textContent = '← Probe';
+    modeBtn.disabled    = st.wertung_count > 0;
+  }
+
+
+  document.getElementById('shooter').textContent =
+    st.shooter || 'Schützenanzeige';
+
+  const discEl = document.getElementById('discipline');
+  if (discipline) {
+    discEl.textContent =
+      `${discipline.name} · ${discipline.trial_shots} Probe / ${discipline.scoring_shots} Wertung`;
+  } else {
+    discEl.textContent = st.discipline_name || '';
+  }
+
+  const eventTypeDE = { einzel: 'Einzelwettkampf', runde: 'Rundenwettkampf', gruppe: 'Gruppenwettkampf' };
+  const evEl = document.getElementById('eventName');
+  if (evEl) {
+    if (st.event_name) {
+      const typeLabel = eventTypeDE[st.event_type] || '';
+      evEl.textContent = typeLabel ? `${st.event_name} · ${typeLabel}` : st.event_name;
+    } else {
+      evEl.textContent = '';
+    }
+  }
+
+  if (st.notification) showNotification(st.notification);
+
+  // Scheibe wechseln wenn nötig
+  const key    = String(discipline ? discipline.target_no : 1);
+  const target = targetsMap[key] || targetsMap['1'] || null;
+  if (target !== currentTarget) {
+    currentTarget = target;
+    buildTarget(target);
+  }
+}
+
+function showNotification(msg) {
+  const el = document.getElementById('notification');
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.classList.remove('visible'), 5000);
+}
+
+
+modeBtn.addEventListener('click', () => {
+  const next = currentMode === 'probe' ? 'wertung' : 'probe';
+  modeBtn.disabled = true;
+  fetch('/mode', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mode: next}),
+  })
+  .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+  .then(st => applyStatus(st))
+  .catch(err => { alert('Umschalten nicht möglich:\n' + err.message); modeBtn.disabled = false; });
+});
+
+// ── Menü ─────────────────────────────────────────────────────────────────────
+let allDisciplines = [];
+
+function openMenu() { document.getElementById('menuOverlay').classList.add('open'); }
+function closeMenu() { document.getElementById('menuOverlay').classList.remove('open'); }
+
+document.getElementById('menuBtn').addEventListener('click', () => {
+  buildDiscList(discipline ? discipline.name : '');
+  buildZoomMenu();
+  openMenu();
+});
+document.getElementById('menuClose').addEventListener('click', closeMenu);
+document.getElementById('menuOverlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('menuOverlay')) closeMenu();
+});
+
+function buildDiscList(currentName) {
+  const container = document.getElementById('discList');
+  container.innerHTML = '';
+  allDisciplines.forEach(d => {
+    const btn = document.createElement('button');
+    btn.className = 'disc-btn' + (d.name === currentName ? ' active' : '');
+    const modeLabel = d.trial_shots > 0
+      ? `${d.trial_shots} Probe · ${d.scoring_shots} Wertung`
+      : `${d.scoring_shots} Wertung (ohne Probe)`;
+    btn.innerHTML =
+      `<div>${d.name}</div>` +
+      `<div class="disc-detail">${modeLabel} · ${d.shots_per_series} je Serie` +
+      (d.decimal_scoring ? ' · Zehntel' : '') + '</div>';
+    btn.addEventListener('click', () => {
+      fetch('/discipline', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: d.name}),
+      })
+      .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+      .then(st => { applyStatus(st); clearDisplay(); closeMenu(); })
+      .catch(err => alert('Fehler: ' + err.message));
+    });
+    container.appendChild(btn);
+  });
+}
+
+fetch('/disciplines').then(r => r.json()).then(list => { allDisciplines = list || []; });
+
+// ── Start: Anzeigeconfig + Scheiben laden, dann Status + Schüsse ──────────────
+Promise.all([
+  fetch('/targets').then(r => r.json()),
+  fetch('/display').then(r => r.json()),
+]).then(([tmap, disp]) => {
+  targetsMap  = tmap  || {};
+  shotDisplay = disp  || shotDisplay;
+  // Status anwenden NACH dem Laden der Scheibengeometrie
+  return fetch('/status').then(r => r.json()).then(st => {
+    applyStatus(st);
+    return fetch('/shots').then(r => r.json());
+  });
+}).then(list => {
+  const arr = list || [];
+  // Letzter historischer Schuss = aktuell sichtbarer "letzter Schuss" → isNew=true
+  arr.forEach((s, i) => addShot(s, i === arr.length - 1));
+});
+
+const es     = new EventSource('/events');
+const connEl = document.getElementById('connStatus');
+es.onopen  = () => { connEl.textContent = '● live'; connEl.className = 'live'; };
+es.onerror = () => { connEl.textContent = 'Verbindung unterbrochen – reconnect…'; connEl.className = ''; };
+
+es.addEventListener('shot',   ev => addShot(JSON.parse(ev.data), true));
+es.addEventListener('status', ev => {
+  const st = JSON.parse(ev.data);
+  // history_gen aendert sich bei JEDEM Sessionwechsel (auch ohne Moduswechsel,
+  // z.B. Neubelegung waehrend beide Male "probe") - Modusvergleich allein
+  // reicht nicht, um die Anzeige zuverlaessig zurueckzusetzen.
+  const changed = currentHistoryGen !== null && st.history_gen !== currentHistoryGen;
+  applyStatus(st);
+  if (changed) clearDisplay();
+});
+</script>
+</body>
+</html>

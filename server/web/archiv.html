@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Archiv – Schießstand</title>
+<style>
+  :root {
+    --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+    --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+
+  header{border-bottom:1px solid var(--line);padding:12px 24px;display:flex;align-items:center;gap:12px}
+  header a.back{color:var(--dim);text-decoration:none;font-size:1.2rem}
+  header a.back:hover{color:var(--text)}
+  h1{font-size:18px;margin:0}
+
+  main{flex:1;padding:24px;max-width:1000px;width:100%}
+
+  h2{font-size:11px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;margin-bottom:24px}
+
+  .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;padding:7px 10px;font-size:11px;font-weight:600;letter-spacing:.7px;text-transform:uppercase;
+     color:var(--dim);border-bottom:1px solid var(--line)}
+  td{padding:8px 10px;border-bottom:1px solid #1f2a35}
+  tr:last-child td{border-bottom:none}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--dim)}
+  td.check{width:36px;text-align:center}
+
+  input[type=checkbox]{accent-color:var(--acc);width:15px;height:15px;cursor:pointer}
+
+  .btn{background:var(--acc);border:none;border-radius:6px;color:#0d1a16;
+       font-size:13px;font-weight:600;padding:8px 18px;cursor:pointer;transition:opacity .15s}
+  .btn:hover{opacity:.85}
+  .btn:disabled{opacity:.4;cursor:default}
+  .btn-sec{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);
+           font-size:13px;padding:7px 14px;cursor:pointer;transition:border-color .15s,color .15s}
+  .btn-sec:hover{border-color:var(--text);color:var(--text)}
+  .btn-danger{background:#7a1a1a;border:1px solid var(--err);border-radius:6px;color:var(--err);
+              font-size:13px;font-weight:600;padding:8px 18px;cursor:pointer;transition:opacity .15s}
+  .btn-danger:hover{opacity:.85}
+  .btn-danger:disabled{opacity:.4;cursor:default}
+
+  .opt-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);padding:4px 0}
+  .opt-row input[type=checkbox]{flex-shrink:0}
+
+  .drop-zone{border:2px dashed var(--line);border-radius:8px;padding:32px 24px;
+             text-align:center;color:var(--dim);font-size:13px;cursor:pointer;
+             transition:border-color .2s,color .2s;margin-bottom:14px}
+  .drop-zone:hover,.drop-zone.over{border-color:var(--acc);color:var(--text)}
+  .drop-zone input[type=file]{display:none}
+
+  .msg{font-size:13px;padding:10px 14px;border-radius:6px;margin-top:10px}
+  .msg.ok{background:#0d2418;color:#3dcc6e;border:1px solid #1a3a20}
+  .msg.err{background:#2a0d0d;color:var(--err);border:1px solid #5a1a1a}
+  .msg.warn{background:#2a1a00;color:var(--warn);border:1px solid #5a3a00}
+
+  .count-badge{background:#0d2418;color:#3dcc6e;border-radius:4px;
+               padding:2px 7px;font-size:11px;font-weight:600;margin-left:6px}
+
+  .type-badge{font-size:10px;padding:1px 6px;border-radius:3px;font-weight:600;letter-spacing:.5px}
+  .type-einzel{background:#1a1a2e;color:#7ba7ff}
+  .type-runde{background:#1a2a1a;color:#4ab8a0}
+  .type-gruppe{background:#2a1a2a;color:#c07fa0}
+
+  #sel-all-wrap{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);cursor:pointer;user-select:none}
+
+  .spinner-inline{display:inline-block;width:14px;height:14px;border:2px solid var(--line);
+                  border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .import-result table{margin-top:10px}
+  .import-result td:first-child{color:var(--dim)}
+  .import-result td:last-child{color:var(--text);font-weight:600;text-align:right}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="/" title="Zur Startseite">&#8592;</a>
+  <h1>Archiv-Verwaltung</h1>
+</header>
+
+<main>
+
+  <!-- ── Exportieren ─────────────────────────────────────────────────────── -->
+  <h2>Archivierte Wettkämpfe exportieren</h2>
+  <div class="section">
+    <div class="toolbar">
+      <label id="sel-all-wrap">
+        <input type="checkbox" id="sel-all" onchange="toggleAll()"> Alle auswählen
+      </label>
+      <span style="flex:1"></span>
+      <button type="button" class="btn-sec" onclick="loadEvents()">&#8635; Aktualisieren</button>
+    </div>
+
+    <div id="events-area">
+      <div style="color:var(--dim);font-size:13px">Lade…</div>
+    </div>
+
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
+      <div class="opt-row">
+        <input type="checkbox" id="opt-orphans" onchange="updateOrphanNote()">
+        <label for="opt-orphans" style="cursor:pointer">
+          Schützen &amp; Vereine, die in keinen anderen Wettkämpfen mehr vorkommen, ebenfalls löschen/exportieren
+        </label>
+      </div>
+      <div id="orphan-note" style="font-size:12px;color:var(--warn);margin-top:6px;margin-left:23px;display:none">
+        Achtung: Diese Schützen und Vereine werden dauerhaft aus der Stammdatenbank entfernt.
+      </div>
+    </div>
+
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+      <button type="button" class="btn-sec" id="btn-export-only" onclick="doExport(false)" disabled>
+        &#8659; Exportieren (ohne Löschen)
+      </button>
+      <button type="button" class="btn-danger" id="btn-export-delete" onclick="confirmExportDelete()" disabled>
+        &#8659; Exportieren &amp; Löschen
+      </button>
+    </div>
+
+    <div id="export-msg"></div>
+  </div>
+
+  <!-- ── Importieren ─────────────────────────────────────────────────────── -->
+  <h2>Archiv importieren</h2>
+  <div class="section">
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()"
+         ondragover="event.preventDefault();this.classList.add('over')"
+         ondragleave="this.classList.remove('over')"
+         ondrop="onDrop(event)">
+      <input type="file" id="file-input" accept=".json" onchange="onFileSelected(event)">
+      <div style="font-size:24px;margin-bottom:8px">&#128451;</div>
+      <div>JSON-Archivdatei hier ablegen oder klicken zum Auswählen</div>
+      <div style="font-size:11px;margin-top:4px">Nur <code>.json</code>-Dateien, die mit dieser Funktion exportiert wurden</div>
+    </div>
+
+    <div id="import-preview" style="display:none"></div>
+
+    <button type="button" class="btn" id="btn-import" onclick="doImport()" disabled style="margin-top:10px">
+      &#8593; Importieren
+    </button>
+
+    <div id="import-msg"></div>
+  </div>
+
+</main>
+
+<script>
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const TYPE_DE = {einzel:'Einzelwettkampf', runde:'Rundenwettkampf', gruppe:'Gruppenwettkampf'};
+
+let events = [];
+let selectedFile = null;
+let importBundle = null;
+
+// ─── Events laden ────────────────────────────────────────────────────────────
+async function loadEvents() {
+  document.getElementById('events-area').innerHTML = '<div style="color:var(--dim);font-size:13px">Lade…</div>';
+  try {
+    events = await fetch('/api/archive/events').then(r => r.json()) || [];
+    renderEvents();
+  } catch(e) {
+    document.getElementById('events-area').innerHTML = `<div class="msg err">Fehler: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderEvents() {
+  const area = document.getElementById('events-area');
+  if (!events.length) {
+    area.innerHTML = '<div style="color:var(--dim);font-size:13px">Keine archivierten Wettkämpfe vorhanden.</div>';
+    updateButtons();
+    return;
+  }
+  let html = `<table>
+    <thead><tr>
+      <th class="check"></th>
+      <th>Name</th>
+      <th>Typ</th>
+      <th>Datum</th>
+      <th style="text-align:right">Starter</th>
+      <th style="text-align:right">Sessions</th>
+      <th style="text-align:right">Schüsse</th>
+    </tr></thead><tbody>`;
+  for (const ev of events) {
+    const typeBadge = ev.type ? `<span class="type-badge type-${esc(ev.type)}">${esc(TYPE_DE[ev.type]||ev.type)}</span>` : '';
+    html += `<tr>
+      <td class="check"><input type="checkbox" class="ev-chk" value="${esc(ev.id)}" onchange="updateButtons()"></td>
+      <td>${esc(ev.name)}</td>
+      <td>${typeBadge}</td>
+      <td style="color:var(--dim)">${ev.starts_on ? ev.starts_on.slice(0,10) : '–'}</td>
+      <td class="num">${ev.starter_count}</td>
+      <td class="num">${ev.session_count}</td>
+      <td class="num">${ev.shot_count.toLocaleString('de-DE')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  area.innerHTML = html;
+  updateButtons();
+}
+
+function getSelectedIDs() {
+  return [...document.querySelectorAll('.ev-chk:checked')].map(el => el.value);
+}
+
+function updateButtons() {
+  const sel = getSelectedIDs();
+  const has = sel.length > 0;
+  document.getElementById('btn-export-only').disabled = !has;
+  document.getElementById('btn-export-delete').disabled = !has;
+  // Alle-Checkbox synchronisieren
+  const all = document.querySelectorAll('.ev-chk');
+  const chkAll = document.getElementById('sel-all');
+  if (all.length === 0) { chkAll.indeterminate = false; chkAll.checked = false; return; }
+  if (sel.length === 0) { chkAll.indeterminate = false; chkAll.checked = false; }
+  else if (sel.length === all.length) { chkAll.indeterminate = false; chkAll.checked = true; }
+  else { chkAll.indeterminate = true; }
+}
+
+function toggleAll() {
+  const chkAll = document.getElementById('sel-all');
+  document.querySelectorAll('.ev-chk').forEach(el => el.checked = chkAll.checked);
+  updateButtons();
+}
+
+function updateOrphanNote() {
+  const on = document.getElementById('opt-orphans').checked;
+  document.getElementById('orphan-note').style.display = on ? 'block' : 'none';
+}
+
+// ─── Export ──────────────────────────────────────────────────────────────────
+async function doExport(andDelete) {
+  const ids = getSelectedIDs();
+  if (!ids.length) return;
+  const orphans = document.getElementById('opt-orphans').checked;
+  const msgEl = document.getElementById('export-msg');
+  msgEl.innerHTML = '<div class="msg warn"><span class="spinner-inline"></span> Exportiere…</div>';
+
+  const endpoint = andDelete ? '/api/archive/export-delete' : '/api/archive/export';
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({event_ids: ids, include_orphans: orphans})
+    });
+    if (!resp.ok) {
+      const j = await resp.json().catch(() => ({error: resp.statusText}));
+      throw new Error(j.error || resp.statusText);
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const fnMatch = cd.match(/filename="([^"]+)"/);
+    const filename = fnMatch ? fnMatch[1] : 'schiessstand_archiv.json';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+
+    const verb = andDelete ? 'exportiert und gelöscht' : 'exportiert';
+    msgEl.innerHTML = `<div class="msg ok">&#10003; ${ids.length} Wettkampf/-kämpfe erfolgreich ${verb}.</div>`;
+    if (andDelete) await loadEvents();
+  } catch(e) {
+    msgEl.innerHTML = `<div class="msg err">Fehler: ${esc(e.message)}</div>`;
+  }
+}
+
+function confirmExportDelete() {
+  const ids = getSelectedIDs();
+  const orphans = document.getElementById('opt-orphans').checked;
+  const orphanHint = orphans ? '\n\nZusätzlich werden verwaiste Schützen und Vereine gelöscht.' : '';
+  const msg = `${ids.length} Wettkampf/-kämpfe werden exportiert und dauerhaft aus der Datenbank gelöscht.${orphanHint}\n\nFortfahren?`;
+  if (confirm(msg)) doExport(true);
+}
+
+// ─── Import ───────────────────────────────────────────────────────────────────
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('over');
+  const file = e.dataTransfer.files[0];
+  if (file) loadImportFile(file);
+}
+
+function onFileSelected(e) {
+  const file = e.target.files[0];
+  if (file) loadImportFile(file);
+}
+
+function loadImportFile(file) {
+  selectedFile = file;
+  importBundle = null;
+  document.getElementById('btn-import').disabled = true;
+  document.getElementById('import-msg').innerHTML = '';
+  document.getElementById('import-preview').style.display = 'none';
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      importBundle = JSON.parse(e.target.result);
+      renderImportPreview(importBundle, file.name);
+      document.getElementById('btn-import').disabled = false;
+    } catch(err) {
+      document.getElementById('import-msg').innerHTML = `<div class="msg err">Ungültige JSON-Datei: ${esc(err.message)}</div>`;
+    }
+  };
+  reader.readAsText(file);
+}
+
+function renderImportPreview(b, filename) {
+  if (!b.events || b.version !== 1) {
+    document.getElementById('import-msg').innerHTML = '<div class="msg err">Keine gültige Schiessstand-Archivdatei (version 1 erwartet).</div>';
+    document.getElementById('btn-import').disabled = true;
+    return;
+  }
+  const evts = Array.isArray(b.events) ? b.events : [];
+  const rows = [
+    ['Wettkämpfe', (b.events||[]).length],
+    ['Starter', (b.starters||[]).length],
+    ['Sessions', (b.sessions||[]).length],
+    ['Schüsse', (b.shots||[]).length],
+    ['Schützen', (b.shooters||[]).length || '–'],
+    ['Vereine', (b.clubs||[]).length || '–'],
+  ];
+  let evNames = '';
+  if (evts.length) {
+    evNames = `<div style="margin-top:10px;font-size:12px;color:var(--dim)">Enthaltene Wettkämpfe:<br>`
+      + evts.map(e => `<span style="color:var(--text)">${esc(e.name||e.id)}</span>`
+        + (e.starts_on ? ` <span style="color:var(--dim)">(${String(e.starts_on).slice(0,10)})</span>` : '')).join(', ')
+      + '</div>';
+  }
+  const preview = document.getElementById('import-preview');
+  preview.style.display = 'block';
+  preview.innerHTML = `
+    <div style="font-size:12px;color:var(--dim);margin-bottom:6px">
+      Datei: <strong style="color:var(--text)">${esc(filename)}</strong>
+      &nbsp;·&nbsp; Exportiert: <strong style="color:var(--text)">${esc(b.exported_at||'?')}</strong>
+    </div>
+    <div class="import-result">
+      <table>${rows.map(([label, val]) =>
+        `<tr><td>${esc(label)}</td><td>${typeof val === 'number' ? val.toLocaleString('de-DE') : val}</td></tr>`
+      ).join('')}</table>
+    </div>
+    ${evNames}`;
+}
+
+async function doImport() {
+  if (!selectedFile) return;
+  const msgEl = document.getElementById('import-msg');
+  msgEl.innerHTML = '<div class="msg warn"><span class="spinner-inline"></span> Importiere…</div>';
+  document.getElementById('btn-import').disabled = true;
+
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+  try {
+    const resp = await fetch('/api/archive/import', {method: 'POST', body: fd});
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || resp.statusText);
+
+    const rows = [
+      ['Wettkämpfe', result.events],
+      ['Starter', result.starters],
+      ['Sessions', result.sessions],
+      ['Schüsse', result.shots],
+      result.shooters ? ['Schützen', result.shooters] : null,
+      result.clubs ? ['Vereine', result.clubs] : null,
+    ].filter(Boolean);
+
+    let warningsHtml = '';
+    if (result.warnings && result.warnings.length) {
+      warningsHtml = `<div class="msg warn" style="margin-top:8px">
+        <strong>Hinweise:</strong><br>${result.warnings.map(w => esc(w)).join('<br>')}
+      </div>`;
+    }
+    msgEl.innerHTML = `<div class="msg ok">
+      <strong>&#10003; Import erfolgreich</strong>
+      <div class="import-result"><table>
+        ${rows.map(([label, val]) => `<tr><td>${esc(label)}</td><td>${(val||0).toLocaleString('de-DE')} importiert</td></tr>`).join('')}
+      </table></div>
+    </div>${warningsHtml}`;
+    await loadEvents();
+  } catch(e) {
+    msgEl.innerHTML = `<div class="msg err">Fehler: ${esc(e.message)}</div>`;
+  } finally {
+    document.getElementById('btn-import').disabled = false;
+  }
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+loadEvents();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

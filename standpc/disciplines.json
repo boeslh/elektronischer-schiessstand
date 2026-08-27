@@ -1,0 +1,38 @@
+{
+  "_kommentar": "Verfuegbare Disziplinen fuer diesen Stand. 'default' gibt die Startdisziplin an.",
+  "default": "LG-40",
+  "disciplines": [
+    {
+      "name":             "LG-40",
+      "target_no":        1,
+      "trial_shots":      100,
+      "scoring_shots":    40,
+      "shots_per_series": 10,
+      "decimal_scoring":  false
+    },
+    {
+      "name":             "LGA-30",
+      "target_no":        1,
+      "trial_shots":      100,
+      "scoring_shots":    30,
+      "shots_per_series": 10,
+      "decimal_scoring":  true
+    },
+    {
+      "name":             "LP-40",
+      "target_no":        7,
+      "trial_shots":      100,
+      "scoring_shots":    40,
+      "shots_per_series": 10,
+      "decimal_scoring":  false
+    },
+    {
+      "name":             "LPA-30",
+      "target_no":        7,
+      "trial_shots":      100,
+      "scoring_shots":    30,
+      "shots_per_series": 10,
+      "decimal_scoring":  true
+    }
+  ]
+}

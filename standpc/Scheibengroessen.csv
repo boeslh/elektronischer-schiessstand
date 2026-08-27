@@ -1,0 +1,55 @@
+Scheiben NR;Scheibenname;Ring;Gefüllt;Durchmesser mm;Radius;Disziplinen
+1;LG;10;j;0,5;0,25;10m Gewehr, 10m Armbrust
+1;LG;9;j;5,5;2,75;10m Gewehr, 10m Armbrust
+1;LG;8;j;10,5;5,25;10m Gewehr, 10m Armbrust
+1;LG;7;j;15,5;7,75;10m Gewehr, 10m Armbrust
+1;LG;6;j;20,5;10,25;10m Gewehr, 10m Armbrust
+1;LG;5;j;25,5;12,75;10m Gewehr, 10m Armbrust
+1;LG;4;j;30,5;15,25;10m Gewehr, 10m Armbrust
+1;LG;3;n;35,5;17,75;10m Gewehr, 10m Armbrust
+1;LG;2;n;40,5;20,25;10m Gewehr, 10m Armbrust
+1;LG;1;n;45,5;22,75;10m Gewehr, 10m Armbrust
+7;LP;innen10;j;5;2,5;10m Pistole
+7;LP;10;j;11,5;5,75;10m Pistole
+7;LP;9;j;27,5;13,75;10m Pistole
+7;LP;8;j;43,5;21,75;10m Pistole
+7;LP;7;j;59,5;29,75;10m Pistole
+7;LP;6;n;75,5;37,75;10m Pistole
+7;LP;5;n;91,5;45,75;10m Pistole
+7;LP;4;n;107,5;53,75;10m Pistole
+7;LP;3;n;123,5;61,75;10m Pistole
+7;LP;2;n;139,5;69,75;10m Pistole
+7;LP;1;n;155,5;77,75;10m Pistole
+2;ZS;10;j;4,5;2,25;15m Gewehr
+2;ZS;9;j;13,5;6,75;15m Gewehr
+2;ZS;8;j;22,5;11,25;15m Gewehr
+2;ZS;7;j;31,5;15,75;15m Gewehr
+2;ZS;6;j;40,5;20,25;15m Gewehr
+2;ZS;5;n;49,5;24,75;15m Gewehr
+2;ZS;4;n;58,5;29,25;15m Gewehr
+2;ZS;3;n;67,5;33,75;15m Gewehr
+2;ZS;2;n;76,5;38,25;15m Gewehr
+2;ZS;1;n;85,5;42,75;15m Gewehr
+4;SP;innen10;j;25;12,5;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;10;j;50;25;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;9;j;100;50;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;8;j;150;75;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;7;j;200;100;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;6;n;250;125;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;5;n;300;150;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;4;n;350;175;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;3;n;400;200;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;2;n;350;175;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+4;SP;1;n;500;250;100m Gewehr, 25m Pistole Präzision, 25m Standardpistole
+;;;;;;
+Scheiben NR;Scheibenname;Ring 0.1;;Durchmesser mm;Radius;
+1;LG;10,9;;0,5;250;
+1;LG;10,8;;1;500;
+1;LG;10,7;;1,5;750;
+1;LG;10,6;;2;1000;
+1;LG;10,5;;2,5;1250;
+1;LG;10,4;;3;1500;
+1;LG;10,3;;3,5;1750;
+1;LG;10,2;;4;2000;
+1;LG;10,1;;4,5;2250;
+1;LG;10;;5;2500;

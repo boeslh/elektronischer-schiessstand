@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Disziplinen – Schießstand</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0; min-height: 100vh; }
+header { background: #1a1a2e; border-bottom: 2px solid #e94560; padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+header a.back { color: #e94560; text-decoration: none; font-size: 1.2rem; }
+header a.back:hover { color: #ff6b81; }
+header h1 { font-size: 1.4rem; color: #e94560; }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; display: grid; grid-template-columns: 1fr 380px; gap: 24px; }
+@media (max-width: 800px) { .container { grid-template-columns: 1fr; } }
+
+/* --- List --- */
+.card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; }
+.card h2 { font-size: 1rem; color: #a0a0c0; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 16px; }
+.btn-new { background: #e94560; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: .9rem; margin-bottom: 16px; }
+.btn-new:hover { background: #c73652; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th { text-align: left; color: #a0a0c0; font-weight: 500; padding: 6px 8px; border-bottom: 1px solid #2a2a4a; }
+td { padding: 8px; border-bottom: 1px solid #1e1e3a; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr.inactive td { color: #666; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: .75rem; }
+.badge.active { background: #1a3a2a; color: #4caf50; }
+.badge.inactive { background: #3a1a1a; color: #e57373; }
+.badge.decimal { background: #1a2a3a; color: #64b5f6; }
+.row-actions { white-space: nowrap; }
+.btn-edit, .btn-del { border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; font-size: .8rem; margin-left: 4px; }
+.btn-edit { background: #2a2a5a; color: #90caf9; }
+.btn-edit:hover { background: #3a3a7a; }
+.btn-del  { background: #3a1a1a; color: #ef9a9a; }
+.btn-del:hover  { background: #5a2a2a; }
+
+/* --- Form --- */
+.form-card { position: sticky; top: 16px; }
+.form-card h2 span { color: #e94560; }
+form label { display: block; font-size: .8rem; color: #a0a0c0; margin-top: 12px; margin-bottom: 4px; }
+form input[type=text],
+form input[type=number],
+form select,
+form textarea { width: 100%; background: #111; border: 1px solid #3a3a5a; border-radius: 5px; color: #e0e0e0; padding: 7px 10px; font-size: .9rem; }
+form input:focus, form select:focus, form textarea:focus { outline: none; border-color: #e94560; }
+form textarea { resize: vertical; min-height: 56px; }
+.form-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.check-row input[type=checkbox] { width: 16px; height: 16px; accent-color: #e94560; }
+.check-row label { margin: 0; font-size: .9rem; color: #e0e0e0; }
+.form-actions { margin-top: 20px; display: flex; gap: 10px; }
+.btn-save { flex: 1; background: #e94560; color: #fff; border: none; border-radius: 6px; padding: 9px; cursor: pointer; font-size: .95rem; }
+.btn-save:hover { background: #c73652; }
+.btn-cancel { background: #2a2a4a; color: #a0a0c0; border: none; border-radius: 6px; padding: 9px 16px; cursor: pointer; font-size: .9rem; }
+.btn-cancel:hover { background: #3a3a5a; }
+.msg { margin-top: 10px; padding: 8px 12px; border-radius: 5px; font-size: .85rem; }
+.msg.ok  { background: #1a3a2a; color: #81c784; }
+.msg.err { background: #3a1a1a; color: #ef9a9a; }
+.hint { font-size: .75rem; color: #666; margin-top: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/" title="Zurück">&#8592;</a>
+  <h1>Disziplinen</h1>
+</header>
+
+<div class="container">
+  <!-- ---- Liste ---- -->
+  <div class="card">
+    <h2>Alle Disziplinen</h2>
+    <button class="btn-new" onclick="newDiscipline()">+ Neue Disziplin</button>
+    <table id="disc-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Scheibe</th>
+          <th>Wertung</th>
+          <th>Probe</th>
+          <th>Serie</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="disc-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- ---- Formular ---- -->
+  <div class="card form-card" id="form-card">
+    <h2>Disziplin <span id="form-title">anlegen</span></h2>
+    <form id="disc-form" onsubmit="saveForm(event)">
+      <input type="hidden" id="f-id">
+
+      <label for="f-name">Name *</label>
+      <input type="text" id="f-name" placeholder="z.B. Luftgewehr 40 Schuss" required>
+
+      <div class="form-row2">
+        <div>
+          <label for="f-ruleno">Regelnummer</label>
+          <input type="text" id="f-ruleno" placeholder="z.B. 1.10">
+        </div>
+        <div>
+          <label for="f-dist">Distanz (m)</label>
+          <input type="number" id="f-dist" value="10" min="1" max="100" step="0.5">
+        </div>
+      </div>
+
+      <label for="f-target">Scheibe *</label>
+      <select id="f-target" required>
+        <option value="">– bitte wählen –</option>
+      </select>
+
+      <div class="form-row2">
+        <div>
+          <label for="f-scoring">Wertungsschüsse *</label>
+          <input type="number" id="f-scoring" value="40" min="1" max="999" required>
+        </div>
+        <div>
+          <label for="f-series">Schüsse/Serie</label>
+          <input type="number" id="f-series" value="10" min="1" max="100">
+        </div>
+      </div>
+
+      <label for="f-sighting">Probeschüsse</label>
+      <input type="number" id="f-sighting" placeholder="leer = unbegrenzt" min="0" max="999">
+      <div class="hint">Leer lassen für unbegrenzte Probe</div>
+
+      <label for="f-time">Wertungszeit (Minuten)</label>
+      <input type="number" id="f-time" placeholder="leer = keine Begrenzung" min="1" max="9999">
+
+      <div class="check-row">
+        <input type="checkbox" id="f-decimal">
+        <label for="f-decimal">Zehntelwertung</label>
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="f-active" checked>
+        <label for="f-active">Aktiv</label>
+      </div>
+
+      <label for="f-notes">Notizen</label>
+      <textarea id="f-notes" rows="2"></textarea>
+
+      <div class="form-actions">
+        <button type="submit" class="btn-save">Speichern</button>
+        <button type="button" class="btn-cancel" onclick="clearForm()">Abbrechen</button>
+      </div>
+      <div id="form-msg" style="display:none"></div>
+    </form>
+  </div>
+</div>
+
+<script>
+let disciplines = [];
+let targets = [];
+
+async function load() {
+  const [dRes, tRes] = await Promise.all([
+    fetch('/api/disciplines/full'),
+    fetch('/api/targets'),
+  ]);
+  disciplines = (await dRes.json()) || [];
+  targets = (await tRes.json()) || [];
+  renderTargetSelect();
+  renderTable();
+}
+
+function renderTargetSelect(selectedID) {
+  const sel = document.getElementById('f-target');
+  const cur = selectedID || sel.value;
+  sel.innerHTML = '<option value="">– bitte wählen –</option>';
+  for (const t of targets) {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name;
+    if (t.id === cur) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+function renderTable() {
+  const tbody = document.getElementById('disc-tbody');
+  tbody.innerHTML = '';
+  for (const d of disciplines) {
+    const tr = document.createElement('tr');
+    if (!d.active) tr.className = 'inactive';
+    const probe = d.max_sighting_shots != null ? d.max_sighting_shots : '∞';
+    const timeMin = d.match_time_s != null ? Math.round(d.match_time_s/60) + ' min' : '–';
+    tr.innerHTML = `
+      <td><strong>${esc(d.name)}</strong>${d.rule_no ? `<br><small>${esc(d.rule_no)}</small>` : ''}</td>
+      <td style="font-size:.8rem">${esc(d.target_name)}</td>
+      <td>${d.match_shot_count}${d.decimal_scoring ? ' <span class="badge decimal">Z</span>' : ''}</td>
+      <td>${probe}</td>
+      <td>${d.shots_per_series}</td>
+      <td>
+        <span class="badge ${d.active ? 'active' : 'inactive'}">${d.active ? 'aktiv' : 'inaktiv'}</span>
+      </td>
+      <td class="row-actions">
+        <button class="btn-edit" onclick="editRow('${d.id}')">Bearbeiten</button>
+        <button class="btn-del" onclick="deleteRow('${d.id}', '${esc(d.name)}')">Löschen</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function newDiscipline() {
+  clearForm();
+  document.getElementById('form-title').textContent = 'anlegen';
+  document.getElementById('form-card').scrollIntoView({behavior:'smooth'});
+}
+
+function editRow(id) {
+  const d = disciplines.find(x => x.id === id);
+  if (!d) return;
+  document.getElementById('form-title').textContent = 'bearbeiten';
+  document.getElementById('f-id').value = d.id;
+  document.getElementById('f-name').value = d.name;
+  document.getElementById('f-ruleno').value = d.rule_no || '';
+  document.getElementById('f-dist').value = d.distance_m;
+  renderTargetSelect(d.target_id);
+  document.getElementById('f-scoring').value = d.match_shot_count;
+  document.getElementById('f-series').value = d.shots_per_series;
+  document.getElementById('f-sighting').value = d.max_sighting_shots != null ? d.max_sighting_shots : '';
+  document.getElementById('f-time').value = d.match_time_s != null ? Math.round(d.match_time_s/60) : '';
+  document.getElementById('f-decimal').checked = d.decimal_scoring;
+  document.getElementById('f-active').checked = d.active;
+  document.getElementById('f-notes').value = d.notes || '';
+  hideMsg();
+  document.getElementById('form-card').scrollIntoView({behavior:'smooth'});
+}
+
+function clearForm() {
+  document.getElementById('form-title').textContent = 'anlegen';
+  document.getElementById('f-id').value = '';
+  document.getElementById('disc-form').reset();
+  document.getElementById('f-dist').value = '10';
+  document.getElementById('f-scoring').value = '40';
+  document.getElementById('f-series').value = '10';
+  document.getElementById('f-active').checked = true;
+  renderTargetSelect('');
+  hideMsg();
+}
+
+function hideMsg() {
+  const el = document.getElementById('form-msg');
+  el.style.display = 'none';
+  el.className = 'msg';
+  el.textContent = '';
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('form-msg');
+  el.textContent = text;
+  el.className = 'msg ' + type;
+  el.style.display = 'block';
+}
+
+async function saveForm(e) {
+  e.preventDefault();
+  const id = document.getElementById('f-id').value;
+  const timeMin = document.getElementById('f-time').value;
+  const sighting = document.getElementById('f-sighting').value;
+  const body = {
+    name:               document.getElementById('f-name').value.trim(),
+    rule_no:            document.getElementById('f-ruleno').value.trim(),
+    distance_m:         parseFloat(document.getElementById('f-dist').value) || 10,
+    target_id:          document.getElementById('f-target').value,
+    match_shot_count:   parseInt(document.getElementById('f-scoring').value) || 40,
+    shots_per_series:   parseInt(document.getElementById('f-series').value) || 10,
+    max_sighting_shots: sighting !== '' ? parseInt(sighting) : null,
+    match_time_s:       timeMin !== '' ? Math.round(parseFloat(timeMin) * 60) : null,
+    decimal_scoring:    document.getElementById('f-decimal').checked,
+    active:             document.getElementById('f-active').checked,
+    notes:              document.getElementById('f-notes').value.trim(),
+  };
+
+  const url    = id ? `/api/disciplines/${id}` : '/api/disciplines';
+  const method = id ? 'PUT' : 'POST';
+  try {
+    const res = await fetch(url, {
+      method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      showMsg('Fehler: ' + txt, 'err');
+      return;
+    }
+    showMsg(id ? 'Gespeichert.' : 'Disziplin angelegt.', 'ok');
+    clearForm();
+    await load();
+  } catch (err) {
+    showMsg('Netzwerkfehler: ' + err.message, 'err');
+  }
+}
+
+async function deleteRow(id, name) {
+  if (!confirm(`Disziplin "${name}" wirklich löschen?\n\nHinweis: Löschen ist nur möglich, wenn keine Sitzungen auf diese Disziplin verweisen.`)) return;
+  try {
+    const res = await fetch(`/api/disciplines/${id}`, {method:'DELETE'});
+    if (!res.ok) {
+      const txt = await res.text();
+      alert('Fehler: ' + txt);
+      return;
+    }
+    await load();
+  } catch (err) {
+    alert('Netzwerkfehler: ' + err.message);
+  }
+}
+
+load();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

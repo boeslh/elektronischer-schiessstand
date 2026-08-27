@@ -1,0 +1,36 @@
+# Alles ignorieren, dann gezielt freigeben - dieses Repo sichert nur das
+# Schiessstand-Projekt, nicht das gesamte Home-Verzeichnis.
+/*
+
+!/server/
+!/standpc/
+!/README.md
+!/datenmodell.sql
+!/install-services.sh
+!/.gitignore
+
+# ---- server/ ----
+/server/server_bin
+/server/schiessstand-server
+/server/server
+/server/standpc_bin
+
+# ---- standpc/ ----
+/standpc/standpc
+/standpc/standpc_bin
+/standpc/simulator/simulator
+/standpc/config.json
+/standpc/config-lane02.json
+/standpc/config-lane03.json
+/standpc/shotlog/
+/standpc/firmware/Config1.txt
+/standpc/firmware/Config2.txt
+/standpc/firmware/Config3.txt
+
+# Go-Build-Artefakte allgemein
+*.test
+*.exe
+*.exe~
+
+# Editor/OS
+.DS_Store

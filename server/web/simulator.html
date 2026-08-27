@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simulator – Schießstand</title>
+<style>
+  :root {
+    --bg:#0f0f1a; --panel:#1a1a2e; --line:#2a2a45; --text:#e0e0f0;
+    --dim:#7070a0; --acc:#7ba7ff; --green:#3dcc6e; --red:#e04040;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;
+         background:var(--panel);border-bottom:1px solid var(--line)}
+  header a{color:var(--dim);text-decoration:none;font-size:18px}
+  header a:hover{color:var(--text)}
+  header h1{font-size:17px;font-weight:600}
+
+  main{padding:20px;display:flex;flex-direction:column;gap:20px;max-width:1400px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px}
+  section h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);margin-bottom:12px}
+
+  .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
+  .filter-group{display:flex;flex-direction:column;gap:4px}
+  .filter-group label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  input,select,textarea{
+    background:var(--bg);color:var(--text);border:1px solid var(--line);
+    border-radius:5px;padding:6px 10px;font-size:13px}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+  .btn{background:var(--acc);color:#000;border:none;border-radius:5px;
+       padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn:hover{opacity:.85}
+  .btn-sec{background:transparent;color:var(--dim);border:1px solid var(--line);
+            border-radius:5px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .btn-sec:hover{color:var(--text);border-color:var(--text)}
+
+  table{width:100%;border-collapse:collapse}
+  thead th{text-align:left;font-size:11px;text-transform:uppercase;
+           letter-spacing:.5px;color:var(--dim);padding:6px 10px;
+           border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:var(--bg)}
+  tbody tr.selected{background:#12203a}
+  td{padding:7px 10px;border-bottom:1px solid var(--line)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  #status{color:var(--dim);font-size:13px;margin-bottom:10px;min-height:18px}
+
+  .params-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 14px;margin-bottom:14px}
+  .params-grid .filter-group input{width:100%}
+  .ofs-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px}
+  .ofs-grid .filter-group input{width:100%}
+  .mic-en{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;
+          background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:6px 8px}
+  .target-radios{display:flex;gap:16px;align-items:center;margin-bottom:14px}
+  .target-radios label{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px}
+
+  .row-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:6px}
+
+  .series-grid{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px}
+  .series-box{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+              padding:10px 14px;min-width:180px}
+  .series-box .series-label{font-size:11px;color:var(--dim);margin-bottom:6px}
+  .series-box .shots{display:flex;flex-wrap:wrap;gap:4px}
+  .shot-chip{position:relative;background:var(--line);border-radius:3px;padding:2px 6px;
+             font-size:12px;font-variant-numeric:tabular-nums;cursor:pointer}
+  .shot-chip.ten{background:#1a3a1a;color:#3dcc6e}
+  .shot-chip.sighting{background:#2a2a10;color:#c0c040}
+  .shot-chip.invalid{background:#2a1a1a;color:#a06060;text-decoration:line-through}
+  .shot-chip.norawdata{opacity:.35}
+  .shot-chip.selected{outline:2px solid var(--acc)}
+  .shot-chip .chip-no{position:absolute;top:-6px;left:-4px;font-size:8px;line-height:1.2;
+             color:var(--dim);background:var(--bg);border:1px solid var(--line);
+             border-radius:2px;padding:0 2px}
+  .delta-up{color:#e04040}
+  .delta-down{color:#3dcc6e}
+
+  #detailBox{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+             padding:12px 14px;font-size:13px;margin-top:10px;display:none}
+  #detailBox table{margin-top:8px}
+  #detailBox td,#detailBox th{border:none;padding:3px 8px}
+
+  .hint{color:var(--dim);font-size:12px;margin-top:4px}
+
+  /* ── Referenzscheibe (SVG) ── */
+  .result-cols{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  #targetWrap{flex:0 0 auto;width:570px;height:630px;background:var(--bg);
+              border:1px solid var(--line);border-radius:6px;
+              display:flex;flex-direction:column;padding:6px}
+  .zoom-bar{display:flex;gap:8px;align-items:center;margin-bottom:6px;flex:0 0 auto}
+  .zoom-bar select{font-size:12px;padding:4px 8px;flex:1}
+  .zoom-bar .btn-sec{padding:4px 10px;font-size:12px}
+  #targetSvg{width:100%;flex:1;min-height:0}
+  .result-side{flex:1;min-width:320px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--dim);
+          margin-bottom:8px;align-items:center}
+  .legend .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .legend .cross{display:inline-block;width:9px;height:9px;margin-right:5px;vertical-align:middle;
+                  background:
+                    linear-gradient(45deg, transparent 45%, #f3fb06 45%, #f3fb06 55%, transparent 55%),
+                    linear-gradient(-45deg, transparent 45%, #f3fb06 45%, #f3fb06 55%, transparent 55%)}
+  .detail-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);cursor:pointer;margin-left:auto}
+  #detailExtra{background:var(--bg);border:1px dashed var(--line);border-radius:6px;
+               padding:8px 10px;font-size:12px;margin-top:8px;display:none;
+               max-height:340px;overflow-y:auto}
+  #detailExtra table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;margin-bottom:4px}
+  #detailExtra th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;
+                   color:var(--dim);padding:3px 6px;border-bottom:1px solid var(--line)}
+  #detailExtra td{padding:2px 6px;border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/" title="Zurück">←</a>
+  <h1>Simulator</h1>
+</header>
+
+<main>
+
+<section id="pickSection">
+  <h2>1. Ergebnis auswählen</h2>
+  <div class="filters">
+    <div class="filter-group">
+      <label>Datum</label>
+      <input type="date" id="f-date">
+    </div>
+    <div class="filter-group">
+      <label>Schütze</label>
+      <input type="text" id="f-name" placeholder="Name…" style="min-width:200px">
+    </div>
+    <div class="filter-group">
+      <label>&nbsp;</label>
+      <button class="btn" onclick="searchResults()">Suchen</button>
+    </div>
+  </div>
+  <div id="status"></div>
+  <table id="tbl">
+    <thead><tr><th>Schütze</th><th>Datum</th><th>Disziplin</th>
+      <th style="text-align:right">Schüsse</th><th style="text-align:right">Ergebnis</th></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div id="selectedInfo" class="hint"></div>
+</section>
+
+<section id="paramsSection" style="display:none">
+  <h2>2. Kalibrierparameter</h2>
+
+  <div class="row-actions">
+    <div class="filter-group">
+      <label>Gespeicherte Configs</label>
+      <select id="cfgSelect"><option value="">– auswählen –</option></select>
+    </div>
+    <button class="btn-sec" onclick="loadConfig()">Laden</button>
+    <div class="filter-group">
+      <label>Name zum Speichern</label>
+      <input type="text" id="cfgName" placeholder="z.B. Stand 1 Winter" style="min-width:220px">
+    </div>
+    <button class="btn-sec" onclick="saveConfig()">Speichern</button>
+  </div>
+
+  <div class="row-actions">
+    <div class="filter-group" style="flex:1;min-width:400px">
+      <label>SHOW-Ausgabe der Firmware einfügen (optional)</label>
+      <textarea id="showText" rows="2" style="width:100%"
+        placeholder='{"type":"config","mic_offset_ns":[...],"standoff_steel_mm":...,...}'></textarea>
+    </div>
+    <button class="btn-sec" onclick="importShow()">Übernehmen</button>
+  </div>
+  <div id="showStatus" class="hint"></div>
+
+  <div class="target-radios">
+    <label><input type="radio" name="target" value="steel" checked> Target: Steel</label>
+    <label><input type="radio" name="target" value="paper"> Target: Paper</label>
+  </div>
+
+  <div class="params-grid">
+    <div class="filter-group"><label>Standoff Steel (mm)</label><input type="number" id="p-standoffSteel" step="0.1" value="30.0"></div>
+    <div class="filter-group"><label>Standoff Paper (mm)</label><input type="number" id="p-standoffPaper" step="0.1" value="28.0"></div>
+    <div class="filter-group"><label>Mic-Halbabstand X (mm)</label><input type="number" id="p-micHalfX" step="0.1" value="115.0"></div>
+    <div class="filter-group"><label>Offset X (0.001mm)</label><input type="number" id="p-offsetX" step="1" value="0"></div>
+    <div class="filter-group"><label>Offset Y (0.001mm)</label><input type="number" id="p-offsetY" step="1" value="0"></div>
+    <div class="filter-group"><label>Schallgeschw. (m/s)</label><input type="number" id="p-sound" step="1" value="355"></div>
+    <div class="filter-group"><label>Kugeldurchm.-Korrektur (%)</label><input type="number" id="p-bshiftPct" step="1" min="0" max="100" value="50"></div>
+    <div class="filter-group"><label>Korrektur-Kappung (mm)</label><input type="number" id="p-bshiftCap" step="0.1" min="0" value="3.0"></div>
+    <div class="filter-group"><label>Cluster-Radius (0.001mm)</label><input type="number" id="p-clusterRadius" step="1" min="0" max="500000" value="200"></div>
+  </div>
+
+  <div class="filter-group" style="margin-bottom:6px"><label>Mikrofon-Timing-Offsets OFS0–OFS5 (ns)</label></div>
+  <div class="ofs-grid">
+    <div class="filter-group"><input type="number" id="p-ofs0" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-ofs1" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-ofs2" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-ofs3" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-ofs4" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-ofs5" step="1" value="0"></div>
+  </div>
+
+  <div class="filter-group" style="margin-bottom:6px"><label>Berücksichtigte Mikrofone (MICEN0–MICEN5)</label></div>
+  <div class="ofs-grid" style="margin-bottom:14px">
+    <label class="mic-en"><input type="checkbox" id="p-micen0" checked> Mic0</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen1" checked> Mic1</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen2" checked> Mic2</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen3" checked> Mic3</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen4" checked> Mic4</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen5" checked> Mic5</label>
+  </div>
+
+  <button class="btn" onclick="runSimulation()">Neu berechnen</button>
+</section>
+
+<section id="calSection" style="display:none">
+  <h2>3. Kalibrierung (Mikrofon-Offsets aus ausgewählten Schüssen berechnen)</h2>
+  <div class="hint" style="margin-bottom:8px">
+    Schüsse zum Anklicken auswählen (mind. 3, nur Schüsse mit Rohdaten möglich) - entspricht
+    „CAL START" der Firmware, nur mit frei wählbaren statt automatisch nächsten N Schüssen.
+    Mic0 bleibt als Referenz immer 0.
+  </div>
+  <div id="calShotList" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
+  <div class="row-actions">
+    <button class="btn" onclick="runCalibration()">Kalibrieren</button>
+    <button class="btn-sec" onclick="clearCalSelection()">Auswahl zurücksetzen</button>
+    <span id="calStatus" class="hint"></span>
+  </div>
+  <div id="calResult" class="hint" style="margin-top:8px;display:none"></div>
+
+  <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
+    <div class="hint" style="margin-bottom:6px">
+      Alle aktuell eingestellten Parameter (inkl. OFS0–5, egal ob kalibriert oder manuell
+      eingegeben) als SET-Befehle für die serielle Konsole des ESP32:
+    </div>
+    <div class="row-actions">
+      <button class="btn-sec" onclick="showEsp32Export()">Als SET-Befehle anzeigen</button>
+    </div>
+    <div id="esp32ExportBox" style="display:none;margin-top:8px">
+      <textarea id="esp32ExportText" readonly rows="16"
+        style="width:100%;font-family:monospace;font-size:12px" onclick="this.select()"></textarea>
+      <div class="row-actions" style="margin-top:6px">
+        <button class="btn-sec" onclick="copyEsp32Export()">In Zwischenablage kopieren</button>
+        <span id="esp32CopyStatus" class="hint"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="resultSection" style="display:none">
+  <h2>4. Ergebnis (Original vs. Neuberechnung)</h2>
+  <div id="resultStatus" class="hint" style="margin-bottom:10px"></div>
+  <div id="applySimBox" style="display:none;margin-bottom:10px">
+    <button class="btn-sec" onclick="applySimulation()">Als Korrektur speichern (Original bleibt erhalten)</button>
+    <span id="applySimStatus" class="hint"></span>
+  </div>
+  <div class="result-cols">
+    <div id="targetWrap">
+      <div class="zoom-bar">
+        <select id="zoomSelect" onchange="setZoomMode(this.value)">
+          <option value="auto">Auto-Zoom</option>
+          <option value="1">Komplett</option>
+          <option value="2">Groß</option>
+          <option value="3">Mittel</option>
+          <option value="4">Fein</option>
+          <option value="5">Maximal</option>
+        </select>
+        <button class="btn-sec" id="unfocusBtn" style="display:none" onclick="clearShotFocus()">Alle Schüsse</button>
+      </div>
+      <svg id="targetSvg" viewBox="-30 -30 60 60"></svg>
+    </div>
+    <div class="result-side">
+      <div class="legend">
+        <span><span class="dot" style="background:#888"></span>Original</span>
+        <span><span class="dot" style="background:#7ba7ff"></span>Simuliert</span>
+        <span><span class="dot" style="background:#e04040"></span>Simuliert (ungültig/keine Rohdaten)</span>
+        <span><span class="cross"></span>Schnittpunkte (Detail)</span>
+        <label class="detail-toggle">
+          <input type="checkbox" id="showDetailToggle" checked onchange="onDetailToggleChange()">
+          Details &amp; Schnittpunkte beim Anklicken einblenden
+        </label>
+      </div>
+      <div class="series-grid" id="seriesGrid"></div>
+      <div id="detailBox"></div>
+      <div id="detailExtra"></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+let currentSessionId = null;
+let lastSimShots = [];
+let lastSessionShots = []; // Antwort von .../simulator-shots (fuer die Kalibrier-Schussauswahl)
+let calSelected = new Set(); // ausgewaehlte shot_no fuer die Kalibrierung
+
+// ── Zoom ─────────────────────────────────────────────────────────────────
+// Feste Stufen als Bruchteile des Scheiben-Außenradius (analog StandPC-
+// Anzeige) + Auto-Modus. zoomFocusShot (falls gesetzt) zentriert die
+// Ansicht stattdessen auf einen einzelnen Schuss statt auf die Scheibenmitte.
+const ZOOM_OPTIONS = [
+  {key: 'auto', fraction: null},
+  {key: '1', fraction: 1.00},
+  {key: '2', fraction: 0.60},
+  {key: '3', fraction: 0.30},
+  {key: '4', fraction: 0.15},
+  {key: '5', fraction: 0.07},
+];
+const ZOOM_FIXED = ZOOM_OPTIONS.filter(z => z.fraction !== null).sort((a,b) => a.fraction - b.fraction);
+
+let zoomMode = 'auto';
+let zoomFocusShot = null;
+let selectedChipEl = null;
+let lastOuterR = 0;
+let lastRenderShots = [];
+
+// ── Optionale Detailanzeige (Schnittpunkte + Rohwerte eines Schusses) ────
+// Default AN (per Checkbox weiterhin abschaltbar) - der reine Toggle war zu
+// leicht zu uebersehen, die Detailinfos sollen direkt beim ersten Klick auf
+// einen Schuss sichtbar sein.
+let showExtraDetail = true;
+let detailCandidates = []; // [{x_um,y_um}, ...] des aktuell angeklickten Schusses
+let detailCandShotNo = null;
+
+// ── Init ─────────────────────────────────────────────────────────────────
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+document.getElementById('f-date').value = todayISO();
+searchResults();
+loadConfigOptions();
+
+// ── 1. Ergebnis-Auswahl ─────────────────────────────────────────────────
+async function searchResults() {
+  const date = document.getElementById('f-date').value;
+  const name = document.getElementById('f-name').value.trim();
+  const params = new URLSearchParams();
+  if (date) params.set('date', date);
+  if (name) params.set('name', name);
+
+  setStatus('Lade…');
+  try {
+    const rows = await api('/api/results?' + params) || [];
+    renderResultsTable(rows);
+    setStatus(rows.length === 0 ? 'Keine Ergebnisse gefunden.' : `${rows.length} Ergebnis${rows.length===1?'':'se'}`);
+  } catch(e) {
+    setStatus('Fehler: ' + e.message);
+  }
+}
+
+function setStatus(txt) { document.getElementById('status').textContent = txt; }
+
+function renderResultsTable(rows) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    const dt = r.started_at ? new Date(r.started_at) : null;
+    const date = dt ? dt.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'}) : '–';
+    const score = r.total_rings ? String(r.total_rings) : '–';
+    tr.innerHTML = `<td>${esc(r.shooter_name)}</td><td>${date}</td><td>${esc(r.discipline)}</td>
+      <td class="num">${r.shot_count||'–'}</td><td class="num">${score}</td>`;
+    tr.onclick = () => selectSession(tr, r);
+    tbody.appendChild(tr);
+  }
+}
+
+let currentTargetGeometry = null;
+
+async function selectSession(tr, r) {
+  document.querySelectorAll('#tbody tr.selected').forEach(x => x.classList.remove('selected'));
+  tr.classList.add('selected');
+  currentSessionId = r.session_id;
+
+  zoomFocusShot = null;
+  selectedChipEl = null;
+  document.getElementById('unfocusBtn').style.display = 'none';
+  detailCandidates = [];
+  detailCandShotNo = null;
+  detailSolveResp = null;
+  detailShotNoForResp = null;
+  document.getElementById('detailExtra').style.display = 'none';
+
+  calSelected.clear();
+  document.getElementById('calResult').style.display = 'none';
+
+  document.getElementById('resultSection').style.display = 'none';
+  document.getElementById('calSection').style.display = 'none';
+  const info = document.getElementById('selectedInfo');
+  info.textContent = 'Lade Rohdaten…';
+  try {
+    const [shots, geo] = await Promise.all([
+      api(`/api/sessions/${currentSessionId}/simulator-shots`),
+      api(`/api/sessions/${currentSessionId}/target-geometry`).catch(() => null),
+    ]);
+    currentTargetGeometry = geo;
+    lastSessionShots = shots;
+    document.getElementById('resultSection').style.display = '';
+    document.getElementById('resultStatus').textContent = 'Referenzscheibe geladen – Parameter einstellen und "Neu berechnen" klicken.';
+    renderTargetSVG(geo, []);
+    document.getElementById('seriesGrid').innerHTML = '';
+    const withRaw = shots.filter(s => s.has_raw).length;
+    info.textContent = `Geladen: ${esc(r.shooter_name)} · ${esc(r.discipline)} · `
+      + `${shots.length} Schuss/Schüsse, davon ${withRaw} mit Rohdaten (nur diese können neu berechnet werden).`;
+    document.getElementById('paramsSection').style.display = '';
+    document.getElementById('calSection').style.display = withRaw ? '' : 'none';
+    renderCalShotList();
+  } catch(e) {
+    info.textContent = 'Fehler: ' + e.message;
+  }
+}
+
+// ── 2. Parameter / Config / SHOW-Import ─────────────────────────────────
+function currentParams() {
+  const target = document.querySelector('input[name=target]:checked').value;
+  return {
+    standoff_steel_mm: parseFloat(document.getElementById('p-standoffSteel').value) || 0,
+    standoff_paper_mm: parseFloat(document.getElementById('p-standoffPaper').value) || 0,
+    mic_half_x_mm: parseFloat(document.getElementById('p-micHalfX').value) || 0,
+    offset_x_um: parseInt(document.getElementById('p-offsetX').value) || 0,
+    offset_y_um: parseInt(document.getElementById('p-offsetY').value) || 0,
+    sound_mps: parseFloat(document.getElementById('p-sound').value) || 0,
+    mic_offset_ns: [0,1,2,3,4,5].map(i => parseInt(document.getElementById('p-ofs'+i).value) || 0),
+    target: target,
+    bullet_shift_pct: parseInt(document.getElementById('p-bshiftPct').value) || 0,
+    bullet_shift_cap_mm: parseFloat(document.getElementById('p-bshiftCap').value) || 0,
+    cluster_radius_um: parseInt(document.getElementById('p-clusterRadius').value) || 0,
+    mic_enabled: [0,1,2,3,4,5].map(i => document.getElementById('p-micen'+i).checked),
+  };
+}
+
+function applyParams(p) {
+  if (!p) return;
+  if (p.standoff_steel_mm != null) document.getElementById('p-standoffSteel').value = p.standoff_steel_mm;
+  if (p.standoff_paper_mm != null) document.getElementById('p-standoffPaper').value = p.standoff_paper_mm;
+  if (p.mic_half_x_mm != null) document.getElementById('p-micHalfX').value = p.mic_half_x_mm;
+  if (p.offset_x_um != null) document.getElementById('p-offsetX').value = p.offset_x_um;
+  if (p.offset_y_um != null) document.getElementById('p-offsetY').value = p.offset_y_um;
+  if (p.sound_mps != null) document.getElementById('p-sound').value = p.sound_mps;
+  if (Array.isArray(p.mic_offset_ns)) {
+    p.mic_offset_ns.forEach((v,i) => { const el = document.getElementById('p-ofs'+i); if (el) el.value = v; });
+  }
+  if (p.target === 'paper' || p.target === 'steel') {
+    document.querySelector(`input[name=target][value=${p.target}]`).checked = true;
+  }
+  if (p.bullet_shift_pct != null) document.getElementById('p-bshiftPct').value = p.bullet_shift_pct;
+  if (p.bullet_shift_cap_mm != null) document.getElementById('p-bshiftCap').value = p.bullet_shift_cap_mm;
+  if (p.cluster_radius_um != null) document.getElementById('p-clusterRadius').value = p.cluster_radius_um;
+  if (Array.isArray(p.mic_enabled) && p.mic_enabled.length === 6) {
+    // SHOW liefert 0/1 (ints), gespeicherte Configs echte Booleans - beides abdecken.
+    p.mic_enabled.forEach((v,i) => { const el = document.getElementById('p-micen'+i); if (el) el.checked = !!v; });
+  }
+}
+
+async function loadConfigOptions() {
+  try {
+    const list = await api('/api/simulator-configs') || [];
+    const sel = document.getElementById('cfgSelect');
+    sel.innerHTML = '<option value="">– auswählen –</option>';
+    for (const c of list) {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = c.name; o.dataset.params = JSON.stringify(c.params);
+      sel.appendChild(o);
+    }
+  } catch(e) { /* ignorieren */ }
+}
+
+function loadConfig() {
+  const sel = document.getElementById('cfgSelect');
+  const opt = sel.selectedOptions[0];
+  if (!opt || !opt.value) return;
+  applyParams(JSON.parse(opt.dataset.params || '{}'));
+}
+
+async function saveConfig() {
+  const name = document.getElementById('cfgName').value.trim();
+  if (!name) { alert('Name erforderlich'); return; }
+  try {
+    await api('/api/simulator-configs', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, params: currentParams()})});
+    document.getElementById('cfgName').value = '';
+    await loadConfigOptions();
+  } catch(e) { alert('Fehler beim Speichern: ' + e.message); }
+}
+
+function importShow() {
+  const txt = document.getElementById('showText').value.trim();
+  const status = document.getElementById('showStatus');
+  if (!txt) { status.textContent = ''; return; }
+  try {
+    const cfg = JSON.parse(txt);
+    if (cfg.type !== 'config') throw new Error('kein SHOW-Telegramm (type != "config")');
+    applyParams(cfg);
+    status.textContent = 'Übernommen.';
+    status.style.color = 'var(--green)';
+  } catch(e) {
+    status.textContent = 'Konnte SHOW-Ausgabe nicht lesen: ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
+
+// ── 3. Kalibrierung (Mic-Offsets aus ausgewaehlten Schuessen) ───────────
+function renderCalShotList() {
+  const box = document.getElementById('calShotList');
+  box.innerHTML = '';
+  const usable = lastSessionShots.filter(s => s.has_raw);
+  for (const s of usable) {
+    const btn = document.createElement('span');
+    btn.className = 'shot-chip' + (calSelected.has(s.shot_no) ? ' selected' : '');
+    if (s.kind === 'sighting') btn.classList.add('sighting');
+    btn.textContent = s.shot_no;
+    btn.title = `Schuss ${s.shot_no} zur Kalibrierung ${calSelected.has(s.shot_no) ? 'abwählen' : 'auswählen'}`;
+    btn.onclick = () => {
+      if (calSelected.has(s.shot_no)) calSelected.delete(s.shot_no);
+      else calSelected.add(s.shot_no);
+      renderCalShotList();
+    };
+    box.appendChild(btn);
+  }
+  document.getElementById('calStatus').textContent =
+    `${calSelected.size} Schuss/Schüsse ausgewählt (mind. 3 nötig, ${usable.length} verfügbar)`;
+}
+
+function clearCalSelection() {
+  calSelected.clear();
+  document.getElementById('calResult').style.display = 'none';
+  renderCalShotList();
+}
+
+async function runCalibration() {
+  if (calSelected.size < 3) { alert('Mindestens 3 Schüsse mit Rohdaten auswählen.'); return; }
+  const box = document.getElementById('calResult');
+  box.style.display = '';
+  box.textContent = 'Berechne Kalibrierung…';
+  try {
+    const resp = await api(`/api/sessions/${currentSessionId}/calibrate`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({params: currentParams(), shot_nos: Array.from(calSelected)})
+    });
+    const ofs = resp.mic_offset_ns;
+    box.innerHTML = `Neue Offsets (ns): <strong>${ofs.join(', ')}</strong> · `
+      + `Rest-Fehlersumme ${resp.cost_mm.toFixed(3)} mm über ${resp.shots_used} Schuss/Schüsse. `;
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'btn-sec';
+    applyBtn.textContent = 'In OFS0–5 übernehmen';
+    applyBtn.onclick = () => applyParams({mic_offset_ns: ofs});
+    box.appendChild(applyBtn);
+  } catch(e) {
+    box.textContent = 'Fehler: ' + e.message;
+  }
+}
+
+// buildSetCommands: alle aktuell im Formular stehenden Parameter (Standoff,
+// Offsets, Schallgeschwindigkeit, Mic-Timing-Offsets, Kugelkorrektur,
+// Cluster-Radius, Mikrofon-Auswahl) als SET-Befehle fuer die serielle
+// Konsole der Firmware - Feld->Befehl 1:1 nach dem SET-Kommandoparser
+// (schiessstand_firmware.ino, siehe HELP-Text).
+function buildSetCommands() {
+  const p = currentParams();
+  const lines = [
+    `SET TARGET=${p.target.toUpperCase()}`,
+    `SET STANDOFFSTEEL=${p.standoff_steel_mm}`,
+    `SET STANDOFFPAPER=${p.standoff_paper_mm}`,
+    `SET MICHALFX=${p.mic_half_x_mm}`,
+    `SET OFFSETX=${p.offset_x_um}`,
+    `SET OFFSETY=${p.offset_y_um}`,
+    `SET SOUNDSPEED=${p.sound_mps}`,
+  ];
+  p.mic_offset_ns.forEach((v,i) => lines.push(`SET OFS${i}=${v}`));
+  lines.push(`SET BSHIFTPCT=${p.bullet_shift_pct}`);
+  lines.push(`SET BSHIFTCAP=${p.bullet_shift_cap_mm}`);
+  lines.push(`SET RADIUS=${p.cluster_radius_um}`);
+  p.mic_enabled.forEach((v,i) => lines.push(`SET MICEN${i}=${v ? 1 : 0}`));
+  return lines.join('\n');
+}
+
+function showEsp32Export() {
+  document.getElementById('esp32ExportText').value = buildSetCommands();
+  document.getElementById('esp32ExportBox').style.display = 'block';
+  document.getElementById('esp32CopyStatus').textContent = '';
+}
+
+async function copyEsp32Export() {
+  const textEl = document.getElementById('esp32ExportText');
+  const status = document.getElementById('esp32CopyStatus');
+  try {
+    await navigator.clipboard.writeText(textEl.value);
+    status.textContent = 'In Zwischenablage kopiert.';
+  } catch(e) {
+    // Clipboard-API braucht einen sicheren Kontext (https/localhost) - im
+    // LAN per http oft nicht verfuegbar. Fallback: Text markieren, damit
+    // Strg+C manuell funktioniert.
+    textEl.select();
+    status.textContent = 'Automatisches Kopieren nicht möglich - Text ist markiert, Strg+C drücken.';
+  }
+}
+
+// ── 4. Neuberechnen / Anzeige ────────────────────────────────────────────
+async function runSimulation() {
+  if (!currentSessionId) return;
+  const resultStatus = document.getElementById('resultStatus');
+  document.getElementById('resultSection').style.display = '';
+  resultStatus.textContent = 'Berechne…';
+  document.getElementById('detailBox').style.display = 'none';
+  try {
+    const resp = await api(`/api/sessions/${currentSessionId}/simulate`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({params: currentParams()})
+    });
+    lastSimShots = resp.shots || [];
+    // Fokus auf denselben Schuss (falls einer aktiv war) mit neu berechneten
+    // Werten aktualisieren, statt ihn stillschweigend zu verlieren.
+    if (zoomFocusShot) {
+      zoomFocusShot = lastSimShots.find(s => s.shot_no === zoomFocusShot.shot_no) || null;
+      if (!zoomFocusShot) document.getElementById('unfocusBtn').style.display = 'none';
+    }
+    renderSeries(resp.shots_per_series || 10, lastSimShots);
+    renderTargetSVG(currentTargetGeometry, lastSimShots);
+    if (zoomFocusShot) {
+      showDetail(zoomFocusShot);
+      // Kandidaten/Rohwerte stammen von den ALTEN Parametern - mit den
+      // neuen neu laden statt veraltete Werte stehen zu lassen.
+      loadDetailExtra(zoomFocusShot);
+    } else {
+      detailCandidates = [];
+      detailCandShotNo = null;
+      detailSolveResp = null;
+      detailShotNoForResp = null;
+    }
+    resultStatus.textContent = `${lastSimShots.length} Schuss/Schüsse. Klick auf einen Schuss für Details.`;
+    updateApplySimVisibility();
+  } catch(e) {
+    resultStatus.textContent = 'Fehler: ' + e.message;
+  }
+}
+
+// ── Revisor: Neuberechnung als korrigiertes Ergebnis uebernehmen ───────────
+function updateApplySimVisibility() {
+  document.getElementById('applySimBox').style.display =
+    window.SCHIESSSTAND_ROLE?.can_correct_results ? '' : 'none';
+}
+window.addEventListener('schiessstand-role-ready', updateApplySimVisibility);
+
+async function applySimulation() {
+  if (!currentSessionId) return;
+  if (!confirm('Neuberechnung wirklich als Korrektur speichern?\n' +
+               'Die Originalmessung bleibt erhalten - die Ergebnisanzeige und alle ' +
+               'Auswertungen verwenden ab jetzt den korrigierten Wert.')) return;
+  const statusEl = document.getElementById('applySimStatus');
+  statusEl.textContent = 'Übernehme…';
+  try {
+    const resp = await api(`/api/sessions/${currentSessionId}/apply-simulation`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({params: currentParams()})
+    });
+    statusEl.textContent = `${resp.updated} Schuss/Schüsse als Korrektur gespeichert.`;
+  } catch(e) {
+    statusEl.textContent = 'Fehler: ' + e.message;
+  }
+}
+
+// ── Referenzscheibe (SVG) – Ring-Aufbau portiert aus standpc/web/index.html ──
+const CALIBER = 4.5; // mm, 4,5mm Diabolo
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const targetSvg = document.getElementById('targetSvg');
+
+function renderTargetSVG(geo, shots) {
+  while (targetSvg.firstChild) targetSvg.removeChild(targetSvg.firstChild);
+  lastRenderShots = shots || [];
+  if (!geo || !geo.rings || !geo.rings.length) {
+    lastOuterR = 0;
+    const t = document.createElementNS(SVG_NS, 'text');
+    t.setAttribute('x', 0); t.setAttribute('y', 0);
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('fill', 'var(--dim)');
+    t.setAttribute('font-size', 3);
+    t.textContent = 'Keine Scheibengeometrie bekannt';
+    targetSvg.setAttribute('viewBox', '-30 -30 60 60');
+    targetSvg.appendChild(t);
+    return;
+  }
+
+  const rings  = [...geo.rings].sort((a, b) => b.d - a.d);
+  const outerR = rings[0].d / 2;
+  lastOuterR = outerR;
+  applyViewBox();
+
+  const strokeW = Math.max(outerR * 0.004, 0.08);
+
+  const bg = document.createElementNS(SVG_NS, 'circle');
+  bg.setAttribute('r', outerR); bg.setAttribute('fill', '#e8e4dc');
+  targetSvg.appendChild(bg);
+
+  let darkR = 0;
+  for (const r of rings) if (r.filled) darkR = Math.max(darkR, r.d / 2);
+  if (darkR > 0) {
+    const sp = document.createElementNS(SVG_NS, 'circle');
+    sp.setAttribute('r', darkR); sp.setAttribute('fill', '#1c1c1c');
+    targetSvg.appendChild(sp);
+  }
+
+  for (const r of rings) {
+    const c = document.createElementNS(SVG_NS, 'circle');
+    c.setAttribute('r', r.d / 2); c.setAttribute('fill', 'none');
+    c.setAttribute('stroke', r.filled ? '#888' : '#555');
+    c.setAttribute('stroke-width', strokeW);
+    targetSvg.appendChild(c);
+  }
+
+  if (geo.inner10_d > 0) {
+    const inn = document.createElementNS(SVG_NS, 'circle');
+    inn.setAttribute('r', geo.inner10_d / 2); inn.setAttribute('fill', 'none');
+    inn.setAttribute('stroke', '#888'); inn.setAttribute('stroke-width', strokeW);
+    if (geo.inner10_dashed) {
+      const dl = strokeW * 5;
+      inn.setAttribute('stroke-dasharray', `${dl} ${dl}`);
+    }
+    targetSvg.appendChild(inn);
+  }
+
+  const labelPositions = [{nx:0,ny:-1},{nx:1,ny:0},{nx:0,ny:1},{nx:-1,ny:0}];
+  const minStep = rings.reduce((m, r, i) =>
+    i < rings.length-1 ? Math.min(m, (r.d - rings[i+1].d)/2) : m, Infinity);
+  const fontSize = Math.max((minStep === Infinity ? outerR*0.1 : minStep) * 0.58, outerR * 0.045);
+  for (let i = 0; i < rings.length; i++) {
+    const r = rings[i];
+    if (r.v < 1 || r.v > 9) continue;
+    const outerRadius = r.d / 2;
+    const innerRadius = (i+1 < rings.length) ? rings[i+1].d/2 : 0;
+    const labelR = (outerRadius + innerRadius) / 2;
+    for (const p of labelPositions) {
+      const t = document.createElementNS(SVG_NS, 'text');
+      t.setAttribute('x', p.nx*labelR); t.setAttribute('y', p.ny*labelR);
+      t.setAttribute('text-anchor', 'middle'); t.setAttribute('dominant-baseline', 'middle');
+      t.setAttribute('font-size', fontSize); t.setAttribute('font-family', 'sans-serif');
+      t.setAttribute('fill', r.filled ? '#bbb' : '#555'); t.setAttribute('pointer-events', 'none');
+      t.textContent = r.v;
+      targetSvg.appendChild(t);
+    }
+  }
+
+  // ── Treffer: Original (grau) vs. Simuliert (blau), mit Delta-Linie ──
+  // Beide halbtransparent, damit sich bei nah beieinanderliegenden Punkten
+  // keiner der beiden komplett hinter dem anderen verbirgt. Original wird
+  // NACH Simuliert gezeichnet (liegt also oben), damit sein Umriss auch bei
+  // voller Ueberdeckung durch den groesseren blauen Simuliert-Kreis sichtbar
+  // bleibt. Nummer (shot_no) nur bei gueltigen Schuessen (Original UND
+  // Simuliert vorhanden).
+  // An CALIBER orientiert (nicht an outerR) - der Schuss-Marker hat immer
+  // reale Kalibergroesse, unabhaengig von der Scheibengroesse (analog
+  // standpc/web/index.html, das Schussnummern genauso im Kreis zentriert).
+  const numFontSize = CALIBER * 0.42;
+  const shotLayer = document.createElementNS(SVG_NS, 'g');
+  for (const s of (shots || [])) {
+    if (!s.has_raw) continue;
+    const valid = s.sim.pos_valid;
+
+    if (valid) {
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('x1', s.orig.x_mm); line.setAttribute('y1', -s.orig.y_mm);
+      line.setAttribute('x2', s.sim.x_mm);  line.setAttribute('y2', -s.sim.y_mm);
+      line.setAttribute('stroke', '#7ba7ff'); line.setAttribute('stroke-width', strokeW*0.6);
+      line.setAttribute('opacity', 0.5);
+      shotLayer.appendChild(line);
+
+      const sg = document.createElementNS(SVG_NS, 'circle');
+      sg.setAttribute('cx', s.sim.x_mm); sg.setAttribute('cy', -s.sim.y_mm);
+      sg.setAttribute('r', CALIBER/2);
+      sg.setAttribute('fill', '#7ba7ff'); sg.setAttribute('stroke', '#000'); sg.setAttribute('stroke-width', strokeW*0.5);
+      sg.setAttribute('opacity', 0.55);
+      sg.appendChild(document.createElementNS(SVG_NS, 'title')).textContent =
+        `Schuss ${s.shot_no}: Ring ${s.sim.ring} (Original: ${s.orig.ring})`;
+      shotLayer.appendChild(sg);
+
+      const label = document.createElementNS(SVG_NS, 'text');
+      label.setAttribute('x', s.sim.x_mm);
+      label.setAttribute('y', -s.sim.y_mm);
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('dominant-baseline', 'middle');
+      label.setAttribute('font-size', numFontSize);
+      label.setAttribute('font-family', 'sans-serif');
+      label.setAttribute('font-weight', 'bold');
+      label.setAttribute('fill', '#e0e0f0');
+      label.setAttribute('stroke', '#0f0f1a');
+      label.setAttribute('stroke-width', numFontSize*0.15);
+      label.setAttribute('paint-order', 'stroke');
+      label.setAttribute('pointer-events', 'none');
+      label.textContent = s.shot_no;
+      shotLayer.appendChild(label);
+    } else {
+      const d = CALIBER * 0.4;
+      const x1 = document.createElementNS(SVG_NS, 'line');
+      x1.setAttribute('x1', s.orig.x_mm-d); x1.setAttribute('y1', -s.orig.y_mm-d);
+      x1.setAttribute('x2', s.orig.x_mm+d); x1.setAttribute('y2', -s.orig.y_mm+d);
+      x1.setAttribute('stroke', '#e04040'); x1.setAttribute('stroke-width', strokeW*1.5);
+      x1.setAttribute('opacity', 0.85);
+      const x2 = document.createElementNS(SVG_NS, 'line');
+      x2.setAttribute('x1', s.orig.x_mm-d); x2.setAttribute('y1', -s.orig.y_mm+d);
+      x2.setAttribute('x2', s.orig.x_mm+d); x2.setAttribute('y2', -s.orig.y_mm-d);
+      x2.setAttribute('stroke', '#e04040'); x2.setAttribute('stroke-width', strokeW*1.5);
+      x2.setAttribute('opacity', 0.85);
+      shotLayer.appendChild(x1); shotLayer.appendChild(x2);
+    }
+
+    // Original zuletzt (oben) und halbtransparent zeichnen.
+    const og = document.createElementNS(SVG_NS, 'circle');
+    og.setAttribute('cx', s.orig.x_mm); og.setAttribute('cy', -s.orig.y_mm);
+    og.setAttribute('r', CALIBER/2 * 0.55);
+    og.setAttribute('fill', '#888'); og.setAttribute('stroke', '#000'); og.setAttribute('stroke-width', strokeW*0.5);
+    og.setAttribute('opacity', 0.6);
+    og.appendChild(document.createElementNS(SVG_NS, 'title')).textContent =
+      `Schuss ${s.shot_no} (Original): Ring ${s.orig.ring}`;
+    shotLayer.appendChild(og);
+  }
+
+  // Kandidaten-Schnittpunkte des aktuell im Detail betrachteten Schusses
+  // (optional, siehe Checkbox) - kleine gelbe Kreuze: jede geloeste 3er-
+  // Mikrofon-Kombination, aus deren Mittelwert (innerhalb SET RADIUS) sich
+  // die finale Position (Stufe 2) ergibt.
+  if (showExtraDetail && detailCandidates.length) {
+    const cs = CALIBER * 0.16;
+    for (const c of detailCandidates) {
+      const cx = c.x_um / 1000, cy = -(c.y_um / 1000);
+      const l1 = document.createElementNS(SVG_NS, 'line');
+      l1.setAttribute('x1', cx - cs); l1.setAttribute('y1', cy - cs);
+      l1.setAttribute('x2', cx + cs); l1.setAttribute('y2', cy + cs);
+      l1.setAttribute('stroke', '#f3fb06'); l1.setAttribute('stroke-width', strokeW * 0.8);
+      const l2 = document.createElementNS(SVG_NS, 'line');
+      l2.setAttribute('x1', cx - cs); l2.setAttribute('y1', cy + cs);
+      l2.setAttribute('x2', cx + cs); l2.setAttribute('y2', cy - cs);
+      l2.setAttribute('stroke', '#f3fb06'); l2.setAttribute('stroke-width', strokeW * 0.8);
+      shotLayer.appendChild(l1); shotLayer.appendChild(l2);
+    }
+  }
+
+  targetSvg.appendChild(shotLayer);
+}
+
+// shotPoints: sichtbare Punkte eines Schusses in SVG-Koordinaten (y gespiegelt).
+function shotPoints(s) {
+  const pts = [[s.orig.x_mm, -s.orig.y_mm]];
+  if (s.sim.pos_valid) pts.push([s.sim.x_mm, -s.sim.y_mm]);
+  return pts;
+}
+
+// computeViewBox: Mittelpunkt + Radius der sichtbaren Ansicht - entweder um
+// die Scheibenmitte (Standard) oder um einen einzelnen fokussierten Schuss
+// (zoomFocusShot, siehe selectShot()), nicht zwingend zentriert.
+function computeViewBox() {
+  if (lastOuterR <= 0) return null;
+  const pad = Math.max(lastOuterR * 0.07, CALIBER * 0.8);
+  let cx = 0, cy = 0, r;
+
+  if (zoomFocusShot) {
+    const pts = shotPoints(zoomFocusShot);
+    cx = pts.reduce((a,p) => a+p[0], 0) / pts.length;
+    cy = pts.reduce((a,p) => a+p[1], 0) / pts.length;
+    if (zoomMode === 'auto') {
+      let maxD = CALIBER; // Mindestradius, Original-/Sim-Punkt bleiben so immer gut sichtbar
+      for (const p of pts) maxD = Math.max(maxD, Math.hypot(p[0]-cx, p[1]-cy) + CALIBER);
+      r = maxD;
+    } else {
+      const lvl = ZOOM_OPTIONS.find(z => z.key === zoomMode);
+      r = (lvl && lvl.fraction) ? lvl.fraction * lastOuterR : lastOuterR;
+    }
+  } else if (zoomMode === 'auto') {
+    let maxD = 0;
+    for (const s of lastRenderShots) {
+      if (!s.has_raw) continue;
+      for (const [x,y] of shotPoints(s)) maxD = Math.max(maxD, Math.hypot(x,y) + CALIBER/2);
+    }
+    r = lastOuterR;
+    if (maxD > 0) {
+      for (const lvl of ZOOM_FIXED) {
+        const rr = lvl.fraction * lastOuterR;
+        if (rr >= maxD) { r = rr; break; }
+      }
+    }
+  } else {
+    const lvl = ZOOM_OPTIONS.find(z => z.key === zoomMode);
+    r = (lvl && lvl.fraction) ? lvl.fraction * lastOuterR : lastOuterR;
+  }
+
+  return {cx, cy, r: r + pad};
+}
+
+function applyViewBox() {
+  const vb = computeViewBox();
+  if (!vb) return;
+  targetSvg.setAttribute('viewBox', `${vb.cx-vb.r} ${vb.cy-vb.r} ${2*vb.r} ${2*vb.r}`);
+}
+
+function setZoomMode(key) {
+  zoomMode = key;
+  applyViewBox();
+}
+
+// selectShot: Detailanzeige + optional Zoom auf genau diesen Schuss
+// (statt zwingend auf die Scheibenmitte) - siehe computeViewBox().
+function selectShot(s, chipEl) {
+  if (selectedChipEl) selectedChipEl.classList.remove('selected');
+  selectedChipEl = chipEl;
+  if (chipEl) chipEl.classList.add('selected');
+  showDetail(s);
+  if (s.has_raw) {
+    zoomFocusShot = s;
+    document.getElementById('unfocusBtn').style.display = '';
+    applyViewBox();
+  }
+  loadDetailExtra(s);
+}
+
+function clearShotFocus() {
+  zoomFocusShot = null;
+  document.getElementById('unfocusBtn').style.display = 'none';
+  if (selectedChipEl) { selectedChipEl.classList.remove('selected'); selectedChipEl = null; }
+  clearDetailExtra();
+  applyViewBox();
+}
+
+function clearDetailExtra() {
+  detailCandidates = [];
+  detailCandShotNo = null;
+  detailSolveResp = null;
+  detailShotNoForResp = null;
+  document.getElementById('detailExtra').style.display = 'none';
+  renderTargetSVG(currentTargetGeometry, lastSimShots);
+}
+
+function onDetailToggleChange() {
+  showExtraDetail = document.getElementById('showDetailToggle').checked;
+  if (!showExtraDetail) {
+    clearDetailExtra();
+  } else if (zoomFocusShot) {
+    loadDetailExtra(zoomFocusShot);
+  }
+}
+
+// loadDetailExtra: laedt fuer den angeklickten Schuss die vollstaendige
+// Neuberechnung (x_um/y_um/pos_res_um/precision_um/cluster_hits) samt aller
+// geloesten 3er-Mikrofon-Kombinationen ("Schnittpunkte") - nur wenn die
+// Detailanzeige per Checkbox aktiviert ist (optional, siehe onDetailToggleChange).
+let detailSolveResp = null; // letzte Antwort von .../solve-detail ({sim, candidates, bullet_shift})
+let detailShotNoForResp = null;
+let candRefMode = 'target'; // 'target' = Scheibenzentrum, 'shot' = Schusszentrum (simulierte Endposition)
+
+async function loadDetailExtra(s) {
+  if (!showExtraDetail || !s.has_raw) {
+    detailCandidates = [];
+    detailCandShotNo = null;
+    detailSolveResp = null;
+    detailShotNoForResp = null;
+    document.getElementById('detailExtra').style.display = 'none';
+    renderTargetSVG(currentTargetGeometry, lastSimShots);
+    return;
+  }
+  const box = document.getElementById('detailExtra');
+  box.style.display = 'block';
+  box.textContent = 'Lade Details…';
+  try {
+    const resp = await api(`/api/sessions/${currentSessionId}/shots/${s.shot_no}/solve-detail`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({params: currentParams()})
+    });
+    detailCandidates = resp.candidates || [];
+    detailCandShotNo = s.shot_no;
+    detailSolveResp = resp;
+    detailShotNoForResp = s.shot_no;
+    renderDetailExtra();
+    renderTargetSVG(currentTargetGeometry, lastSimShots);
+  } catch(e) {
+    box.textContent = 'Fehler: ' + e.message;
+  }
+}
+
+function setCandRefMode(mode) {
+  candRefMode = mode;
+  renderDetailExtra();
+}
+
+// renderDetailExtra baut die Detail-Box aus der zuletzt geladenen Antwort
+// neu auf (z.B. beim Umschalten Scheibenzentrum/Schusszentrum, ohne
+// erneuten Server-Request).
+function renderDetailExtra() {
+  const box = document.getElementById('detailExtra');
+  if (!detailSolveResp) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  const sim = detailSolveResp.sim;
+  const shotNo = detailShotNoForResp;
+
+  if (!sim.pos_valid) {
+    box.innerHTML = `<strong>Rohwerte Schuss ${shotNo} (Simuliert)</strong><br>keine gültige Position (pos_valid=false)`;
+    return;
+  }
+
+  const refOptions = `
+    <label style="margin-right:10px"><input type="radio" name="candRef" value="target"
+      ${candRefMode==='target'?'checked':''} onchange="setCandRefMode('target')"> zum Scheibenzentrum</label>
+    <label><input type="radio" name="candRef" value="shot"
+      ${candRefMode==='shot'?'checked':''} onchange="setCandRefMode('shot')"> zum Schusszentrum</label>`;
+
+  let html = `<strong>Rohwerte Schuss ${shotNo} (Simuliert)</strong><br>`
+    + `x_um=${sim.x_um} · y_um=${sim.y_um} · pos_res_um=${sim.pos_res_um} · `
+    + `precision_um=${sim.precision_um} · cluster_hits=${sim.cluster_hits}<br><br>`
+    + `<div style="margin-bottom:6px">Schnittpunkt-Koordinaten anzeigen: ${refOptions}</div>`
+    + `<table><tr><th>Ref</th><th>A</th><th>B</th><th>x (mm)</th><th>y (mm)</th><th>Rest-Fehler (mm)</th></tr>`;
+
+  const cx = candRefMode === 'shot' ? sim.x_um : 0;
+  const cy = candRefMode === 'shot' ? sim.y_um : 0;
+  for (const c of detailCandidates) {
+    const xmm = ((c.x_um - cx) / 1000).toFixed(2);
+    const ymm = ((c.y_um - cy) / 1000).toFixed(2);
+    const style = c.best ? ' style="font-weight:700;color:var(--acc)"' : '';
+    html += `<tr${style}><td>${c.ref}</td><td>${c.a}</td><td>${c.b}</td>`
+      + `<td>${xmm}</td><td>${ymm}</td><td>${c.residual_mm.toFixed(2)}</td></tr>`;
+  }
+  html += '</table>';
+  html += `<div class="hint" style="margin:4px 0 8px">${detailCandidates.length} Schnittpunkt(e) berechnet `
+    + `(gelbe Kreuze in der Grafik) · <span style="color:var(--acc);font-weight:700">hervorgehoben</span> `
+    + `= für die Stufe-1-Lösung gewählte Kombination</div>`;
+
+  const bshift = detailSolveResp.bullet_shift || [];
+  if (bshift.length) {
+    html += `<div style="margin-top:6px"><strong>Kugeldurchmesser-Korrektur</strong> `
+      + `(Messwert je verbleibendem Mikrofon, das nicht an der Stufe-1-Lösung beteiligt war):</div>`
+      + `<table><tr><th>Mic</th><th>Signierter Rest-Fehler (mm)</th><th>Verschiebung (mm)</th></tr>`;
+    for (const b of bshift) {
+      html += `<tr><td>${b.mic}</td><td>${b.signed_residual_mm.toFixed(2)}</td><td>${b.shift_mm.toFixed(2)}</td></tr>`;
+    }
+    html += '</table>';
+  }
+
+  box.innerHTML = html;
+}
+
+function renderSeries(shotsPerSeries, shots) {
+  const sighting = shots.filter(s => s.kind === 'sighting');
+  const scoring  = shots.filter(s => s.kind !== 'sighting');
+  const grid = document.getElementById('seriesGrid');
+  grid.innerHTML = '';
+
+  function chip(s) {
+    const cls = ['shot-chip'];
+    if (s.kind === 'sighting') cls.push('sighting');
+    if (!s.has_raw) cls.push('norawdata');
+    else if (!s.sim.pos_valid) cls.push('invalid');
+    else if (s.sim.ring >= 10) cls.push('ten');
+    const focused = zoomFocusShot && zoomFocusShot.shot_no === s.shot_no;
+    if (focused) cls.push('selected');
+    const valid = s.has_raw && s.sim.pos_valid;
+    const label = s.has_raw ? (s.sim.pos_valid ? String(s.sim.ring) : '✕') : '–';
+    const span = document.createElement('span');
+    span.className = cls.join(' ');
+    span.title = `Schuss ${s.shot_no}`;
+    span.onclick = () => selectShot(s, span);
+    span.appendChild(document.createTextNode(label));
+    if (valid) {
+      const no = document.createElement('span');
+      no.className = 'chip-no';
+      no.textContent = s.shot_no;
+      span.appendChild(no);
+    }
+    if (focused) selectedChipEl = span;
+    return span;
+  }
+
+  if (sighting.length) {
+    const box = document.createElement('div');
+    box.className = 'series-box';
+    box.innerHTML = '<div class="series-label">Probe</div>';
+    const row = document.createElement('div'); row.className = 'shots';
+    sighting.forEach(s => row.appendChild(chip(s)));
+    box.appendChild(row);
+    grid.appendChild(box);
+  }
+
+  // Ungueltige/nicht neu berechenbare Schuesse komplett aus den Serien-Boxen
+  // heraushalten (statt zwischen die gueltigen zu mischen) - so zeigt jede
+  // Serien-Box IMMER sauber genau shotsPerSeries gueltige Treffer, ohne dass
+  // ein dazwischenliegender ungueltiger Schuss den Eindruck einer
+  // "verschobenen" Serie erweckt. Sie werden trotzdem vollstaendig in einer
+  // eigenen Box angezeigt, nicht einfach ausgeblendet.
+  const validScoring   = scoring.filter(s => s.has_raw && s.sim.pos_valid);
+  const invalidScoring = scoring.filter(s => !(s.has_raw && s.sim.pos_valid));
+
+  for (let i = 0; i < validScoring.length; i += shotsPerSeries) {
+    const part = validScoring.slice(i, i + shotsPerSeries);
+    const box = document.createElement('div');
+    box.className = 'series-box';
+    const ringSum = part.reduce((a,s) => a + s.sim.ring, 0);
+    box.innerHTML = `<div class="series-label">Serie ${Math.floor(i/shotsPerSeries)+1} · Σ ${ringSum}</div>`;
+    const row = document.createElement('div'); row.className = 'shots';
+    part.forEach(s => row.appendChild(chip(s)));
+    box.appendChild(row);
+    grid.appendChild(box);
+  }
+
+  if (invalidScoring.length) {
+    const box = document.createElement('div');
+    box.className = 'series-box';
+    box.innerHTML = `<div class="series-label">Ungültig / keine Rohdaten (${invalidScoring.length})</div>`;
+    const row = document.createElement('div'); row.className = 'shots';
+    invalidScoring.forEach(s => row.appendChild(chip(s)));
+    box.appendChild(row);
+    grid.appendChild(box);
+  }
+}
+
+function showDetail(s) {
+  const box = document.getElementById('detailBox');
+  box.style.display = 'block';
+  if (!s.has_raw) {
+    box.innerHTML = `<strong>Schuss ${s.shot_no}</strong> – keine Rohdaten gespeichert (reject-Telegramm), kann nicht neu berechnet werden.`;
+    return;
+  }
+  const dx = (s.sim.pos_valid ? (s.sim.x_mm - s.orig.x_mm) : 0);
+  const dy = (s.sim.pos_valid ? (s.sim.y_mm - s.orig.y_mm) : 0);
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  box.innerHTML = `<strong>Schuss ${s.shot_no}</strong> (${s.kind === 'sighting' ? 'Probe' : 'Wertung'})
+    <table>
+      <tr><th></th><th>x (mm)</th><th>y (mm)</th><th>Ring</th><th>Zehntel</th><th>gültig</th><th>Cluster</th></tr>
+      <tr><td>Original</td><td>${s.orig.x_mm.toFixed(2)}</td><td>${s.orig.y_mm.toFixed(2)}</td>
+          <td>${s.orig.ring}</td><td>${s.orig.decimal.toFixed(1)}</td><td>–</td><td>–</td></tr>
+      <tr><td>Simuliert</td><td>${s.sim.pos_valid ? s.sim.x_mm.toFixed(2) : '–'}</td>
+          <td>${s.sim.pos_valid ? s.sim.y_mm.toFixed(2) : '–'}</td>
+          <td>${s.sim.pos_valid ? s.sim.ring : '–'}</td>
+          <td>${s.sim.pos_valid ? s.sim.decimal.toFixed(1) : '–'}</td>
+          <td>${s.sim.pos_valid ? 'ja' : 'nein'}</td><td>${s.sim.cluster_hits}</td></tr>
+    </table>
+    ${s.sim.pos_valid ? `<div class="hint">Δ = ${dist.toFixed(2)} mm gegenüber Original</div>` : ''}`;
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

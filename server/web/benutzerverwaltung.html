@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Benutzerverwaltung – Schießstand</title>
+<style>
+  :root {
+    --bg:#0f0f1a; --panel:#1a1a2e; --line:#2a2a45; --text:#e0e0f0;
+    --dim:#7070a0; --acc:#7ba7ff; --green:#3dcc6e; --red:#e04040;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;
+         background:var(--panel);border-bottom:1px solid var(--line)}
+  header a{color:var(--dim);text-decoration:none;font-size:18px}
+  header a:hover{color:var(--text)}
+  header h1{font-size:17px;font-weight:600}
+
+  main{padding:24px}
+  .hint{color:var(--dim);font-size:12px;margin-bottom:18px;max-width:700px;line-height:1.5}
+
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+  table{border-collapse:collapse;width:100%;min-width:1000px}
+  thead th{background:var(--panel);text-align:left;font-size:11px;text-transform:uppercase;
+           letter-spacing:.4px;color:var(--dim);padding:8px 10px;border-bottom:1px solid var(--line);
+           white-space:nowrap;position:sticky;top:0}
+  thead th.tile-col{text-align:center}
+  tbody td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tbody tr:last-child td{border-bottom:none}
+  td.role-name{font-weight:700;white-space:nowrap}
+  td.tile-cell, td.correction-cell{text-align:center}
+  input[type=checkbox]{width:16px;height:16px;accent-color:var(--acc);cursor:pointer}
+
+  .pw-status{font-size:12px;color:var(--dim);margin-right:6px}
+  .pw-status.set{color:var(--green)}
+  .btn{background:var(--acc);color:#0c1410;border:none;border-radius:5px;
+       padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer}
+  .btn:hover{opacity:.85}
+  .btn-sec{background:transparent;color:var(--dim);border:1px solid var(--line);
+           border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .btn-sec:hover{color:var(--text);border-color:var(--text)}
+  .btn-del{background:transparent;color:var(--red);border:1px solid var(--line);
+           border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .btn-del:disabled{opacity:.3;cursor:default}
+
+  .pw-form{display:none;gap:6px;margin-top:6px;align-items:center}
+  .pw-form.open{display:flex}
+  .pw-form input{background:var(--bg);color:var(--text);border:1px solid var(--line);
+                 border-radius:5px;padding:4px 8px;font-size:12px;width:140px}
+
+  .flash{display:inline-block;margin-left:6px;font-size:11px;color:var(--green);opacity:0;
+         transition:opacity .2s}
+  .flash.show{opacity:1}
+
+  #status{color:var(--dim);font-size:13px;margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/" title="Zurück">←</a>
+  <h1>Benutzerverwaltung</h1>
+</header>
+
+<main>
+  <p class="hint">
+    4 feste Rollen mit je einem optionalen, gemeinsamen Passwort (kein individuelles Login).
+    Ohne gesetztes Passwort ist der Rollenwechsel frei möglich. Ist für "Anwender" ein Passwort
+    gesetzt, ist es auch beim allerersten Aufruf ohne aktive Rolle nötig. Änderungen an Kacheln,
+    Korrekturrecht und Passwort werden sofort gespeichert.
+  </p>
+  <div id="status"></div>
+  <div class="scroll">
+    <table id="tbl">
+      <thead><tr id="thead-row"><th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const TILE_LABELS = {
+  lanes: 'Standsteuerung', stammdaten: 'Stammdaten', disciplines: 'Disziplinen',
+  wettkampf: 'Wettkämpfe', standaktion: 'Standaktion', ergebnisse: 'Ergebnisse',
+  simulator: 'Simulator', auswertung: 'Auswertung', settings: 'Einstellungen', archiv: 'Archiv',
+};
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || String(r.status));
+  return j;
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function setStatus(txt, isErr) {
+  const el = document.getElementById('status');
+  el.textContent = txt;
+  el.style.color = isErr ? 'var(--red)' : 'var(--dim)';
+}
+
+let knownTiles = [];
+
+async function load() {
+  setStatus('Lade…');
+  try {
+    const data = await api('/api/roles');
+    knownTiles = data.known_tiles || [];
+    renderHead();
+    renderRows(data.roles || []);
+    setStatus('');
+  } catch (e) {
+    setStatus('Fehler: ' + e.message, true);
+  }
+}
+
+function renderHead() {
+  const row = document.getElementById('thead-row');
+  row.innerHTML = '<th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th>' +
+    knownTiles.map(t => `<th class="tile-col">${esc(TILE_LABELS[t] || t)}</th>`).join('');
+}
+
+function renderRows(roles) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = roles.map(r => {
+    const tileCells = knownTiles.map(t => {
+      const checked = r.tiles.indexOf(t) !== -1 ? 'checked' : '';
+      return `<td class="tile-cell"><input type="checkbox" ${checked}
+        onchange="toggleTile('${r.role_key}',this)"></td>`;
+    }).join('');
+    return `<tr id="row-${r.role_key}">
+      <td class="role-name">${esc(r.display_name)}</td>
+      <td>
+        <span class="pw-status ${r.has_password ? 'set' : ''}" id="pwstat-${r.role_key}">
+          ${r.has_password ? 'gesetzt' : 'kein Passwort'}
+        </span>
+        <button type="button" class="btn-sec" onclick="togglePwForm('${r.role_key}')">Ändern</button>
+        <button type="button" class="btn-del" id="pwdel-${r.role_key}"
+          ${r.has_password ? '' : 'disabled'} onclick="clearPassword('${r.role_key}')">Entfernen</button>
+        <span class="flash" id="pwflash-${r.role_key}">✓ gespeichert</span>
+        <div class="pw-form" id="pwform-${r.role_key}">
+          <input type="password" id="pwinput-${r.role_key}" placeholder="neues Passwort" autocomplete="new-password">
+          <button type="button" class="btn" onclick="savePassword('${r.role_key}')">Speichern</button>
+          <button type="button" class="btn-sec" onclick="togglePwForm('${r.role_key}')">Abbrechen</button>
+        </div>
+      </td>
+      <td class="correction-cell">
+        <input type="checkbox" ${r.can_correct_results ? 'checked' : ''}
+          onchange="toggleCorrection('${r.role_key}',this)">
+      </td>
+      ${tileCells}
+    </tr>`;
+  }).join('');
+}
+
+function flash(roleKey) {
+  const el = document.getElementById('pwflash-' + roleKey);
+  if (!el) return;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 1500);
+}
+
+async function toggleTile(roleKey, checkbox) {
+  const row = document.getElementById('row-' + roleKey);
+  const boxes = row.querySelectorAll('td.tile-cell input[type=checkbox]');
+  const tileKeys = [];
+  boxes.forEach((b, i) => { if (b.checked) tileKeys.push(knownTiles[i]); });
+  try {
+    await api(`/api/roles/${roleKey}/tiles`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({tile_keys: tileKeys}),
+    });
+  } catch (e) {
+    checkbox.checked = !checkbox.checked;
+    alert('Fehler: ' + e.message);
+  }
+}
+
+async function toggleCorrection(roleKey, checkbox) {
+  try {
+    await api(`/api/roles/${roleKey}/permissions`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({can_correct_results: checkbox.checked}),
+    });
+  } catch (e) {
+    checkbox.checked = !checkbox.checked;
+    alert('Fehler: ' + e.message);
+  }
+}
+
+function togglePwForm(roleKey) {
+  const form = document.getElementById('pwform-' + roleKey);
+  form.classList.toggle('open');
+  if (form.classList.contains('open')) {
+    document.getElementById('pwinput-' + roleKey).value = '';
+    document.getElementById('pwinput-' + roleKey).focus();
+  }
+}
+
+async function savePassword(roleKey) {
+  const input = document.getElementById('pwinput-' + roleKey);
+  const password = input.value;
+  if (!password) { alert('Bitte ein Passwort eingeben (zum Entfernen den "Entfernen"-Button nutzen).'); return; }
+  try {
+    await api(`/api/roles/${roleKey}/password`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password}),
+    });
+    document.getElementById('pwstat-' + roleKey).textContent = 'gesetzt';
+    document.getElementById('pwstat-' + roleKey).classList.add('set');
+    document.getElementById('pwdel-' + roleKey).disabled = false;
+    togglePwForm(roleKey);
+    flash(roleKey);
+  } catch (e) {
+    alert('Fehler: ' + e.message);
+  }
+}
+
+async function clearPassword(roleKey) {
+  if (!confirm('Passwort für diese Rolle wirklich entfernen?')) return;
+  try {
+    await api(`/api/roles/${roleKey}/password`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password: ''}),
+    });
+    document.getElementById('pwstat-' + roleKey).textContent = 'kein Passwort';
+    document.getElementById('pwstat-' + roleKey).classList.remove('set');
+    document.getElementById('pwdel-' + roleKey).disabled = true;
+    flash(roleKey);
+  } catch (e) {
+    alert('Fehler: ' + e.message);
+  }
+}
+
+load();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auswertung – Schießstand</title>
+<style>
+  :root {
+    --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+    --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;
+       min-height:100vh;display:flex;flex-direction:column}
+
+  header{border-bottom:1px solid var(--line);padding:12px 24px;
+         display:flex;align-items:center;gap:12px}
+  header a.back{color:var(--dim);text-decoration:none;font-size:1.2rem}
+  header a.back:hover{color:var(--text)}
+  h1{font-size:18px;margin:0}
+
+  main{flex:1;padding:24px;max-width:1100px;width:100%}
+
+  /* Tabs */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:24px}
+  .tab{padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;
+       border:none;background:none;color:var(--dim);border-bottom:2px solid transparent;
+       margin-bottom:-1px;transition:color .15s,border-color .15s}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+  .pane{display:none}
+  .pane.active{display:block}
+
+  /* Controls */
+  .controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+            background:var(--panel);border:1px solid var(--line);
+            border-radius:8px;padding:16px 20px;margin-bottom:12px}
+  .controls label{font-size:12px;color:var(--dim);margin-right:4px}
+  select{background:#0e1218;border:1px solid var(--line);border-radius:6px;
+         color:var(--text);font-size:13px;padding:7px 10px;cursor:pointer}
+  select:focus{outline:none;border-color:var(--acc)}
+  .btn{background:var(--acc);border:none;border-radius:6px;color:#0d1a16;
+       font-size:13px;font-weight:600;padding:8px 20px;cursor:pointer;transition:opacity .15s}
+  .btn:hover{opacity:.85}
+  .btn:disabled{opacity:.4;cursor:default}
+  .btn-sec{background:none;border:1px solid var(--line);border-radius:6px;
+           color:var(--dim);font-size:13px;padding:7px 14px;cursor:pointer;transition:border-color .15s,color .15s}
+  .btn-sec:hover{border-color:var(--text);color:var(--text)}
+  .btn-del-sm{background:none;border:none;color:var(--dim);font-size:13px;
+              cursor:pointer;padding:2px 6px;border-radius:4px;line-height:1}
+  .btn-del-sm:hover{color:var(--err)}
+
+  /* Gespeicherte Auswertungen */
+  .saved-bar{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+             padding:12px 20px;margin-bottom:20px;display:none}
+  .saved-bar-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .saved-bar-head h3{font-size:11px;font-weight:600;letter-spacing:1.2px;
+                     text-transform:uppercase;color:var(--dim);margin:0}
+  .saved-list{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .saved-chip{display:flex;align-items:center;gap:4px;
+              background:#1a2430;border:1px solid var(--line);border-radius:20px;
+              padding:4px 6px 4px 12px;font-size:12px;cursor:default}
+  .saved-chip .chip-load{background:none;border:none;color:var(--acc);font-size:12px;
+                         font-weight:600;cursor:pointer;padding:0 4px}
+  .saved-chip .chip-load:hover{text-decoration:underline}
+  .saved-chip .chip-del{background:none;border:none;color:var(--dim);font-size:14px;
+                        cursor:pointer;padding:0 2px;line-height:1}
+  .saved-chip .chip-del:hover{color:var(--err)}
+
+  /* Save-Dialog */
+  .save-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+  input.save-name{background:#0e1218;border:1px solid var(--line);border-radius:6px;
+                  color:var(--text);font-size:13px;padding:7px 12px;flex:1;max-width:300px}
+  input.save-name:focus{outline:none;border-color:var(--acc)}
+
+  /* Placeholder */
+  .soon-box{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+            padding:40px 24px;text-align:center;color:var(--dim);font-size:14px}
+  .soon-box strong{display:block;font-size:18px;color:var(--text);margin-bottom:8px}
+
+  /* Ergebnistabellen */
+  #result-area{}
+  .team-section{margin-bottom:28px}
+  .team-header{display:flex;align-items:baseline;gap:12px;
+               border-bottom:2px solid var(--acc);padding-bottom:6px;margin-bottom:0}
+  .team-name{font-size:15px;font-weight:700;color:var(--acc)}
+  .team-total{font-size:13px;color:var(--dim)}
+  .team-total strong{color:var(--text);font-size:15px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;padding:7px 10px;font-size:11px;font-weight:600;
+     letter-spacing:.8px;text-transform:uppercase;color:var(--dim);
+     border-bottom:1px solid var(--line)}
+  td{padding:7px 10px;border-bottom:1px solid #1f2a35}
+  tr:last-child td{border-bottom:none}
+  tr.counts td{background:#131c24}
+  tr.ak td{opacity:.6}
+  tr.ak td:first-child::before{content:'AK ';color:var(--warn);font-weight:600}
+  .rank{color:var(--acc);font-weight:700;min-width:24px;display:inline-block}
+  .rings-val{font-size:15px;font-weight:700}
+  .role-badge{display:inline-block;font-size:10px;font-weight:700;
+              padding:1px 6px;border-radius:3px;letter-spacing:.5px}
+  .role-s{background:#1a2a1a;color:var(--acc)}
+  .role-e{background:#2a2a1a;color:var(--warn)}
+  .role-ak{background:#2a1a1a;color:var(--err)}
+  .counts-row{background:var(--panel);font-weight:600;font-size:14px}
+  .counts-row td{border-top:1px solid var(--line);padding:10px 10px}
+  .no-result{color:var(--dim);font-style:italic}
+
+  /* Team-Ranking Box */
+  #team-ranking{background:var(--panel);border:1px solid var(--line);
+                border-radius:8px;padding:16px 20px;margin-bottom:24px}
+  #team-ranking h3{font-size:11px;font-weight:600;letter-spacing:1.2px;
+                   text-transform:uppercase;color:var(--dim);margin-bottom:12px}
+  .rank-table{width:100%;border-collapse:collapse;font-size:13px}
+  .rank-table td{padding:5px 10px}
+  .rank-table tr:not(:last-child) td{border-bottom:1px solid #1f2a35}
+  .rank-pos{font-size:18px;font-weight:700;color:var(--acc);width:36px}
+  .rank-team{font-weight:600}
+  .rank-rings{font-size:15px;font-weight:700;text-align:right}
+  .rank-shooters{color:var(--dim);font-size:12px;text-align:right;padding-right:4px}
+
+  .msg-err{color:var(--err);font-size:13px;padding:12px 0}
+  .spinner{color:var(--dim);font-size:13px;padding:12px 0}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="/" title="Zur Startseite">&#8592;</a>
+  <h1>Auswertung</h1>
+</header>
+
+<main>
+
+  <div class="tabs">
+    <button type="button" class="tab active" data-pane="runde">Rundenwettkampf</button>
+    <button type="button" class="tab" data-pane="gruppe">Gruppenwettkampf</button>
+    <button type="button" class="tab" data-pane="meister">Meisterschaft</button>
+    <button type="button" class="tab" data-pane="mannschaft">Mannschaften Ringe</button>
+    <button type="button" class="tab" data-pane="variabel">Variable Auswertung</button>
+  </div>
+
+  <!-- ── Rundenwettkampf ─────────────────────────────────────────────────── -->
+  <div class="pane active" id="pane-runde">
+
+    <div class="controls">
+      <label for="sel-event">Wettkampf</label>
+      <select id="sel-event" onchange="onEventChange()">
+        <option value="">Wettkampf wählen…</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);cursor:pointer">
+        <input type="checkbox" id="chk-archived" onchange="loadEvents(true)"> Archivierte
+      </label>
+
+      <label for="sel-bestof" style="margin-left:16px">Beste</label>
+      <select id="sel-bestof" onchange="auswerten()">
+        <option value="0">Alle (kein Limit)</option>
+        <option value="2">2 Schützen</option>
+        <option value="3">3 Schützen</option>
+        <option value="4">4 Schützen</option>
+        <option value="5" selected>5 Schützen</option>
+        <option value="6">6 Schützen</option>
+        <option value="7">7 Schützen</option>
+        <option value="8">8 Schützen</option>
+        <option value="9">9 Schützen</option>
+        <option value="10">10 Schützen</option>
+      </select>
+      <span style="font-size:12px;color:var(--dim)">je Mannschaft in Wertung</span>
+
+      <button type="button" class="btn" id="btn-eval" onclick="auswerten()" style="margin-left:auto">Auswerten</button>
+    </div>
+
+    <!-- Gespeicherte Auswertungen -->
+    <div class="saved-bar" id="saved-bar">
+      <div class="saved-bar-head">
+        <h3>Gespeicherte Auswertungen</h3>
+      </div>
+      <div class="saved-list" id="saved-list">
+        <span style="font-size:12px;color:var(--dim)">Keine gespeicherten Auswertungen.</span>
+      </div>
+      <div class="save-row" id="save-row" style="display:none">
+        <input class="save-name" id="save-name-inp" type="text" placeholder="Name der Auswertung…" maxlength="80">
+        <button type="button" class="btn" onclick="saveAuswertung()">Speichern</button>
+        <button type="button" class="btn-sec" onclick="hideSaveRow()">Abbrechen</button>
+      </div>
+      <div style="margin-top:8px">
+        <button type="button" class="btn-sec" id="btn-show-save" onclick="showSaveRow()" style="font-size:12px;padding:5px 12px">
+          + Aktuelle Auswertung speichern
+        </button>
+      </div>
+    </div>
+
+    <div id="result-area"></div>
+
+  </div>
+
+  <!-- ── Gruppenwettkampf ───────────────────────────────────────────────── -->
+  <div class="pane" id="pane-gruppe">
+
+    <div class="controls">
+      <label for="g-sel-event">Wettkampf</label>
+      <select id="g-sel-event" onchange="gOnEventChange()">
+        <option value="">Wettkampf wählen…</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);cursor:pointer">
+        <input type="checkbox" id="g-chk-archived" onchange="gLoadEvents(true)"> Archivierte
+      </label>
+
+      <label for="g-sel-wertung" style="margin-left:16px">Wertung</label>
+      <select id="g-sel-wertung">
+        <option value="auto">Automatisch</option>
+        <option value="rings">Ringwertung</option>
+        <option value="decimal">Zehntelwertung</option>
+        <option value="teiler">Teilerwertung</option>
+      </select>
+
+      <label for="g-sel-bestof" style="margin-left:16px">Beste</label>
+      <select id="g-sel-bestof" onchange="auswertenGruppe()">
+        <option value="0">Alle</option>
+        <option value="2">2 Schützen</option>
+        <option value="3">3 Schützen</option>
+        <option value="4">4 Schützen</option>
+        <option value="5" selected>5 Schützen</option>
+        <option value="6">6 Schützen</option>
+        <option value="7">7 Schützen</option>
+        <option value="8">8 Schützen</option>
+        <option value="9">9 Schützen</option>
+        <option value="10">10 Schützen</option>
+      </select>
+      <span style="font-size:12px;color:var(--dim)">je Gruppe</span>
+
+      <button type="button" class="btn" id="g-btn-eval" onclick="auswertenGruppe()" style="margin-left:auto">Auswerten</button>
+    </div>
+
+    <!-- Gespeicherte Auswertungen -->
+    <div class="saved-bar" id="g-saved-bar">
+      <div class="saved-bar-head">
+        <h3>Gespeicherte Auswertungen</h3>
+      </div>
+      <div class="saved-list" id="g-saved-list">
+        <span style="font-size:12px;color:var(--dim)">Noch keine gespeicherten Auswertungen.</span>
+      </div>
+      <div class="save-row" id="g-save-row" style="display:none">
+        <input class="save-name" id="g-save-name-inp" type="text" placeholder="Name der Auswertung…" maxlength="80">
+        <button type="button" class="btn" onclick="gSaveAuswertung()">Speichern</button>
+        <button type="button" class="btn-sec" onclick="gHideSaveRow()">Abbrechen</button>
+      </div>
+      <div style="margin-top:8px">
+        <button type="button" class="btn-sec" id="g-btn-show-save" onclick="gShowSaveRow()" style="font-size:12px;padding:5px 12px">
+          + Aktuelle Auswertung speichern
+        </button>
+      </div>
+    </div>
+
+    <div id="g-result-area"></div>
+
+  </div>
+
+  <!-- ── Meisterschaft ───────────────────────────────────────────────────── -->
+  <div class="pane" id="pane-meister">
+    <div class="soon-box">
+      <strong>Meisterschaft</strong>
+      Auswertung für Kreis-, Bezirks- und Landesmeisterschaften – in Entwicklung.
+    </div>
+  </div>
+
+  <!-- ── Mannschaften Ringe ─────────────────────────────────────────────── -->
+  <div class="pane" id="pane-mannschaft">
+    <div class="soon-box">
+      <strong>Mannschaften Ringe</strong>
+      Direktvergleich Mannschaftsringe über mehrere Veranstaltungen – in Entwicklung.
+    </div>
+  </div>
+
+  <!-- ── Variable Auswertung ────────────────────────────────────────────── -->
+  <div class="pane" id="pane-variabel">
+    <div class="soon-box">
+      <strong>Variable Auswertung</strong>
+      Frei konfigurierbare Auswertung mit wählbaren Filtern und Gruppierungen – in Entwicklung.
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── Tab-Navigation ───────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('pane-' + btn.dataset.pane).classList.add('active');
+  });
+});
+
+// ── URL-Parameter auslesen + Tab vorauswählen ────────────────────────────────
+const urlParams  = new URLSearchParams(location.search);
+const initEvent  = urlParams.get('event_id')  || '';
+const initSaved  = urlParams.get('saved_id')  || '';
+const initTab    = urlParams.get('tab')        || '';
+
+if (initTab) {
+  const tabBtn = document.querySelector(`.tab[data-pane="${initTab}"]`);
+  if (tabBtn) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+    tabBtn.classList.add('active');
+    document.getElementById('pane-' + initTab).classList.add('active');
+  }
+}
+
+// ── Wettkämpfe laden ─────────────────────────────────────────────────────────
+async function loadEvents(reload) {
+  try {
+    const incl = document.getElementById('chk-archived').checked ? '&include_archived=1' : '';
+    const all = await fetch('/api/competitions?type=runde' + incl).then(r => r.json());
+    const sel = document.getElementById('sel-event');
+    const prevVal = sel.value;
+    // Optionen zurücksetzen (außer erstem Platzhalter)
+    sel.innerHTML = '<option value="">Wettkampf wählen…</option>';
+    (all || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      const date = c.starts_on ? ' (' + c.starts_on.slice(0,10) + ')' : '';
+      const empty = c.starter_count === 0 ? ' – (keine Starter)' : '';
+      const arch  = c.status === 'archived' ? ' [Archiv]' : '';
+      opt.textContent = c.name + date + arch + empty;
+      if (c.starter_count === 0) opt.style.color = 'var(--dim)';
+      if (c.status === 'archived') opt.style.fontStyle = 'italic';
+      sel.appendChild(opt);
+    });
+    if (reload) {
+      // Selektion erhalten wenn Event noch in der Liste
+      sel.value = prevVal;
+      return;
+    }
+    // URL-Parameter: Event vorauswählen und direkt auswerten
+    if (initEvent) {
+      sel.value = initEvent;
+      await onEventChange();
+      // Gespeicherte Auswertung direkt laden?
+      if (initSaved) {
+        const savedList = await fetch(`/api/auswertungen?event_id=${initEvent}`)
+          .then(r => r.json()).catch(() => []);
+        const found = (savedList || []).find(s => s.id === initSaved);
+        if (found) applyParams(found);
+      }
+      // Auswertung sofort anzeigen
+      await auswerten();
+    }
+  } catch(e) {
+    console.error('Wettkämpfe konnten nicht geladen werden:', e);
+  }
+}
+loadEvents();
+
+// ── Event-Wechsel ────────────────────────────────────────────────────────────
+async function onEventChange() {
+  const eventID = document.getElementById('sel-event').value;
+  document.getElementById('result-area').innerHTML = '';
+  if (!eventID) {
+    document.getElementById('saved-bar').style.display = 'none';
+    return;
+  }
+  document.getElementById('saved-bar').style.display = 'block';
+  await loadSavedList(eventID);
+  await auswerten();
+}
+
+// ── Gespeicherte Auswertungen ─────────────────────────────────────────────────
+async function loadSavedList(eventID) {
+  try {
+    const list = await fetch(`/api/auswertungen?event_id=${eventID}`).then(r => r.json());
+    renderSavedList(list || []);
+  } catch(e) { renderSavedList([]); }
+}
+
+function renderSavedList(list) {
+  const wrap = document.getElementById('saved-list');
+  if (!list.length) {
+    wrap.innerHTML = '<span style="font-size:12px;color:var(--dim)">Noch keine gespeicherten Auswertungen.</span>';
+    return;
+  }
+  wrap.innerHTML = list.map(s => {
+    const bestOf = s.params.best_of || 0;
+    const hint   = bestOf > 0 ? `Beste ${bestOf}` : 'Alle';
+    return `<div class="saved-chip">
+      <span style="color:var(--text)">${esc(s.name)}</span>
+      <span style="color:var(--dim);font-size:11px;margin-left:4px">${hint}</span>
+      <button type="button" class="chip-load" onclick='loadSaved(${JSON.stringify(s)})' title="Laden">Laden</button>
+      <button type="button" class="chip-del" onclick="deleteSaved('${s.id}')" title="Löschen">×</button>
+    </div>`;
+  }).join('');
+}
+
+function applyParams(saved) {
+  // Parameter aus gespeicherter Auswertung wiederherstellen
+  const bestOf = saved.params.best_of !== undefined ? saved.params.best_of : 5;
+  document.getElementById('sel-bestof').value = String(bestOf);
+}
+
+async function loadSaved(saved) {
+  applyParams(saved);
+  await auswerten();
+}
+
+async function deleteSaved(id) {
+  if (!confirm('Gespeicherte Auswertung löschen?')) return;
+  try {
+    await fetch(`/api/auswertungen/${id}`, {method:'DELETE'});
+    const eventID = document.getElementById('sel-event').value;
+    await loadSavedList(eventID);
+  } catch(e) { alert('Fehler beim Löschen: ' + e.message); }
+}
+
+function showSaveRow() {
+  document.getElementById('save-row').style.display = 'flex';
+  document.getElementById('save-name-inp').focus();
+  document.getElementById('btn-show-save').style.display = 'none';
+}
+function hideSaveRow() {
+  document.getElementById('save-row').style.display = 'none';
+  document.getElementById('btn-show-save').style.display = '';
+  document.getElementById('save-name-inp').value = '';
+}
+
+async function saveAuswertung() {
+  const eventID = document.getElementById('sel-event').value;
+  if (!eventID) { alert('Bitte zuerst einen Wettkampf wählen.'); return; }
+  const name = document.getElementById('save-name-inp').value.trim();
+  if (!name) { document.getElementById('save-name-inp').focus(); return; }
+  const bestOf = parseInt(document.getElementById('sel-bestof').value) || 0;
+  try {
+    await fetch('/api/auswertungen', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name, type:'runde', event_id: eventID, params:{best_of: bestOf}}),
+    });
+    hideSaveRow();
+    await loadSavedList(eventID);
+  } catch(e) { alert('Fehler beim Speichern: ' + e.message); }
+}
+
+// ── Auswertung Rundenwettkampf ───────────────────────────────────────────────
+const STATUS_DE = {
+  finished:'Beendet', match:'Wertung', sighting:'Probe',
+  paused:'Pausiert', assigned:'Zugeteilt', aborted:'Abgebrochen', '':'—'
+};
+
+async function auswerten() {
+  const eventID = document.getElementById('sel-event').value;
+  if (!eventID) { alert('Bitte zuerst einen Wettkampf wählen.'); return; }
+
+  const bestOf  = parseInt(document.getElementById('sel-bestof').value) || 0;
+  const area    = document.getElementById('result-area');
+  area.innerHTML = '<div class="spinner">Lade Ergebnisse…</div>';
+  document.getElementById('btn-eval').disabled = true;
+
+  try {
+    const entries = await fetch(`/api/auswertung/rundenwettkampf?event_id=${eventID}`)
+      .then(r => r.ok ? r.json() : r.json().then(j => { throw new Error(j.error || 'Fehler') }));
+
+    if (!entries || !entries.length) {
+      area.innerHTML = '<div class="msg-err">Keine Starter für diesen Wettkampf gefunden.</div>';
+      return;
+    }
+
+    area.innerHTML = renderRunde(entries, bestOf);
+  } catch(e) {
+    area.innerHTML = `<div class="msg-err">Fehler: ${esc(e.message)}</div>`;
+  } finally {
+    document.getElementById('btn-eval').disabled = false;
+  }
+}
+
+function renderRunde(entries, bestOf) {
+  // Zehntelwertung anhand der Daten erkennen
+  const isDecimal = entries.some(e => e.decimal_scoring);
+
+  // Sortierfunktion: Zehntel > Ganzring, Stecher: Innenzehner
+  function cmpEntry(a, b) {
+    if (isDecimal) {
+      const d = b.total_decimal - a.total_decimal;
+      return d !== 0 ? d : b.inner_tens - a.inner_tens;
+    }
+    const d = b.total_rings - a.total_rings;
+    return d !== 0 ? d : b.inner_tens - a.inner_tens;
+  }
+
+  // Wert eines Eintrags für die Mannschaftssumme
+  function entryValue(e) {
+    return isDecimal ? e.total_decimal : e.total_rings;
+  }
+
+  // Nach Mannschaft gruppieren
+  const teams = new Map(); // teamID → {name, entries[]}
+
+  for (const e of entries) {
+    const key  = e.team_id || '__none__';
+    const name = e.team_name || '(Ohne Mannschaft)';
+    if (!teams.has(key)) teams.set(key, {id: key, name, entries: []});
+    teams.get(key).entries.push(e);
+  }
+
+  // Jede Mannschaft intern sortieren und Teamwertung berechnen
+  const teamList = [];
+  for (const [, team] of teams) {
+    const countable = team.entries.filter(e => e.role !== 'AK').sort(cmpEntry);
+    const ak        = team.entries.filter(e => e.role === 'AK').sort(cmpEntry);
+
+    const wertungCount = bestOf > 0 ? Math.min(bestOf, countable.length) : countable.length;
+    const teamTotal    = countable.slice(0, wertungCount).reduce((s, e) => s + entryValue(e), 0);
+
+    team.sorted       = [...countable, ...ak];
+    team.wertungCount = wertungCount;
+    team.teamTotal    = teamTotal;
+    team.countable    = countable;
+    teamList.push(team);
+  }
+
+  // Mannschaften nach Teamgesamt sortieren
+  teamList.sort((a, b) => {
+    if (a.id === '__none__') return 1;
+    if (b.id === '__none__') return -1;
+    return b.teamTotal - a.teamTotal;
+  });
+
+  // Wert formatiert anzeigen
+  function fmtVal(e) {
+    if (!e.shot_count) return '<span class="no-result">—</span>';
+    if (isDecimal) return `<span class="rings-val">${e.total_decimal.toFixed(1)}</span>`;
+    return `<span class="rings-val">${e.total_rings}</span>`;
+  }
+  function fmtTeamTotal(t) {
+    return isDecimal ? t.teamTotal.toFixed(1) : String(t.teamTotal);
+  }
+  const wertungLabel = isDecimal ? 'Zehntel' : 'Ringe';
+
+  // Gesamtranking
+  let rankHTML = '';
+  const rankedTeams = teamList.filter(t => t.id !== '__none__' && t.countable.length > 0);
+  if (rankedTeams.length > 1) {
+    rankHTML = `<div id="team-ranking">
+      <h3>Mannschaftswertung (${wertungLabel})</h3>
+      <table class="rank-table">` +
+      rankedTeams.map((t, i) => `
+        <tr>
+          <td class="rank-pos">${i+1}.</td>
+          <td class="rank-team">${esc(t.name)}</td>
+          <td class="rank-shooters">${t.wertungCount} Schützen</td>
+          <td class="rank-rings"><strong>${fmtTeamTotal(t)}</strong></td>
+        </tr>`).join('') +
+      `</table></div>`;
+  }
+
+  // Detail-Sektionen
+  const detailHTML = teamList.map(team => {
+    const rows = team.sorted.map((e, idx) => {
+      const isAK     = e.role === 'AK';
+      const counts   = !isAK && idx < team.wertungCount;
+      const hasResult = e.shot_count > 0;
+      const roleBadge = e.role === 'S' ? `<span class="role-badge role-s">S</span>`
+                      : e.role === 'E' ? `<span class="role-badge role-e">E</span>`
+                      :                  `<span class="role-badge role-ak">AK</span>`;
+      const rankCell = counts ? `<span class="rank">${idx+1}.</span>` : '<span style="color:var(--dim)">—</span>';
+
+      // Bei Zehntelwertung: Zehntel prominent, Ganzring als Info daneben
+      const ringsCell = isDecimal
+        ? (hasResult ? `<span class="rings-val">${e.total_decimal.toFixed(1)}</span>` : '<span class="no-result">—</span>')
+        : (hasResult ? `<span class="rings-val">${e.total_rings}</span>` : '<span class="no-result">—</span>');
+      const subCell = isDecimal
+        ? (hasResult ? `<span style="color:var(--dim);font-size:11px">(${e.total_rings})</span>` : '')
+        : (hasResult && e.total_decimal > 0 ? `<span style="color:var(--dim);font-size:11px">${e.total_decimal.toFixed(1)}</span>` : '');
+
+      return `<tr class="${isAK ? 'ak' : ''}">
+        <td>${rankCell}</td>
+        <td>${esc(e.last_name)}, ${esc(e.first_name)}</td>
+        <td>${esc(e.club_name)}</td>
+        <td>${roleBadge}</td>
+        <td>${ringsCell}</td>
+        <td>${subCell}</td>
+        <td>${hasResult ? e.inner_tens : ''}</td>
+        <td>${esc(STATUS_DE[e.session_status] || e.session_status)}</td>
+        <td>${counts ? '&#10003;' : (isAK ? '<span style="color:var(--warn)">AK</span>' : '<span style="color:var(--dim)">—</span>')}</td>
+      </tr>`;
+    }).join('');
+
+    const totalLabel = bestOf > 0 && team.countable.length > team.wertungCount
+      ? `beste ${team.wertungCount} von ${team.countable.length}`
+      : `${team.wertungCount} Schützen`;
+
+    return `<div class="team-section">
+      <div class="team-header">
+        <span class="team-name">${esc(team.name)}</span>
+        <span class="team-total">Mannschaftswertung: <strong>${fmtTeamTotal(team)}</strong> ${wertungLabel} (${totalLabel})</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Platz</th><th>Schütze</th><th>Verein</th><th>Klasse</th>
+            <th>${wertungLabel}</th><th>${isDecimal ? 'Ganzring' : 'Zehntel'}</th>
+            <th>10er</th><th>Status</th><th>Zählt</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  return rankHTML + detailHTML;
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GRUPPENWETTKAMPF
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function gLoadEvents(reload) {
+  try {
+    const incl = document.getElementById('g-chk-archived').checked ? '&include_archived=1' : '';
+    const all = await fetch('/api/competitions?type=gruppe' + incl).then(r => r.json());
+    const sel = document.getElementById('g-sel-event');
+    const prevVal = sel.value;
+    sel.innerHTML = '<option value="">Wettkampf wählen…</option>';
+    (all || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      const date = c.starts_on ? ' (' + c.starts_on.slice(0,10) + ')' : '';
+      const empty = c.starter_count === 0 ? ' – (keine Starter)' : '';
+      const arch  = c.status === 'archived' ? ' [Archiv]' : '';
+      opt.textContent = c.name + date + arch + empty;
+      if (c.starter_count === 0) opt.style.color = 'var(--dim)';
+      if (c.status === 'archived') opt.style.fontStyle = 'italic';
+      sel.appendChild(opt);
+    });
+    if (reload) {
+      sel.value = prevVal;
+      return;
+    }
+    const p = new URLSearchParams(location.search);
+    if (p.get('tab') === 'gruppe' && p.get('event_id')) {
+      sel.value = p.get('event_id');
+      await gOnEventChange();
+      await auswertenGruppe();
+    }
+  } catch(e) { console.error(e); }
+}
+gLoadEvents();
+
+async function gOnEventChange() {
+  const eventID = document.getElementById('g-sel-event').value;
+  document.getElementById('g-result-area').innerHTML = '';
+  if (!eventID) { document.getElementById('g-saved-bar').style.display = 'none'; return; }
+  document.getElementById('g-saved-bar').style.display = 'block';
+  await gLoadSavedList(eventID);
+  await auswertenGruppe();
+}
+
+// ── Gespeicherte Auswertungen (Gruppe) ──────────────────────────────────────
+async function gLoadSavedList(eventID) {
+  try {
+    const list = await fetch(`/api/auswertungen?event_id=${eventID}`).then(r => r.json());
+    const filtered = (list || []).filter(s => s.type === 'gruppe');
+    gRenderSavedList(filtered);
+  } catch(e) { gRenderSavedList([]); }
+}
+function gRenderSavedList(list) {
+  const wrap = document.getElementById('g-saved-list');
+  if (!list.length) {
+    wrap.innerHTML = '<span style="font-size:12px;color:var(--dim)">Noch keine gespeicherten Auswertungen.</span>';
+    return;
+  }
+  wrap.innerHTML = list.map(s => {
+    const bestOf  = s.params.best_of  || 0;
+    const wertung = {rings:'Ringe', decimal:'Zehntel', teiler:'Teiler', auto:'Auto'}[s.params.wertung] || '';
+    const hint    = [wertung, bestOf > 0 ? `Beste ${bestOf}` : ''].filter(Boolean).join(', ');
+    return `<div class="saved-chip">
+      <span style="color:var(--text)">${esc(s.name)}</span>
+      <span style="color:var(--dim);font-size:11px;margin-left:4px">${hint}</span>
+      <button type="button" class="chip-load" onclick='gLoadSaved(${JSON.stringify(s)})'>Laden</button>
+      <button type="button" class="chip-del" onclick="gDeleteSaved('${s.id}')">×</button>
+    </div>`;
+  }).join('');
+}
+function gApplyParams(saved) {
+  document.getElementById('g-sel-bestof').value  = String(saved.params.best_of  || 0);
+  document.getElementById('g-sel-wertung').value = saved.params.wertung || 'auto';
+}
+async function gLoadSaved(saved) { gApplyParams(saved); await auswertenGruppe(); }
+async function gDeleteSaved(id) {
+  if (!confirm('Gespeicherte Auswertung löschen?')) return;
+  await fetch(`/api/auswertungen/${id}`, {method:'DELETE'});
+  await gLoadSavedList(document.getElementById('g-sel-event').value);
+}
+function gShowSaveRow() {
+  document.getElementById('g-save-row').style.display = 'flex';
+  document.getElementById('g-save-name-inp').focus();
+  document.getElementById('g-btn-show-save').style.display = 'none';
+}
+function gHideSaveRow() {
+  document.getElementById('g-save-row').style.display = 'none';
+  document.getElementById('g-btn-show-save').style.display = '';
+  document.getElementById('g-save-name-inp').value = '';
+}
+async function gSaveAuswertung() {
+  const eventID = document.getElementById('g-sel-event').value;
+  if (!eventID) return;
+  const name = document.getElementById('g-save-name-inp').value.trim();
+  if (!name) { document.getElementById('g-save-name-inp').focus(); return; }
+  const bestOf  = parseInt(document.getElementById('g-sel-bestof').value) || 0;
+  const wertung = document.getElementById('g-sel-wertung').value;
+  await fetch('/api/auswertungen', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name, type:'gruppe', event_id: eventID, params:{best_of: bestOf, wertung}}),
+  });
+  gHideSaveRow();
+  await gLoadSavedList(eventID);
+}
+
+// ── Auswertung berechnen ─────────────────────────────────────────────────────
+async function auswertenGruppe() {
+  const eventID = document.getElementById('g-sel-event').value;
+  if (!eventID) { alert('Bitte zuerst einen Wettkampf wählen.'); return; }
+  const bestOf      = parseInt(document.getElementById('g-sel-bestof').value) || 0;
+  const wertungSel  = document.getElementById('g-sel-wertung').value;
+  const area        = document.getElementById('g-result-area');
+  area.innerHTML    = '<div class="spinner">Lade Ergebnisse…</div>';
+  document.getElementById('g-btn-eval').disabled = true;
+  try {
+    const data = await fetch(`/api/auswertung/gruppenwettkampf?event_id=${eventID}`)
+      .then(r => r.ok ? r.json() : r.json().then(j => { throw new Error(j.error || 'Fehler') }));
+    area.innerHTML = renderGruppe(data, bestOf, wertungSel);
+  } catch(e) {
+    area.innerHTML = `<div class="msg-err">Fehler: ${esc(e.message)}</div>`;
+  } finally {
+    document.getElementById('g-btn-eval').disabled = false;
+  }
+}
+
+function renderGruppe(data, bestOf, wertungSel) {
+  const {participants, starters} = data;
+  if (!starters.length) return '<div class="msg-err">Keine Starter für diesen Wettkampf gefunden.</div>';
+
+  // Wertungsart bestimmen
+  const hasDecimal = starters.some(e => e.decimal_scoring);
+  const wertung    = wertungSel === 'auto'    ? (hasDecimal ? 'decimal' : 'rings')
+                   : wertungSel === 'decimal' ? 'decimal'
+                   : wertungSel === 'teiler'  ? 'teiler'
+                   : 'rings';
+  const isTeiler   = wertung === 'teiler';
+  const isDecimal  = wertung === 'decimal';
+  const wertLabel  = isTeiler ? 'Teiler' : isDecimal ? 'Zehntel' : 'Ringe';
+
+  // Sortierfunktion Einzelschütze (für Wahl "beste X")
+  function cmpShooter(a, b) {
+    if (!a.shot_count && !b.shot_count) return 0;
+    if (!a.shot_count) return 1;   // kein Ergebnis → nach hinten
+    if (!b.shot_count) return -1;
+    if (isTeiler)  return a.best_center_distance - b.best_center_distance;   // kleiner = besser
+    if (isDecimal) {
+      const d = b.total_decimal - a.total_decimal;
+      return d !== 0 ? d : b.inner_tens - a.inner_tens;
+    }
+    const d = b.total_rings - a.total_rings;
+    return d !== 0 ? d : b.inner_tens - a.inner_tens;
+  }
+
+  // Wert eines Schützen (für Summe)
+  function shooterVal(e) {
+    if (!e.shot_count) return null;
+    return isTeiler ? e.best_center_distance : isDecimal ? e.total_decimal : e.total_rings;
+  }
+
+  // Gruppengesamt aus besten X Schützen
+  function groupTotal(sorted, wertungCount) {
+    const counted = sorted.filter(e => e.shot_count > 0).slice(0, wertungCount);
+    if (!counted.length) return null;
+    const sum = counted.reduce((s, e) => s + shooterVal(e), 0);
+    return isDecimal ? parseFloat(sum.toFixed(1)) : isTeiler ? parseFloat(sum.toFixed(1)) : Math.round(sum);
+  }
+
+  // Formatierung
+  function fmtVal(e) {
+    if (!e.shot_count) return '<span class="no-result">—</span>';
+    if (isTeiler)  return `<span class="rings-val">${e.best_center_distance.toFixed(1)}</span>`;
+    if (isDecimal) return `<span class="rings-val">${e.total_decimal.toFixed(1)}</span>`;
+    return `<span class="rings-val">${e.total_rings}</span>`;
+  }
+  function fmtSubVal(e) {
+    if (!e.shot_count) return '';
+    if (isTeiler)  return `<span style="color:var(--dim);font-size:11px">${e.total_rings}</span>`;
+    if (isDecimal) return `<span style="color:var(--dim);font-size:11px">(${e.total_rings})</span>`;
+    return e.total_decimal > 0 ? `<span style="color:var(--dim);font-size:11px">${e.total_decimal.toFixed(1)}</span>` : '';
+  }
+  function fmtTotal(total) {
+    if (total === null) return '—';
+    return isTeiler || isDecimal ? total.toFixed(1) : String(total);
+  }
+
+  // Starters zu Gruppen zuordnen
+  const groups = [];
+  for (const p of participants) {
+    const members = starters.filter(e => {
+      if (p.entity_type === 'team')  return e.team_id === p.team_id;
+      if (p.entity_type === 'club')  return e.club_id === p.club_id;
+      if (p.entity_type === 'gau')   return e.gau_id  === p.gau_id;
+      return false;
+    });
+    const sorted       = [...members].sort(cmpShooter);
+    const withResult   = sorted.filter(e => e.shot_count > 0);
+    const wertungCount = bestOf > 0 ? Math.min(bestOf, withResult.length) : withResult.length;
+    const total        = groupTotal(sorted, wertungCount);
+    groups.push({participant: p, sorted, wertungCount, total});
+  }
+
+  // Schützen ohne Gruppe (kein Participant-Eintrag)
+  const assignedIDs = new Set(starters.map(e => e.starter_id));
+  // (alle zugeordnet über starters, aber ggf. starter ohne Gruppe)
+  const ungrouped = starters.filter(e => {
+    return !participants.some(p => {
+      if (p.entity_type === 'team') return e.team_id === p.team_id;
+      if (p.entity_type === 'club') return e.club_id === p.club_id;
+      if (p.entity_type === 'gau')  return e.gau_id  === p.gau_id;
+      return false;
+    });
+  });
+  if (ungrouped.length) {
+    const sorted       = [...ungrouped].sort(cmpShooter);
+    const withResult   = sorted.filter(e => e.shot_count > 0);
+    const wertungCount = bestOf > 0 ? Math.min(bestOf, withResult.length) : withResult.length;
+    groups.push({
+      participant: {label:'(Ohne Gruppe)', entity_type:''},
+      sorted, wertungCount,
+      total: groupTotal(sorted, wertungCount),
+    });
+  }
+
+  // Gruppen-Ranking: nach Total (Teiler aufsteigend, sonst absteigend)
+  const ranked = [...groups].filter(g => g.total !== null);
+  ranked.sort((a, b) => isTeiler ? a.total - b.total : b.total - a.total);
+
+  // ── Ranking-Box ──────────────────────────────────────────────────────────
+  let rankHTML = '';
+  if (ranked.length > 1) {
+    rankHTML = `<div id="team-ranking">
+      <h3>Gruppenwertung (${wertLabel})</h3>
+      <table class="rank-table">` +
+      ranked.map((g, i) => `
+        <tr>
+          <td class="rank-pos">${i+1}.</td>
+          <td class="rank-team">${esc(g.participant.label)}</td>
+          <td class="rank-shooters">${g.wertungCount} Schützen</td>
+          <td class="rank-rings"><strong>${fmtTotal(g.total)}</strong></td>
+        </tr>`).join('') +
+      `</table></div>`;
+  }
+
+  // ── Detail je Gruppe ─────────────────────────────────────────────────────
+  const rankPos = new Map(ranked.map((g, i) => [g.participant.label, i+1]));
+
+  const detailHTML = groups.map(group => {
+    const pos       = rankPos.get(group.participant.label);
+    const posLabel  = pos ? `<span style="color:var(--acc);font-weight:700;font-size:16px">${pos}.</span>` : '';
+    const totalLabel = bestOf > 0 && group.sorted.filter(e=>e.shot_count>0).length > group.wertungCount
+      ? `beste ${group.wertungCount}`
+      : `${group.wertungCount} Schützen`;
+
+    const rows = group.sorted.map((e, idx) => {
+      const counted   = e.shot_count > 0 && idx < group.wertungCount;
+      const rankCell  = counted ? `<span class="rank">${idx+1}.</span>` : '<span style="color:var(--dim)">—</span>';
+      return `<tr>
+        <td>${rankCell}</td>
+        <td>${esc(e.last_name)}, ${esc(e.first_name)}</td>
+        <td style="font-size:11px;color:var(--dim)">${esc(e.club_name)}</td>
+        <td>${fmtVal(e)}</td>
+        <td>${fmtSubVal(e)}</td>
+        <td>${e.shot_count ? e.inner_tens : ''}</td>
+        <td>${esc(STATUS_DE[e.session_status] || e.session_status)}</td>
+        <td>${counted ? '&#10003;' : '<span style="color:var(--dim)">—</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="team-section">
+      <div class="team-header">
+        ${posLabel}
+        <span class="team-name">${esc(group.participant.label)}</span>
+        <span class="team-total">
+          Gruppenwertung: <strong>${fmtTotal(group.total)}</strong> ${wertLabel}
+          (${totalLabel})
+        </span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Pl.</th><th>Schütze</th><th>Verein</th>
+            <th>${wertLabel}</th>
+            <th>${isTeiler ? 'Ringe' : isDecimal ? 'Ganzring' : 'Zehntel'}</th>
+            <th>10er</th><th>Status</th><th>Zählt</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  return rankHTML + detailHTML;
+}
+</script>
+<script src="/role.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Standaktion – Schießstand</title>
+<style>
+  :root {
+    --bg:#0f0f1a; --panel:#1a1a2e; --line:#2a2a45; --text:#e0e0f0;
+    --dim:#7070a0; --acc:#7ba7ff; --green:#3dcc6e; --red:#e04040; --warn:#ffb347;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;
+         background:var(--panel);border-bottom:1px solid var(--line)}
+  header a{color:var(--dim);text-decoration:none;font-size:18px}
+  header a:hover{color:var(--text)}
+  header h1{font-size:17px;font-weight:600}
+
+  main{padding:24px 20px;display:flex;flex-direction:column;gap:28px;max-width:900px}
+
+  /* ── Sektion ── */
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .section-head{padding:14px 18px;border-bottom:1px solid var(--line);
+                display:flex;align-items:center;gap:10px}
+  .section-head .icon{font-size:20px}
+  .section-head h2{font-size:15px;font-weight:700}
+  .section-head .sub{font-size:12px;color:var(--dim);margin-top:2px}
+  .section-body{padding:18px}
+
+  /* ── Form-Felder ── */
+  .row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:flex-end}
+  .field{display:flex;flex-direction:column;gap:4px;flex:1;min-width:160px}
+  .field label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .field input,.field select,.field textarea{
+    background:var(--bg);color:var(--text);border:1px solid var(--line);
+    border-radius:5px;padding:7px 10px;font-size:13px;width:100%}
+  .field input:focus,.field select:focus{outline:none;border-color:var(--acc)}
+  .field.url input{font-family:monospace;font-size:12px}
+
+  /* ── Buttons ── */
+  .btn{background:var(--acc);color:#000;border:none;border-radius:5px;
+       padding:7px 18px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .btn:hover{opacity:.85}
+  .btn:disabled{opacity:.4;cursor:default}
+  .btn-danger{background:var(--red);color:#fff}
+  .btn-sec{background:transparent;color:var(--dim);border:1px solid var(--line);
+           border-radius:5px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .btn-sec:hover{color:var(--text);border-color:var(--text)}
+
+  /* ── Infobox ── */
+  .info-box{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+            padding:12px 14px;font-size:13px;color:var(--dim);margin-bottom:14px}
+  .info-box.active{border-color:var(--acc);color:var(--text)}
+  .info-box.warn{border-color:var(--warn);color:var(--warn)}
+  .info-box strong{color:var(--text)}
+
+  /* ── Session-Liste (Import) ── */
+  .session-list{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+  .session-item{display:flex;align-items:center;gap:12px;padding:10px 14px;
+                background:var(--bg);border:1px solid var(--line);border-radius:6px;
+                cursor:pointer;transition:border-color .1s}
+  .session-item:hover,.session-item.sel{border-color:var(--acc)}
+  .session-item.sel{background:#1a1a35}
+  .session-item .si-date{font-size:11px;color:var(--dim);min-width:100px}
+  .session-item .si-counts{font-size:13px;font-weight:600;min-width:120px}
+  .session-item .si-id{font-size:11px;font-family:monospace;color:var(--dim);
+                        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ── Status-Meldungen ── */
+  .msg{padding:8px 12px;border-radius:5px;font-size:13px;margin-top:10px}
+  .msg.ok{background:#1a3a1a;color:var(--green)}
+  .msg.err{background:#2a1a1a;color:var(--red)}
+  .msg.info{background:#1a1a2e;color:var(--acc)}
+
+  /* ── Lane-Karten (Transfer) ── */
+  .lane-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+  .lane-card{background:var(--bg);border:2px solid var(--line);border-radius:8px;
+             padding:12px 14px;min-width:140px;cursor:pointer;transition:border-color .1s;
+             position:relative}
+  .lane-card:hover{border-color:var(--dim)}
+  .lane-card.sel-src{border-color:var(--warn)}
+  .lane-card.sel-dst{border-color:var(--green)}
+  .lane-card.empty{opacity:.55}
+  .lane-card .lc-no{font-size:11px;color:var(--dim);margin-bottom:4px}
+  .lane-card .lc-name{font-size:13px;font-weight:700}
+  .lane-card .lc-info{font-size:11px;color:var(--dim);margin-top:3px}
+  .lane-tag{position:absolute;top:5px;right:7px;font-size:9px;font-weight:700;
+            text-transform:uppercase;letter-spacing:.5px;padding:1px 5px;border-radius:3px}
+  .lane-tag.src{background:#3a2a00;color:var(--warn)}
+  .lane-tag.dst{background:#1a3a1a;color:var(--green)}
+
+  .divider{border:none;border-top:1px solid var(--line);margin:16px 0}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/" title="Zurück">←</a>
+  <h1>Standaktion</h1>
+</header>
+
+<main>
+
+  <!-- ═══════════════ TRANSFER ═══════════════ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="icon">🔀</span>
+      <div>
+        <h2>Schütze transferieren</h2>
+        <div class="sub">Aktive Session auf einen anderen Stand verschieben, z.B. bei Geräteausfall</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <p style="font-size:13px;color:var(--dim);margin-bottom:14px">
+        Wähle zuerst den <span style="color:var(--warn);font-weight:600">Quell-Stand</span> (Schütze mit Problem),
+        dann den <span style="color:var(--green);font-weight:600">Ziel-Stand</span> (freier Stand).
+        Die Session wechselt die Lane – der neue StandPC erkennt sie beim nächsten Poll automatisch.
+      </p>
+
+      <div id="transfer-lanes" class="lane-grid">
+        <div style="color:var(--dim);font-size:13px">Lade Stände…</div>
+      </div>
+
+      <div id="transfer-info" class="info-box" style="display:none"></div>
+
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-danger" id="btn-transfer" disabled onclick="doTransfer()">Transferieren</button>
+        <button class="btn-sec" onclick="resetTransfer()">Zurücksetzen</button>
+      </div>
+      <div id="transfer-msg"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ IMPORT ═══════════════ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="icon">📥</span>
+      <div>
+        <h2>Schüsse aus lokalem Log importieren</h2>
+        <div class="sub">JSONL-Schusslog eines StandPC in die Datenbank importieren und einer Session zuordnen</div>
+      </div>
+    </div>
+    <div class="section-body">
+
+      <!-- Schritt 1: Stand auswählen + URL konfigurieren -->
+      <div class="row">
+        <div class="field">
+          <label>Stand</label>
+          <select id="imp-lane" onchange="onImpLaneChange()">
+            <option value="">– Stand wählen –</option>
+          </select>
+        </div>
+        <div class="field url">
+          <label>StandPC-URL</label>
+          <input type="url" id="imp-url" placeholder="http://192.168.x.x:8080">
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:6px">
+          <button class="btn-sec" onclick="saveURL()" title="URL speichern">Speichern</button>
+          <button class="btn" onclick="loadLocalSessions()">Abrufen</button>
+        </div>
+      </div>
+
+      <!-- Schritt 2: Session aus dem Log wählen -->
+      <div id="imp-sessions-wrap" style="display:none">
+        <hr class="divider">
+        <div style="font-size:12px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Lokale Sessions am StandPC</div>
+        <div id="imp-session-list" class="session-list"></div>
+      </div>
+
+      <!-- Schritt 3: Ziel-Session zuordnen -->
+      <div id="imp-assign-wrap" style="display:none">
+        <hr class="divider">
+        <div style="font-size:12px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Ziel-Session in der Datenbank</div>
+
+        <div id="imp-sel-info" class="info-box active" style="margin-bottom:14px"></div>
+
+        <div class="row">
+          <div class="field">
+            <label>Schütze</label>
+            <select id="imp-shooter">
+              <option value="">– Schütze wählen –</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Veranstaltung (optional)</label>
+            <select id="imp-event">
+              <option value="">– Keine –</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Disziplin</label>
+            <select id="imp-discipline">
+              <option value="">– Disziplin wählen –</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn" id="btn-import" onclick="doImport()">Importieren</button>
+          <span style="font-size:12px;color:var(--dim)" id="imp-shot-preview"></span>
+        </div>
+        <div id="imp-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ DISZIPLINEN ÜBERTRAGEN ═══════════════ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="icon">📋</span>
+      <div>
+        <h2>Disziplinen auf StandPC übertragen</h2>
+        <div class="sub">Aktive Disziplinen des Servers als disciplines.json auf einen StandPC schreiben (auch im Standalone-Betrieb verfügbar)</div>
+      </div>
+    </div>
+    <div class="section-body">
+
+      <p style="font-size:13px;color:var(--dim);margin-bottom:14px">
+        Für jede Disziplin muss in der <a href="/disciplines" style="color:var(--acc)">Disziplin-Verwaltung</a>
+        das Feld <strong style="color:var(--text)">StandPC-Scheibe Nr.</strong> gesetzt sein.
+        Disziplinen ohne diesen Wert werden nicht übertragen.
+      </p>
+
+      <!-- Ziel-Stand + Standard-Disziplin -->
+      <div class="row">
+        <div class="field">
+          <label>Ziel-Stand</label>
+          <select id="disc-lane" onchange="onDiscLaneChange()">
+            <option value="">– Stand wählen –</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Standard-Disziplin</label>
+          <select id="disc-default">
+            <option value="">– wird auto. gesetzt –</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Disziplin-Liste mit target_no -->
+      <div id="disc-list-wrap" style="display:none">
+        <div style="font-size:12px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">
+          Zu übertragende Disziplinen
+          <span style="margin-left:6px;font-weight:400">(nur aktive mit gesetzter Scheiben-Nr.)</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+          <thead>
+            <tr>
+              <th style="text-align:left;font-size:11px;color:var(--dim);padding:4px 8px;border-bottom:1px solid var(--line)">
+                <input type="checkbox" id="disc-chk-all" onchange="toggleAllDiscs(this.checked)" title="Alle">
+              </th>
+              <th style="text-align:left;font-size:11px;color:var(--dim);padding:4px 8px;border-bottom:1px solid var(--line)">Name</th>
+              <th style="text-align:right;font-size:11px;color:var(--dim);padding:4px 8px;border-bottom:1px solid var(--line)">Wertung</th>
+              <th style="text-align:right;font-size:11px;color:var(--dim);padding:4px 8px;border-bottom:1px solid var(--line)">Zehntel</th>
+              <th style="text-align:right;font-size:11px;color:var(--dim);padding:4px 8px;border-bottom:1px solid var(--line)">Scheibe Nr.</th>
+              <th style="text-align:right;font-size:11px;color:var(--dim);padding:4px 8px;border-bottom:1px solid var(--line)">Probe max.</th>
+            </tr>
+          </thead>
+          <tbody id="disc-tbody"></tbody>
+        </table>
+
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn" onclick="doPushDisciplines()">Übertragen</button>
+          <span id="disc-count" style="font-size:12px;color:var(--dim)"></span>
+        </div>
+        <div id="disc-msg"></div>
+      </div>
+
+      <div id="disc-no-lane" class="info-box" style="display:none">
+        Stand hat keine StandPC-URL konfiguriert. Bitte zuerst im Abschnitt "Schüsse importieren" eine URL speichern.
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── Globaler State ───────────────────────────────────────────────────────────
+let allLanes      = [];
+let allDiscs      = [];  // DisciplineFull vom Server
+let selSrcNo      = 0;
+let selDstNo      = 0;
+let impLocalSID   = '';
+let impLaneNo     = 0;
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+async function init() {
+  const [lanes, shooters, comps, discs, discsFull] = await Promise.all([
+    api('/api/lanes').catch(() => []),
+    api('/api/shooters/list').catch(() => []),
+    api('/api/competitions').catch(() => []),
+    api('/api/disciplines').catch(() => []),
+    api('/api/disciplines/full').catch(() => []),
+  ]);
+
+  allLanes = lanes || [];
+  allDiscs = (discsFull || []).filter(d => d.active && d.standpc_target_no > 0);
+
+  populateLaneSelect('imp-lane', allLanes);
+  populateLaneSelect('disc-lane', allLanes);
+  populateSelect('imp-shooter', shooters || [], s => `${s.last_name}, ${s.first_name}`, s => s.id);
+  populateSelect('imp-event',   comps    || [], c => c.name, c => c.id, true);
+  populateSelect('imp-discipline', discs || [], d => d.name, d => d.id);
+
+  renderTransferLanes();
+  renderDiscTable();
+}
+
+function api(path, opts) {
+  return fetch(path, opts).then(r => {
+    if (!r.ok) return r.json().then(e => Promise.reject(new Error(e.error || r.statusText)));
+    return r.json();
+  });
+}
+
+function populateSelect(id, items, label, value, optional) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = optional
+    ? `<option value="">– Keine –</option>`
+    : `<option value="">– Bitte wählen –</option>`;
+  for (const it of items) {
+    const o = document.createElement('option');
+    o.value = value(it);
+    o.textContent = label(it);
+    sel.appendChild(o);
+  }
+}
+
+function populateLaneSelect(id, lanes) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = '<option value="">– Stand wählen –</option>';
+  for (const l of lanes) {
+    const o = document.createElement('option');
+    o.value = l.lane_no;
+    o.textContent = `Stand ${l.lane_no}` + (l.name ? ` – ${l.name}` : '');
+    if (l.standpc_url) o.dataset.url = l.standpc_url;
+    sel.appendChild(o);
+  }
+}
+
+// ── Transfer ─────────────────────────────────────────────────────────────────
+function renderTransferLanes() {
+  const wrap = document.getElementById('transfer-lanes');
+  if (!allLanes.length) {
+    wrap.innerHTML = '<div style="color:var(--dim);font-size:13px">Keine Stände verfügbar.</div>';
+    return;
+  }
+  wrap.innerHTML = '';
+  for (const l of allLanes) {
+    const isEmpty = !l.session_id;
+    const card = document.createElement('div');
+    card.className = 'lane-card' + (isEmpty ? ' empty' : '');
+    card.dataset.no = l.lane_no;
+    card.dataset.sid = l.session_id || '';
+
+    const liveRings = l.live_total_rings || l.total_rings || 0;
+    const liveShots = l.live_wertung_count || l.shot_count || 0;
+    const scoreStr  = liveShots ? `${liveShots} Schüsse · ${liveRings} Ringe` : 'Kein Ergebnis';
+
+    card.innerHTML = `
+      <div class="lc-no">Stand ${l.lane_no}</div>
+      <div class="lc-name">${esc(l.shooter_name || '– frei –')}</div>
+      <div class="lc-info">${esc(l.discipline || (isEmpty ? 'Kein Schütze' : ''))}</div>
+      <div class="lc-info" style="color:${liveShots ? 'var(--acc)' : 'var(--dim)'}">${scoreStr}</div>`;
+
+    card.onclick = () => selectTransferLane(l);
+    wrap.appendChild(card);
+  }
+}
+
+function selectTransferLane(l) {
+  const isEmpty = !l.session_id;
+  // Wenn bereits Quelle gesetzt und keine Quelle angeklickt: Ziel wählen
+  if (selSrcNo && !isEmpty && l.lane_no !== selSrcNo) {
+    // Zweite aktive Lane angeklickt → als neues Quell-Stand
+    selSrcNo = l.lane_no;
+    selDstNo = 0;
+  } else if (selSrcNo && isEmpty) {
+    selDstNo = l.lane_no;
+  } else if (!isEmpty) {
+    selSrcNo = l.lane_no;
+    selDstNo = 0;
+  } else if (isEmpty && selSrcNo) {
+    selDstNo = l.lane_no;
+  }
+
+  // Karten aktualisieren
+  document.querySelectorAll('.lane-card').forEach(c => {
+    const no = +c.dataset.no;
+    c.classList.remove('sel-src','sel-dst');
+    c.querySelectorAll('.lane-tag').forEach(t => t.remove());
+    if (no === selSrcNo) {
+      c.classList.add('sel-src');
+      const t = document.createElement('span');
+      t.className = 'lane-tag src'; t.textContent = 'Quelle';
+      c.appendChild(t);
+    }
+    if (no === selDstNo) {
+      c.classList.add('sel-dst');
+      const t = document.createElement('span');
+      t.className = 'lane-tag dst'; t.textContent = 'Ziel';
+      c.appendChild(t);
+    }
+  });
+
+  updateTransferInfo();
+}
+
+function updateTransferInfo() {
+  const infoBox = document.getElementById('transfer-info');
+  const btn     = document.getElementById('btn-transfer');
+
+  if (!selSrcNo) {
+    infoBox.style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+
+  const src = allLanes.find(l => l.lane_no === selSrcNo);
+  const dst = selDstNo ? allLanes.find(l => l.lane_no === selDstNo) : null;
+
+  const liveRings = src ? (src.live_total_rings || src.total_rings || 0) : 0;
+  const liveShots = src ? (src.live_wertung_count || src.shot_count || 0) : 0;
+
+  let html = `<strong>Quell-Stand ${selSrcNo}</strong>: ${esc(src?.shooter_name || '–')}`;
+  if (src?.discipline) html += ` · ${esc(src.discipline)}`;
+  if (liveShots) html += ` · ${liveShots} Schüsse, ${liveRings} Ringe`;
+
+  if (dst) {
+    html += `<br><strong>Ziel-Stand ${selDstNo}</strong>: ${dst.shooter_name ? esc(dst.shooter_name) : 'Frei'}`;
+    if (dst.session_id) {
+      infoBox.className = 'info-box warn';
+      html += ' <span style="color:var(--warn)">⚠ Ziel-Stand ist belegt – Session wird überschrieben!</span>';
+    } else {
+      infoBox.className = 'info-box active';
+    }
+  } else {
+    infoBox.className = 'info-box';
+    html += '<br><span style="color:var(--dim)">Ziel-Stand wählen (freier Stand, grün markiert)</span>';
+  }
+
+  html += '<br><span style="font-size:11px;color:var(--dim)">Hinweis: Schuss-History aus der DB bleibt erhalten. Nur im JSONL gespeicherte Schüsse (ohne postgres_dsn) werden nicht automatisch übernommen.</span>';
+
+  infoBox.innerHTML = html;
+  infoBox.style.display = '';
+  btn.disabled = !(selSrcNo && selDstNo);
+}
+
+function resetTransfer() {
+  selSrcNo = selDstNo = 0;
+  document.querySelectorAll('.lane-card').forEach(c => {
+    c.classList.remove('sel-src','sel-dst');
+    c.querySelectorAll('.lane-tag').forEach(t => t.remove());
+  });
+  document.getElementById('transfer-info').style.display = 'none';
+  document.getElementById('btn-transfer').disabled = true;
+  document.getElementById('transfer-msg').innerHTML = '';
+}
+
+async function doTransfer() {
+  const src = allLanes.find(l => l.lane_no === selSrcNo);
+  if (!src?.session_id) {
+    showMsg('transfer-msg', 'Keine aktive Session auf Quell-Stand.', 'err');
+    return;
+  }
+  document.getElementById('btn-transfer').disabled = true;
+  try {
+    await api('/api/transfer', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: src.session_id, to_lane_no: selDstNo}),
+    });
+    showMsg('transfer-msg',
+      `Session von Stand ${selSrcNo} → Stand ${selDstNo} transferiert. Stand ${selDstNo} übernimmt beim nächsten Poll.`,
+      'ok');
+    // Stände neu laden
+    const lanes = await api('/api/lanes').catch(() => []);
+    allLanes = lanes || [];
+    resetTransfer();
+    renderTransferLanes();
+  } catch(e) {
+    showMsg('transfer-msg', 'Fehler: ' + e.message, 'err');
+    document.getElementById('btn-transfer').disabled = false;
+  }
+}
+
+// ── Import ───────────────────────────────────────────────────────────────────
+function onImpLaneChange() {
+  const sel = document.getElementById('imp-lane');
+  const opt = sel.options[sel.selectedIndex];
+  if (opt?.dataset?.url) {
+    document.getElementById('imp-url').value = opt.dataset.url;
+  } else {
+    document.getElementById('imp-url').value = '';
+  }
+  document.getElementById('imp-sessions-wrap').style.display = 'none';
+  document.getElementById('imp-assign-wrap').style.display   = 'none';
+  impLocalSID = '';
+}
+
+async function saveURL() {
+  const no  = +document.getElementById('imp-lane').value;
+  const url = document.getElementById('imp-url').value.trim();
+  if (!no) { alert('Stand wählen.'); return; }
+  try {
+    await api(`/api/lanes/${no}/standpc-url`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({url}),
+    });
+    // Option aktualisieren
+    const sel = document.getElementById('imp-lane');
+    const opt = sel.options[sel.selectedIndex];
+    if (opt) opt.dataset.url = url;
+    const lane = allLanes.find(l => l.lane_no === no);
+    if (lane) lane.standpc_url = url;
+    showMsg('imp-msg', 'URL gespeichert.', 'ok');
+  } catch(e) {
+    showMsg('imp-msg', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function loadLocalSessions() {
+  const no = +document.getElementById('imp-lane').value;
+  if (!no) { alert('Stand wählen.'); return; }
+  impLaneNo = no;
+
+  showMsg('imp-msg', 'Lade…', 'info');
+  try {
+    const sessions = await api(`/api/lanes/${no}/local-sessions`);
+    document.getElementById('imp-msg').innerHTML = '';
+    renderLocalSessions(sessions || []);
+  } catch(e) {
+    showMsg('imp-msg', 'Fehler: ' + e.message, 'err');
+    document.getElementById('imp-sessions-wrap').style.display = 'none';
+  }
+}
+
+function renderLocalSessions(sessions) {
+  const wrap = document.getElementById('imp-sessions-wrap');
+  const list = document.getElementById('imp-session-list');
+
+  if (!sessions.length) {
+    list.innerHTML = '<div style="color:var(--dim);font-size:13px">Keine lokalen Sessions gefunden.</div>';
+    wrap.style.display = '';
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const s of sessions) {
+    const item = document.createElement('div');
+    item.className = 'session-item';
+    item.dataset.sid = s.session_id;
+
+    const d = s.last_at ? new Date(s.last_at) : null;
+    const dateStr = d ? d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',
+                        hour:'2-digit',minute:'2-digit'}) : '–';
+    item.innerHTML = `
+      <div class="si-date">${dateStr}</div>
+      <div class="si-counts">${s.wertung_count} Wertung · ${s.probe_count} Probe</div>
+      <div class="si-id">${s.session_id}</div>`;
+    item.onclick = () => selectLocalSession(s, item);
+    list.appendChild(item);
+  }
+  wrap.style.display = '';
+}
+
+function selectLocalSession(s, item) {
+  document.querySelectorAll('.session-item').forEach(i => i.classList.remove('sel'));
+  item.classList.add('sel');
+  impLocalSID = s.session_id;
+
+  const d = s.last_at ? new Date(s.last_at) : null;
+  const dateStr = d ? d.toLocaleString('de-DE',{dateStyle:'medium',timeStyle:'short'}) : '–';
+  document.getElementById('imp-sel-info').innerHTML =
+    `<strong>${s.wertung_count} Wertungsschüsse</strong>, ${s.probe_count} Probeschüsse · Letzter Schuss: ${dateStr}<br>
+     <span style="font-size:11px;font-family:monospace">${s.session_id}</span>`;
+  document.getElementById('imp-shot-preview').textContent = `${s.wertung_count} Wertungsschüsse werden importiert`;
+  document.getElementById('imp-assign-wrap').style.display = '';
+}
+
+async function doImport() {
+  const shooterID    = document.getElementById('imp-shooter').value;
+  const disciplineID = document.getElementById('imp-discipline').value;
+  const eventID      = document.getElementById('imp-event').value;
+
+  if (!impLocalSID) { alert('Keine lokale Session gewählt.'); return; }
+  if (!shooterID)   { alert('Schütze wählen.'); return; }
+  if (!disciplineID){ alert('Disziplin wählen.'); return; }
+
+  document.getElementById('btn-import').disabled = true;
+  try {
+    // 1. Session anlegen
+    const assigned = await api(`/api/lanes/${impLaneNo}/assign`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        shooter_id: shooterID,
+        discipline_id: disciplineID,
+        event_id: eventID || null,
+      }),
+    });
+
+    // 2. Schüsse vom StandPC holen + importieren
+    const result = await api('/api/import-session', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        session_id: assigned.session_id,
+        lane_no: impLaneNo,
+        local_sid: impLocalSID,
+      }),
+    });
+
+    // 3. Session abschließen
+    await api(`/api/sessions/${assigned.session_id}/status`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({status: 'finished'}),
+    }).catch(() => {});
+
+    showMsg('imp-msg',
+      `${result.imported} Schüsse importiert und Session ${assigned.session_id.slice(0,8)}… angelegt.`,
+      'ok');
+    document.getElementById('imp-assign-wrap').style.display = 'none';
+    document.getElementById('imp-sessions-wrap').style.display = 'none';
+    impLocalSID = '';
+  } catch(e) {
+    showMsg('imp-msg', 'Fehler: ' + e.message, 'err');
+  } finally {
+    document.getElementById('btn-import').disabled = false;
+  }
+}
+
+// ── Disziplinen übertragen ───────────────────────────────────────────────────
+function onDiscLaneChange() {
+  const no = +document.getElementById('disc-lane').value;
+  if (!no) {
+    document.getElementById('disc-list-wrap').style.display = 'none';
+    document.getElementById('disc-no-lane').style.display   = 'none';
+    return;
+  }
+  const lane = allLanes.find(l => l.lane_no === no);
+  if (!lane?.standpc_url) {
+    document.getElementById('disc-list-wrap').style.display = 'none';
+    document.getElementById('disc-no-lane').style.display   = '';
+    return;
+  }
+  document.getElementById('disc-no-lane').style.display   = 'none';
+  document.getElementById('disc-list-wrap').style.display = '';
+  updateDiscCount();
+}
+
+function renderDiscTable() {
+  const tbody   = document.getElementById('disc-tbody');
+  const defSel  = document.getElementById('disc-default');
+  if (!tbody) return;
+
+  tbody.innerHTML = '';
+  defSel.innerHTML = '<option value="">– wird auto. gesetzt –</option>';
+
+  for (const d of allDiscs) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="padding:5px 8px;border-bottom:1px solid var(--line)">
+        <input type="checkbox" class="disc-chk" data-id="${esc(d.id)}" checked onchange="updateDiscCount()">
+      </td>
+      <td style="padding:5px 8px;border-bottom:1px solid var(--line)">${esc(d.name)}</td>
+      <td style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--line)">${d.match_shot_count}</td>
+      <td style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--line)">${d.decimal_scoring ? 'Ja' : '–'}</td>
+      <td style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums">${d.standpc_target_no}</td>
+      <td style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--line)">${d.max_sighting_shots ?? '∞'}</td>`;
+    tbody.appendChild(tr);
+
+    const o = document.createElement('option');
+    o.value = d.name; o.textContent = d.name;
+    defSel.appendChild(o);
+  }
+
+  if (allDiscs.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="padding:12px 8px;color:var(--dim)">
+      Keine aktiven Disziplinen mit gesetzter Scheiben-Nr. gefunden.<br>
+      Bitte in der <a href="/disciplines" style="color:var(--acc)">Disziplin-Verwaltung</a>
+      das Feld "StandPC-Scheibe Nr." setzen.</td></tr>`;
+  }
+  updateDiscCount();
+}
+
+function toggleAllDiscs(checked) {
+  document.querySelectorAll('.disc-chk').forEach(cb => cb.checked = checked);
+  updateDiscCount();
+}
+
+function updateDiscCount() {
+  const n = document.querySelectorAll('.disc-chk:checked').length;
+  document.getElementById('disc-count').textContent = n > 0 ? `${n} Disziplinen ausgewählt` : '';
+}
+
+async function doPushDisciplines() {
+  const no = +document.getElementById('disc-lane').value;
+  if (!no) { alert('Ziel-Stand wählen.'); return; }
+
+  const ids = [...document.querySelectorAll('.disc-chk:checked')].map(cb => cb.dataset.id);
+  if (!ids.length) { alert('Keine Disziplinen ausgewählt.'); return; }
+
+  const defVal = document.getElementById('disc-default').value;
+  showMsg('disc-msg', 'Übertrage…', 'info');
+
+  try {
+    const result = await api(`/api/lanes/${no}/push-disciplines`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({default: defVal, discipline_ids: ids}),
+    });
+    const written  = result?.written  ? 'als Datei gespeichert' : 'nur im Speicher aktualisiert';
+    const reloaded = result?.reloaded ? ', live neu geladen' : '';
+    showMsg('disc-msg',
+      `${result?.count ?? ids.length} Disziplinen übertragen (${written}${reloaded}). Standard: "${result?.default || defVal}".`,
+      'ok');
+  } catch(e) {
+    showMsg('disc-msg', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+// ── Hilfsfunktionen ─────────────────────────────────────────────────────────
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.innerHTML = `<div class="msg ${type}">${esc(text)}</div>`;
+  setTimeout(() => { if (el.querySelector('.msg')) el.innerHTML = ''; }, 8000);
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+init();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schießstand – Verwaltung</title>
+<style>
+  :root {
+    --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+    --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);
+       font-family:system-ui,sans-serif;min-height:100vh;
+       display:flex;flex-direction:column}
+
+  header{
+    border-bottom:1px solid var(--line);padding:14px 24px;
+    display:flex;align-items:center;gap:16px;
+  }
+  header h1{font-size:22px;font-weight:700;letter-spacing:.3px}
+  header .sub{font-size:12px;color:var(--dim);margin-top:2px}
+  header .logo{font-size:30px;line-height:1}
+
+  main{flex:1;padding:32px 24px;max-width:1100px;width:100%}
+
+  h2{font-size:12px;font-weight:600;letter-spacing:1.5px;
+     text-transform:uppercase;color:var(--dim);margin-bottom:16px}
+
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+    gap:16px;margin-bottom:40px;
+  }
+
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:22px 20px;text-decoration:none;color:inherit;
+    transition:border-color .15s,background .15s;
+    display:flex;flex-direction:column;gap:8px;
+  }
+  .card.soon{cursor:default;opacity:.55}
+  .card:not(.soon):hover{border-color:var(--acc);background:#1f2a35;cursor:pointer}
+
+  .card .icon{font-size:26px;line-height:1;margin-bottom:4px}
+  .card .title{font-size:15px;font-weight:700}
+  .card .desc{font-size:12px;color:var(--dim);line-height:1.55;flex:1}
+  .card .badge{
+    margin-top:12px;align-self:flex-start;
+    font-size:10px;letter-spacing:1px;text-transform:uppercase;font-weight:600;
+  }
+  .card:not(.soon) .badge{color:var(--acc)}
+  .card.soon .badge{color:var(--dim)}
+
+  footer{padding:12px 24px;font-size:11px;color:var(--dim);border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🎯</span>
+  <div>
+    <h1>Schießstand</h1>
+    <div class="sub">Verwaltung &amp; Auswertung</div>
+  </div>
+</header>
+
+<main>
+  <h2>Module</h2>
+  <div class="grid">
+
+    <a class="card" href="/lanes">
+      <span class="icon">🏟</span>
+      <div class="title">Standsteuerung</div>
+      <div class="desc">Stände belegen, Sessions verwalten, Live-Übersicht aller aktiven Schützen.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card" href="/stammdaten">
+      <span class="icon">🗂</span>
+      <div class="title">Stammdaten</div>
+      <div class="desc">Gaue und Vereine pflegen, CSV-Import.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card" href="/disciplines">
+      <span class="icon">📋</span>
+      <div class="title">Disziplinen</div>
+      <div class="desc">Disziplinen und Scheibenkonfigurationen pflegen.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card soon" href="#">
+      <span class="icon">🏆</span>
+      <div class="title">Preisschießen</div>
+      <div class="desc">Preisschießen anlegen, Teilnehmer erfassen, Ergebnisse auswerten.</div>
+      <span class="badge">In Entwicklung</span>
+    </a>
+
+    <a class="card" href="/wettkampf">
+      <span class="icon">⚔</span>
+      <div class="title">Wettkämpfe</div>
+      <div class="desc">Einzel-, Runden- und Gruppenwettkämpfe planen und Starter verwalten.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card soon" href="#">
+      <span class="icon">🥇</span>
+      <div class="title">Meisterschaften</div>
+      <div class="desc">Kreis-, Bezirks- und Landesmeisterschaften mit Qualifikationsverwaltung.</div>
+      <span class="badge">In Entwicklung</span>
+    </a>
+
+    <a class="card" href="/standaktion">
+      <span class="icon">⚡</span>
+      <div class="title">Standaktion</div>
+      <div class="desc">Schützen bei Problemen auf anderen Stand transferieren. Lokale Schusslogs importieren und einer Session zuordnen.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card" href="/ergebnisse">
+      <span class="icon">📊</span>
+      <div class="title">Ergebnisse</div>
+      <div class="desc">Schuss- und Serienergebnisse aller Sessions. Filterbar nach Datum, Schütze und Veranstaltung.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card" href="/simulator">
+      <span class="icon">🧮</span>
+      <div class="title">Simulator</div>
+      <div class="desc">Gespeicherte Rohdaten mit veränderten Kalibrierparametern (Standoff, Offsets, Schallgeschwindigkeit, Mic-Timing) neu berechnen.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card" href="/auswertung">
+      <span class="icon">🏅</span>
+      <div class="title">Auswertung</div>
+      <div class="desc">Rundenwettkampf, Meisterschaft, Mannschaftswertung. Mannschaftsringe mit wählbarer Besten-Anzahl.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+  </div>
+
+  <h2>System</h2>
+  <div class="grid">
+
+    <a class="card" href="/settings">
+      <span class="icon">⚙</span>
+      <div class="title">Einstellungen</div>
+      <div class="desc">Anzeigeoptionen, Standbereich und weitere Systemparameter konfigurieren.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card" href="/archiv">
+      <span class="icon">🗃</span>
+      <div class="title">Archiv-Verwaltung</div>
+      <div class="desc">Archivierte Wettkämpfe als JSON-Datei exportieren und löschen. Archivdateien wieder importieren.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+    <a class="card" href="/benutzerverwaltung">
+      <span class="icon">👤</span>
+      <div class="title">Benutzerverwaltung</div>
+      <div class="desc">Rollen, Kachel-Sichtbarkeit und Passwörter verwalten. Nur für Admin sichtbar.</div>
+      <span class="badge">Verfügbar</span>
+    </a>
+
+  </div>
+
+</main>
+
+<footer>Schießstand-Management &middot; Stand-PC-System</footer>
+
+<script src="/role.js"></script>
+</body>
+</html>

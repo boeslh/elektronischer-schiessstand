@@ -1,0 +1,71 @@
+{
+  "_kommentar": "Scheibengeometrie abgeleitet aus Scheibengroessen.csv. Durchmesser in mm.",
+  "1": {
+    "name": "LG",
+    "inner10_d": 0,
+    "inner10_dashed": false,
+    "rings": [
+      {"v": 10, "d":  0.5, "filled": true},
+      {"v":  9, "d":  5.5, "filled": true},
+      {"v":  8, "d": 10.5, "filled": true},
+      {"v":  7, "d": 15.5, "filled": true},
+      {"v":  6, "d": 20.5, "filled": true},
+      {"v":  5, "d": 25.5, "filled": true},
+      {"v":  4, "d": 30.5, "filled": true},
+      {"v":  3, "d": 35.5, "filled": false},
+      {"v":  2, "d": 40.5, "filled": false},
+      {"v":  1, "d": 45.5, "filled": false}
+    ]
+  },
+  "2": {
+    "name": "ZS",
+    "inner10_d": 0,
+    "inner10_dashed": false,
+    "rings": [
+      {"v": 10, "d":  4.5, "filled": true},
+      {"v":  9, "d": 13.5, "filled": true},
+      {"v":  8, "d": 22.5, "filled": true},
+      {"v":  7, "d": 31.5, "filled": true},
+      {"v":  6, "d": 40.5, "filled": true},
+      {"v":  5, "d": 49.5, "filled": false},
+      {"v":  4, "d": 58.5, "filled": false},
+      {"v":  3, "d": 67.5, "filled": false},
+      {"v":  2, "d": 76.5, "filled": false},
+      {"v":  1, "d": 85.5, "filled": false}
+    ]
+  },
+  "4": {
+    "name": "SP",
+    "inner10_d": 25,
+    "inner10_dashed": true,
+    "rings": [
+      {"v": 10, "d":  50, "filled": true},
+      {"v":  9, "d": 100, "filled": true},
+      {"v":  8, "d": 150, "filled": true},
+      {"v":  7, "d": 200, "filled": true},
+      {"v":  6, "d": 250, "filled": false},
+      {"v":  5, "d": 300, "filled": false},
+      {"v":  4, "d": 350, "filled": false},
+      {"v":  3, "d": 400, "filled": false},
+      {"v":  2, "d": 450, "filled": false},
+      {"v":  1, "d": 500, "filled": false}
+    ]
+  },
+  "7": {
+    "name": "LP",
+    "inner10_d": 5,
+    "inner10_dashed": true,
+    "rings": [
+      {"v": 10, "d":  11.5, "filled": true},
+      {"v":  9, "d":  27.5, "filled": true},
+      {"v":  8, "d":  43.5, "filled": true},
+      {"v":  7, "d":  59.5, "filled": true},
+      {"v":  6, "d":  75.5, "filled": false},
+      {"v":  5, "d":  91.5, "filled": false},
+      {"v":  4, "d": 107.5, "filled": false},
+      {"v":  3, "d": 123.5, "filled": false},
+      {"v":  2, "d": 139.5, "filled": false},
+      {"v":  1, "d": 155.5, "filled": false}
+    ]
+  }
+}
