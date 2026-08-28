@@ -40,6 +40,7 @@ var ErrUnknownRole = errors.New("unbekannte Rolle")
 var knownTileKeys = []string{
 	"lanes", "stammdaten", "disciplines", "wettkampf", "standaktion",
 	"ergebnisse", "simulator", "auswertung", "settings", "archiv",
+	"preisschiessen",
 }
 
 func isKnownTile(t string) bool { return containsStr(knownTileKeys, t) }
@@ -58,19 +59,21 @@ func containsStr(list []string, v string) bool {
 // ----------------------------------------------------------------------------
 
 type RoleInfo struct {
-	RoleKey           string   `json:"role_key"`
-	DisplayName       string   `json:"display_name"`
-	Tiles             []string `json:"tiles"`
-	CanCorrectResults bool     `json:"can_correct_results"`
+	RoleKey                 string   `json:"role_key"`
+	DisplayName             string   `json:"display_name"`
+	Tiles                   []string `json:"tiles"`
+	CanCorrectResults       bool     `json:"can_correct_results"`
+	CanManagePreisschiessen bool     `json:"can_manage_preisschiessen"`
 }
 
 type RoleAdmin struct {
-	RoleKey           string   `json:"role_key"`
-	DisplayName       string   `json:"display_name"`
-	HasPassword       bool     `json:"has_password"`
-	CanCorrectResults bool     `json:"can_correct_results"`
-	Tiles             []string `json:"tiles"`
-	SortOrder         int      `json:"-"`
+	RoleKey                 string   `json:"role_key"`
+	DisplayName             string   `json:"display_name"`
+	HasPassword             bool     `json:"has_password"`
+	CanCorrectResults       bool     `json:"can_correct_results"`
+	CanManagePreisschiessen bool     `json:"can_manage_preisschiessen"`
+	Tiles                   []string `json:"tiles"`
+	SortOrder               int      `json:"-"`
 }
 
 func (s *Store) roleTiles(ctx context.Context, roleKey string) ([]string, error) {
@@ -93,22 +96,26 @@ func (s *Store) roleTiles(ctx context.Context, roleKey string) ([]string, error)
 
 func (s *Store) RoleInfo(ctx context.Context, roleKey string) (RoleInfo, error) {
 	var displayName string
-	var canCorrect bool
+	var canCorrect, canManagePreisschiessen bool
 	if err := s.pool.QueryRow(ctx,
-		`SELECT display_name, can_correct_results FROM ui_roles WHERE role_key=$1`,
-		roleKey).Scan(&displayName, &canCorrect); err != nil {
+		`SELECT display_name, can_correct_results, can_manage_preisschiessen FROM ui_roles WHERE role_key=$1`,
+		roleKey).Scan(&displayName, &canCorrect, &canManagePreisschiessen); err != nil {
 		return RoleInfo{}, err
 	}
 	tiles, err := s.roleTiles(ctx, roleKey)
 	if err != nil {
 		return RoleInfo{}, err
 	}
-	return RoleInfo{RoleKey: roleKey, DisplayName: displayName, Tiles: tiles, CanCorrectResults: canCorrect}, nil
+	return RoleInfo{
+		RoleKey: roleKey, DisplayName: displayName, Tiles: tiles,
+		CanCorrectResults: canCorrect, CanManagePreisschiessen: canManagePreisschiessen,
+	}, nil
 }
 
 func (s *Store) ListRoles(ctx context.Context) ([]RoleAdmin, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT role_key, display_name, password_hash IS NOT NULL, can_correct_results, sort_order
+		SELECT role_key, display_name, password_hash IS NOT NULL,
+		       can_correct_results, can_manage_preisschiessen, sort_order
 		FROM ui_roles ORDER BY sort_order`)
 	if err != nil {
 		return nil, err
@@ -118,7 +125,7 @@ func (s *Store) ListRoles(ctx context.Context) ([]RoleAdmin, error) {
 	for rows.Next() {
 		var ra RoleAdmin
 		if err := rows.Scan(&ra.RoleKey, &ra.DisplayName, &ra.HasPassword,
-			&ra.CanCorrectResults, &ra.SortOrder); err != nil {
+			&ra.CanCorrectResults, &ra.CanManagePreisschiessen, &ra.SortOrder); err != nil {
 			return nil, err
 		}
 		out = append(out, ra)
@@ -177,6 +184,18 @@ func (s *Store) SetRolePassword(ctx context.Context, roleKey, password string) e
 func (s *Store) SetRoleCorrectionRight(ctx context.Context, roleKey string, can bool) error {
 	ct, err := s.pool.Exec(ctx,
 		`UPDATE ui_roles SET can_correct_results=$2 WHERE role_key=$1`, roleKey, can)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrUnknownRole
+	}
+	return nil
+}
+
+func (s *Store) SetRoleManagePreisschiessenRight(ctx context.Context, roleKey string, can bool) error {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE ui_roles SET can_manage_preisschiessen=$2 WHERE role_key=$1`, roleKey, can)
 	if err != nil {
 		return err
 	}
@@ -521,6 +540,20 @@ func (a *APIServer) requireCorrection(w http.ResponseWriter, r *http.Request) (R
 	return role, nil
 }
 
+// requireManagePreisschiessen prueft das Sonderrecht zum Anlegen/Bearbeiten/
+// Loeschen von Preisschiessen (inkl. Scheiben/Sets) - unabhaengig von der
+// "preisschiessen"-Kachel, die nur Anmeldung/Kasse/Uebersicht freischaltet.
+func (a *APIServer) requireManagePreisschiessen(w http.ResponseWriter, r *http.Request) (RoleInfo, error) {
+	role, ok, err := a.resolveRole(w, r)
+	if err != nil {
+		return RoleInfo{}, err
+	}
+	if !ok || !role.CanManagePreisschiessen {
+		return RoleInfo{}, errForbidden("Keine Berechtigung, Preisschiessen zu bearbeiten oder zu loeschen.")
+	}
+	return role, nil
+}
+
 func (a *APIServer) requireAdmin(w http.ResponseWriter, r *http.Request) (RoleInfo, error) {
 	role, ok, err := a.resolveRole(w, r)
 	if err != nil {
@@ -582,6 +615,7 @@ func (a *APIServer) getRole(w http.ResponseWriter, r *http.Request) (any, error)
 		return map[string]any{
 			"role_key": nil, "display_name": nil,
 			"tiles": []string{}, "can_correct_results": false,
+			"can_manage_preisschiessen": false,
 		}, nil
 	}
 	return role, nil
@@ -665,6 +699,22 @@ func (a *APIServer) setRoleCorrection(w http.ResponseWriter, r *http.Request) (a
 		return nil, errBadRequest("ungueltiger Body")
 	}
 	if err := a.store.SetRoleCorrectionRight(r.Context(), r.PathValue("key"), body.CanCorrectResults); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) setRoleManagePreisschiessen(w http.ResponseWriter, r *http.Request) (any, error) {
+	if _, err := a.requireAdmin(w, r); err != nil {
+		return nil, err
+	}
+	body, err := decodeBody[struct {
+		CanManagePreisschiessen bool `json:"can_manage_preisschiessen"`
+	}](r)
+	if err != nil {
+		return nil, errBadRequest("ungueltiger Body")
+	}
+	if err := a.store.SetRoleManagePreisschiessenRight(r.Context(), r.PathValue("key"), body.CanManagePreisschiessen); err != nil {
 		return nil, err
 	}
 	return map[string]any{"ok": true}, nil

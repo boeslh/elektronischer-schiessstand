@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kasse – Preisschießen</title>
+<style>
+:root {
+  --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+  --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header a{color:var(--dim);text-decoration:none;font-size:13px}
+header a:hover{color:var(--text)}
+header h1{font-size:19px;font-weight:700}
+header select{background:#0e1218;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 10px;font-size:.83rem;margin-left:auto}
+main{flex:1;padding:20px;max-width:900px;margin:0 auto;width:100%}
+
+.tabs{display:flex;gap:2px;margin-bottom:14px}
+.tab-btn{background:#1a2230;border:1px solid var(--line);color:var(--dim);padding:8px 16px;
+         cursor:pointer;font-size:.83rem;border-radius:6px 6px 0 0}
+.tab-btn.active{color:var(--acc);border-bottom-color:var(--panel);background:var(--panel)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px;margin-bottom:16px}
+.card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+
+label{display:block;font-size:.78rem;color:var(--dim);margin-bottom:4px;margin-top:10px}
+label:first-of-type{margin-top:0}
+input[type=text],input[type=date],input[type=search],input[type=number],select{
+  width:100%;background:#0e1218;border:1px solid var(--line);border-radius:6px;
+  color:var(--text);font-size:.85rem;padding:7px 10px
+}
+input:focus,select:focus{outline:none;border-color:var(--acc)}
+.form-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-actions{display:flex;gap:8px;margin-top:14px}
+.btn-save{background:var(--acc);border:none;border-radius:6px;color:#0d1a16;font-size:.83rem;font-weight:600;padding:8px 18px;cursor:pointer}
+.btn-save:hover{opacity:.85}
+.btn-cancel{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);font-size:.83rem;padding:8px 14px;cursor:pointer}
+
+.search-results{background:#0e1218;border:1px solid var(--line);border-radius:6px;max-height:240px;overflow-y:auto;margin-top:8px}
+.search-result-item{padding:9px 12px;cursor:pointer;font-size:.85rem;display:flex;justify-content:space-between;border-bottom:1px solid #1e2530}
+.search-result-item:last-child{border-bottom:none}
+.search-result-item:hover{background:#1e2530}
+.search-result-item .nr{color:var(--acc);font-weight:700;margin-right:8px}
+.search-result-item .club{color:var(--dim);font-size:.78rem}
+
+.offer-row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #1e2530}
+.offer-row:last-child{border-bottom:none}
+.offer-row .name{font-size:.87rem}
+.offer-row .price{color:var(--dim);font-size:.8rem;margin-left:8px}
+.offer-row .items{color:var(--dim);font-size:.75rem;display:block}
+.btn-buy{background:#1a2a1a;border:1px solid #2a4a2a;border-radius:4px;color:#4ab8a0;font-size:.78rem;padding:4px 10px;cursor:pointer}
+.btn-buy:hover{background:#24401f}
+.btn-ret{background:#2a1a1a;border:1px solid #4a2a2a;border-radius:4px;color:#e05c5c;font-size:.75rem;padding:3px 8px;cursor:pointer}
+
+.saldo{font-size:1.6rem;font-weight:700;color:var(--acc)}
+.saldo.neg{color:var(--err)}
+.saldo-row{display:flex;align-items:center;justify-content:space-between;margin:10px 0}
+.btn-pay{background:#1e2a38;border:1px solid var(--acc);border-radius:6px;color:var(--acc);font-size:.85rem;font-weight:600;padding:9px 18px;cursor:pointer}
+.btn-pay:hover{background:#243040}
+.pay-panel{background:#0e1218;border:1px solid var(--line);border-radius:8px;padding:14px;margin:10px 0}
+.pay-panel h3{font-size:.85rem;color:var(--acc);margin-bottom:8px}
+.hint{color:var(--dim);font-size:.82rem}
+.msg{font-size:.82rem;padding:7px 10px;border-radius:6px;display:none;margin-top:8px}
+.msg.ok{background:#1a3a2a;color:#4ab8a0}
+.msg.err{background:#3a1a1a;color:#e05c5c}
+
+.teilnehmer-badge{display:flex;align-items:center;justify-content:space-between;background:#0e1218;border:1px solid var(--line);border-radius:6px;padding:10px 14px;margin-bottom:14px}
+.teilnehmer-badge .nr{font-size:1.3rem;font-weight:700;color:var(--acc)}
+.teilnehmer-badge .name{font-size:.95rem}
+.teilnehmer-badge .class{font-size:.78rem;color:var(--dim)}
+
+table{width:100%;border-collapse:collapse}
+th{text-align:left;color:var(--dim);font-weight:500;padding:5px 8px;font-size:.78rem;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;font-size:.83rem;border-bottom:1px solid #1e2530;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr.total td{font-weight:700;border-top:2px solid var(--line);border-bottom:none}
+.badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
+.badge-open{background:#1a2a3a;color:#64b5f6}
+.badge-returned{background:#1e2530;color:#75879a}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/">← Startseite</a>
+  <h1>Kasse</h1>
+  <select id="ps-select" onchange="onPSChange()"></select>
+</header>
+
+<main>
+  <div id="no-ps" class="card" style="display:none">
+    <p class="hint">Kein aktives Preisschießen vorhanden. <a href="/preisschiessen-bearbeiten" style="color:var(--acc)">Neues Preisschießen anlegen</a>.</p>
+  </div>
+
+  <div id="app" style="display:none">
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('kasse', this)">Kasse</button>
+      <button class="tab-btn" onclick="switchTab('auswertung', this)">Auswertung</button>
+    </div>
+
+    <!-- ══ Kasse ══ -->
+    <div id="tab-kasse" class="tab-content active">
+      <div id="search-card" class="card">
+        <h2>Teilnehmer suchen</h2>
+        <input type="search" id="q" placeholder="Teilnehmernummer oder Name…" oninput="searchTeilnehmer()">
+        <div class="search-results" id="results" style="display:none"></div>
+      </div>
+
+      <div id="konto-card" class="card" style="display:none">
+        <h2>Konto</h2>
+        <div class="teilnehmer-badge">
+          <div>
+            <div class="name" id="tk-name"></div>
+            <div class="class" id="tk-class"></div>
+          </div>
+          <div class="nr" id="tk-nr"></div>
+        </div>
+
+        <div class="saldo-row">
+          <div><label style="margin:0">Guthaben</label><span class="saldo" id="tk-saldo">0,00 €</span></div>
+          <button type="button" class="btn-pay" onclick="openBezahlen()">💶 Bezahlen</button>
+        </div>
+
+        <!-- Bezahlvorgang: bewusst getrennter Schritt vom Kaufen. Erhaltener
+             Betrag gleicht ein evtl. negatives Guthaben aus; bleibt danach ein
+             Rest, entscheidet der Kassierer explizit per Button, ob er als
+             Guthaben stehen bleibt oder sofort als Rückgeld ausgezahlt wird. -->
+        <div id="bezahlen-panel" class="pay-panel" style="display:none">
+          <h3>Bezahlen</h3>
+          <p class="hint" id="pay-status"></p>
+          <label for="pay-erhalten">Erhaltener Betrag (€)</label>
+          <input type="number" id="pay-erhalten" step="0.01" min="0" value="0" oninput="updatePayPreview()">
+          <p class="hint" id="pay-preview" style="margin-top:8px"></p>
+          <div class="form-actions" id="pay-actions"></div>
+          <div id="pay-result" class="msg"></div>
+          <div class="form-actions">
+            <button type="button" class="btn-cancel" onclick="closeBezahlen()">Schließen</button>
+          </div>
+        </div>
+        <div id="tk-msg" class="msg"></div>
+
+        <label style="margin-top:16px">Sets</label>
+        <div id="tk-sets"></div>
+        <label style="margin-top:16px">Einzelne Scheiben</label>
+        <div id="tk-scheiben"></div>
+
+        <!-- Warenkorb: 2-stufiger Kauf - erst hier sammeln, nichts wird
+             gebucht bis "Buchen" (gegen vorhandenes Guthaben) oder ein
+             abgeschlossener Bezahlvorgang die Positionen tatsächlich anlegt. -->
+        <label style="margin-top:16px">Warenkorb</label>
+        <div id="tk-cart"></div>
+        <div class="form-actions">
+          <button type="button" class="btn-save" id="cart-buchen-btn" onclick="buchWarenkorb()" disabled>Buchen</button>
+        </div>
+
+        <label style="margin-top:16px">Käufe</label>
+        <table>
+          <thead><tr><th>Datum</th><th>Art</th><th>Preis</th><th>Status</th><th></th></tr></thead>
+          <tbody id="tk-konto-tbody"></tbody>
+        </table>
+
+        <div class="form-actions">
+          <button type="button" class="btn-cancel" onclick="closeTeilnehmer()">Anderer Teilnehmer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Auswertung ══ -->
+    <div id="tab-auswertung" class="tab-content">
+      <div class="card">
+        <h2>Filter</h2>
+        <label for="aw-date">Datum (leer = gesamtes Preisschießen)</label>
+        <input type="date" id="aw-date" onchange="loadAuswertung()">
+      </div>
+
+      <div class="card">
+        <h2>Bareinnahmen</h2>
+        <table>
+          <thead><tr><th>Datum</th><th>Aufladung</th><th>Auszahlung</th><th>Bareinnahme</th></tr></thead>
+          <tbody id="aw-bar-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Verkäufe nach Scheiben-/Set-Typ</h2>
+        <table>
+          <thead><tr><th>Datum</th><th>Art</th><th>Name</th><th>Menge</th><th>Summe</th></tr></thead>
+          <tbody id="aw-verkauf-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/settings.js"></script>
+<script>
+const api = (path, opts) => fetch('/api'+path, opts).then(async r => {
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+});
+const jsonOpts = (method, body) => ({method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+function eur(n) { return (n || 0).toFixed(2).replace('.', ',') + ' €'; }
+
+const TYP_LABEL = {scheibe: 'Scheibe', set: 'Set'};
+
+let psList = [];
+let currentPS = null;
+let currentTeilnehmer = null;
+let searchTimer = null;
+let cart = []; // [{typ, id, name, price}] - rein clientseitig, bis Buchen/Bezahlen
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+  if (name === 'auswertung') loadAuswertung();
+}
+
+async function loadPS() {
+  psList = (await api('/preisschiessen') || []).filter(p => p.active);
+  const sel = document.getElementById('ps-select');
+  sel.innerHTML = psList.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  if (!psList.length) {
+    document.getElementById('no-ps').style.display = 'block';
+    document.getElementById('app').style.display = 'none';
+    return;
+  }
+  document.getElementById('app').style.display = 'block';
+  const saved = localStorage.getItem('ps_current_id');
+  sel.value = psList.some(p => p.id === saved) ? saved : psList[0].id;
+  currentPS = psList.find(p => p.id === sel.value);
+  localStorage.setItem('ps_current_id', currentPS.id);
+}
+
+function onPSChange() {
+  const sel = document.getElementById('ps-select');
+  currentPS = psList.find(p => p.id === sel.value);
+  localStorage.setItem('ps_current_id', currentPS.id);
+  closeTeilnehmer();
+  loadAuswertung();
+}
+
+function searchTeilnehmer() {
+  clearTimeout(searchTimer);
+  const q = document.getElementById('q').value.trim();
+  const results = document.getElementById('results');
+  if (!q) { results.style.display = 'none'; return; }
+  searchTimer = setTimeout(async () => {
+    const list = await api(`/preisschiessen/${currentPS.id}/teilnehmer?q=` + encodeURIComponent(q)) || [];
+    results.style.display = list.length ? 'block' : 'none';
+    results.innerHTML = list.map(t => `
+      <div class="search-result-item" onclick="openTeilnehmer('${t.id}')">
+        <span><span class="nr">#${t.teilnehmer_nr}</span>${esc(t.shooter_name)}</span>
+        <span class="club">${eur(t.guthaben)}</span>
+      </div>`).join('');
+  }, 250);
+}
+
+async function openTeilnehmer(id) {
+  currentTeilnehmer = {id};
+  document.getElementById('search-card').style.display = 'none';
+  document.getElementById('konto-card').style.display = 'block';
+  closeBezahlen();
+  cart = [];
+  renderCart();
+  await refreshTeilnehmer();
+}
+
+function closeTeilnehmer() {
+  currentTeilnehmer = null;
+  document.getElementById('search-card').style.display = 'block';
+  document.getElementById('konto-card').style.display = 'none';
+  document.getElementById('q').value = '';
+  document.getElementById('results').style.display = 'none';
+  closeBezahlen();
+  cart = [];
+  renderCart();
+}
+
+async function refreshTeilnehmer() {
+  currentTeilnehmer = await api(`/preisschiessen/${currentPS.id}/teilnehmer/${currentTeilnehmer.id}`);
+  document.getElementById('tk-name').textContent = currentTeilnehmer.shooter_name;
+  document.getElementById('tk-class').textContent = currentTeilnehmer.class_name || 'keine Klasse zugeordnet';
+  document.getElementById('tk-nr').textContent = '#' + currentTeilnehmer.teilnehmer_nr;
+  const saldoEl = document.getElementById('tk-saldo');
+  saldoEl.textContent = eur(currentTeilnehmer.guthaben);
+  saldoEl.classList.toggle('neg', currentTeilnehmer.guthaben < 0);
+  if (document.getElementById('bezahlen-panel').style.display !== 'none') updatePayPreview();
+  await Promise.all([renderAngebot(), renderKonto()]);
+}
+
+async function renderAngebot() {
+  const {scheiben, sets} = await api(`/preisschiessen/${currentPS.id}/teilnehmer/${currentTeilnehmer.id}/angebot`);
+  const setsEl = document.getElementById('tk-sets');
+  setsEl.innerHTML = (sets && sets.length) ? sets.map(s => `
+    <div class="offer-row">
+      <div>
+        <span class="name">${esc(s.name)}</span>
+        <span class="items">${(s.items||[]).map(it => `${it.quantity}× ${esc(it.scheibe_name)}`).join(', ')}</span>
+      </div>
+      <div>
+        <span class="price">${eur(s.price)}</span>
+        <button class="btn-buy" onclick='addToCart("set","${s.id}",${JSON.stringify(s.name)},${s.price},${s.max_pro_teilnehmer ?? 'null'})'>In Warenkorb</button>
+      </div>
+    </div>`).join('') : '<p class="hint">Keine Sets verfügbar.</p>';
+
+  const scheibenEl = document.getElementById('tk-scheiben');
+  scheibenEl.innerHTML = (scheiben && scheiben.length) ? scheiben.map(sc => `
+    <div class="offer-row">
+      <span class="name">${esc(sc.name)}</span>
+      <div><span class="price">${eur(sc.price)}</span>
+      <button class="btn-buy" onclick='addToCart("scheibe","${sc.id}",${JSON.stringify(sc.name)},${sc.price},${sc.max_pro_teilnehmer ?? 'null'})'>In Warenkorb</button></div>
+    </div>`).join('') : '<p class="hint">Keine einzelnen Scheiben verfügbar.</p>';
+}
+
+async function renderKonto() {
+  const konto = await api(`/preisschiessen/${currentPS.id}/teilnehmer/${currentTeilnehmer.id}/konto`) || [];
+  const tbody = document.getElementById('tk-konto-tbody');
+  tbody.innerHTML = konto.length ? konto.map(k => `
+    <tr>
+      <td style="font-size:.78rem;white-space:nowrap">${(k.purchased_at||'').slice(0,16).replace('T',' ')}</td>
+      <td>${esc(k.name)} <span class="hint">(${TYP_LABEL[k.typ]||k.typ})</span></td>
+      <td>${eur(k.preis)}</td>
+      <td>${k.returned_at ? '<span class="badge badge-returned">Zurückgegeben</span>' : '<span class="badge badge-open">Offen</span>'}</td>
+      <td>${k.returned_at ? '' : `<button class="btn-ret" onclick="ruckgabe('${k.id}')">Zurückgeben</button>`}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Käufe</td></tr>';
+}
+
+// ── Warenkorb (2-stufiger Kauf) ─────────────────────────────────────────
+function addToCart(typ, id, name, price, maxProTeilnehmer) {
+  if (maxProTeilnehmer != null) {
+    const countInCart = cart.filter(c => c.typ === typ && c.id === id).length;
+    if (countInCart >= maxProTeilnehmer) {
+      showMsg('tk-msg', `Maximal ${maxProTeilnehmer}× möglich.`, 'err');
+      return;
+    }
+  }
+  cart.push({typ, id, name, price});
+  renderCart();
+}
+
+function removeFromCart(i) {
+  cart.splice(i, 1);
+  renderCart();
+}
+
+function cartTotal() { return cart.reduce((s, c) => s + c.price, 0); }
+function cartPayload() { return cart.map(c => c.typ === 'set' ? {typ:'set', set_id:c.id} : {typ:'scheibe', scheibe_id:c.id}); }
+
+function renderCart() {
+  const el = document.getElementById('tk-cart');
+  el.innerHTML = cart.length ? cart.map((c, i) => `
+    <div class="offer-row">
+      <span class="name">${esc(c.name)}</span>
+      <div><span class="price">${eur(c.price)}</span>
+      <button class="btn-ret" onclick="removeFromCart(${i})">Entfernen</button></div>
+    </div>`).join('') + `
+    <div class="offer-row" style="font-weight:700"><span>Summe</span><span>${eur(cartTotal())}</span></div>`
+    : '<p class="hint">Warenkorb ist leer.</p>';
+
+  const buchenBtn = document.getElementById('cart-buchen-btn');
+  buchenBtn.disabled = !cart.length || !currentTeilnehmer || currentTeilnehmer.guthaben < cartTotal();
+
+  if (document.getElementById('bezahlen-panel').style.display !== 'none') updatePayPreview();
+}
+
+async function buchWarenkorb() {
+  if (!cart.length) return;
+  try {
+    await api(`/preisschiessen/${currentPS.id}/teilnehmer/${currentTeilnehmer.id}/warenkorb/buchen`,
+      jsonOpts('POST', {items: cartPayload()}));
+    cart = [];
+    renderCart();
+    await refreshTeilnehmer();
+    showMsg('tk-msg', 'Gebucht.', 'ok');
+  } catch(err) { showMsg('tk-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+// ── Bezahlen (bewusst getrennter Schritt, schließt den Warenkorb mit ein) ──
+function openBezahlen() {
+  document.getElementById('bezahlen-panel').style.display = 'block';
+  document.getElementById('pay-erhalten').value = '';
+  const resultEl = document.getElementById('pay-result');
+  resultEl.style.display = 'none';
+  resultEl.textContent = '';
+  updatePayPreview();
+}
+
+function closeBezahlen() {
+  document.getElementById('bezahlen-panel').style.display = 'none';
+}
+
+function updatePayPreview() {
+  if (!currentTeilnehmer) return;
+  const erhalten = parseFloat(document.getElementById('pay-erhalten').value) || 0;
+  const saldo = currentTeilnehmer.guthaben;
+  const wk = cartTotal();
+  const neu = saldo + erhalten - wk;
+
+  document.getElementById('pay-status').textContent =
+    (saldo < 0 ? `Offener Betrag: ${eur(-saldo)}` : `Aktuelles Guthaben: ${eur(saldo)}`) +
+    (wk > 0 ? ` · Warenkorb: ${eur(wk)}` : '');
+  document.getElementById('pay-preview').textContent = `Guthaben nach Zahlung: ${eur(neu)}`;
+
+  const actions = document.getElementById('pay-actions');
+  if (neu > 0.004) {
+    actions.innerHTML = `
+      <button type="button" class="btn-cancel" onclick="finalizeBezahlen(false)">Rest als Guthaben behalten</button>
+      <button type="button" class="btn-save" onclick="finalizeBezahlen(true)">Rückgeld auszahlen (${eur(neu)})</button>`;
+  } else {
+    actions.innerHTML = `<button type="button" class="btn-save" onclick="finalizeBezahlen(false)">Bezahlung buchen</button>`;
+  }
+}
+
+async function finalizeBezahlen(restAuszahlen) {
+  const betrag_erhalten = parseFloat(document.getElementById('pay-erhalten').value) || 0;
+  try {
+    const res = await api(`/preisschiessen/${currentPS.id}/teilnehmer/${currentTeilnehmer.id}/bezahlen`,
+      jsonOpts('POST', {items: cartPayload(), betrag_erhalten, rest_auszahlen: restAuszahlen}));
+    cart = [];
+    renderCart();
+    await refreshTeilnehmer();
+    const resultEl = document.getElementById('pay-result');
+    if (res.rueckgeld > 0) {
+      resultEl.textContent = `Rückgeld: ${eur(res.rueckgeld)}`;
+      resultEl.className = 'msg ok';
+      resultEl.style.display = 'block';
+    } else {
+      resultEl.style.display = 'none';
+      showMsg('tk-msg', 'Bezahlung gebucht.', 'ok');
+    }
+    document.getElementById('pay-erhalten').value = '';
+    updatePayPreview();
+  } catch(err) { showMsg('tk-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function ruckgabe(kaufID) {
+  if (!confirm('Kauf wirklich zurückgeben? Der Kaufpreis wird dem Guthaben gutgeschrieben.')) return;
+  try {
+    await api(`/preisschiessen/${currentPS.id}/kaeufe/${kaufID}/ruckgabe`, {method:'POST'});
+    await refreshTeilnehmer();
+    showMsg('tk-msg', 'Zurückgegeben.', 'ok');
+  } catch(err) { showMsg('tk-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function loadAuswertung() {
+  if (!currentPS) return;
+  const date = document.getElementById('aw-date').value;
+  const aw = await api(`/preisschiessen/${currentPS.id}/auswertung?date=` + encodeURIComponent(date));
+
+  const barTbody = document.getElementById('aw-bar-tbody');
+  const bar = aw.bareinnahmen || [];
+  let sumAuf = 0, sumAus = 0, sumBar = 0;
+  barTbody.innerHTML = bar.map(r => {
+    sumAuf += r.aufladung; sumAus += r.auszahlung; sumBar += r.bareinnahme;
+    return `<tr><td>${r.datum}</td><td>${eur(r.aufladung)}</td><td>${eur(r.auszahlung)}</td><td>${eur(r.bareinnahme)}</td></tr>`;
+  }).join('');
+  barTbody.innerHTML += bar.length
+    ? `<tr class="total"><td>Gesamt</td><td>${eur(sumAuf)}</td><td>${eur(sumAus)}</td><td>${eur(sumBar)}</td></tr>`
+    : '<tr><td colspan="4" style="color:var(--dim);text-align:center">Keine Buchungen</td></tr>';
+
+  const vkTbody = document.getElementById('aw-verkauf-tbody');
+  const vk = aw.verkaeufe || [];
+  let sumSumme = 0;
+  vkTbody.innerHTML = vk.map(r => {
+    sumSumme += r.summe;
+    return `<tr><td>${r.datum}</td><td>${TYP_LABEL[r.typ]||r.typ}</td><td>${esc(r.name)}</td><td>${r.menge}</td><td>${eur(r.summe)}</td></tr>`;
+  }).join('');
+  vkTbody.innerHTML += vk.length
+    ? `<tr class="total"><td colspan="4">Gesamt</td><td>${eur(sumSumme)}</td></tr>`
+    : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Verkäufe</td></tr>';
+}
+
+(async function init() {
+  await loadPS();
+  const pendingTid = localStorage.getItem('ps_kasse_open_teilnehmer_id');
+  if (pendingTid) {
+    localStorage.removeItem('ps_kasse_open_teilnehmer_id');
+    if (currentPS) await openTeilnehmer(pendingTid);
+  }
+})();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

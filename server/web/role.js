@@ -12,6 +12,9 @@
     '/wettkampf': 'wettkampf', '/standaktion': 'standaktion', '/ergebnisse': 'ergebnisse',
     '/simulator': 'simulator', '/auswertung': 'auswertung', '/settings': 'settings',
     '/archiv': 'archiv',
+    '/preisschiessen': 'preisschiessen', '/preisschiessen-bearbeiten': 'preisschiessen',
+    '/preisschiessen-anmeldung': 'preisschiessen', '/preisschiessen-kasse': 'preisschiessen',
+    '/preisschiessen-teilnehmer': 'preisschiessen',
   };
 
   window.SCHIESSSTAND_ROLE = { role_key: null, tiles: [], can_correct_results: false };

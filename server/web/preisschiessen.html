@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Preisschießen – Schießstand</title>
+<style>
+:root {
+  --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+  --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:14px}
+header a{color:var(--dim);text-decoration:none;font-size:13px}
+header a:hover{color:var(--text)}
+header h1{font-size:19px;font-weight:700}
+main{flex:1;padding:20px}
+
+.top-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.btn-new{background:#1e2a38;border:1px solid var(--line);border-radius:6px;color:var(--acc);font-size:.83rem;padding:7px 14px;cursor:pointer}
+.btn-new:hover{background:#263545}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px}
+.card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+
+table{width:100%;border-collapse:collapse}
+th{text-align:left;color:var(--dim);font-weight:500;padding:5px 8px;font-size:.78rem;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;font-size:.83rem;border-bottom:1px solid #1e2530;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#1e2530}
+
+.btn-edit{background:#1a2a1a;border:1px solid #2a4a2a;border-radius:4px;color:#4ab8a0;font-size:.75rem;padding:3px 8px;cursor:pointer}
+.btn-eval{background:#1a2030;border:1px solid #2a3a5a;border-radius:4px;color:#7ab0e0;font-size:.75rem;padding:3px 8px;cursor:pointer}
+.btn-del{background:#2a1a1a;border:1px solid #4a2a2a;border-radius:4px;color:#e05c5c;font-size:.75rem;padding:3px 8px;cursor:pointer}
+.row-actions{display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap}
+
+.badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
+.badge-active{background:#1a3a2a;color:#4ab8a0}
+.badge-inactive{background:#1e2530;color:#75879a}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/">← Startseite</a>
+  <h1>Preisschießen</h1>
+</header>
+
+<main>
+  <div class="top-bar">
+    <button class="btn-new" id="btn-new-ps" style="display:none" onclick="location.href='/preisschiessen-bearbeiten'">+ Neues Preisschießen</button>
+  </div>
+
+  <div class="card">
+    <h2>Preisschießen</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Zeitraum</th><th>Typ</th><th>Teilnehmer</th><th>Status</th><th></th></tr></thead>
+      <tbody id="ps-tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="/settings.js"></script>
+<script>
+const api = (path, opts) => fetch('/api'+path, opts).then(async r => {
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+});
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+const TYPE_LABEL = {0:'Kugel', 1:'Bogen', 2:'Kugel Auflage'};
+
+let list = [];
+let canManage = false;
+
+function updateManageVisibility() {
+  canManage = !!window.SCHIESSSTAND_ROLE?.can_manage_preisschiessen;
+  document.getElementById('btn-new-ps').style.display = canManage ? '' : 'none';
+  render();
+}
+window.addEventListener('schiessstand-role-ready', updateManageVisibility);
+
+async function load() {
+  list = await api('/preisschiessen') || [];
+  render();
+}
+
+function render() {
+  const tbody = document.getElementById('ps-tbody');
+  tbody.innerHTML = '';
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--dim);text-align:center">Keine Preisschießen</td></tr>';
+    return;
+  }
+  for (const p of list) {
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    const zeitraum = (p.starts_on || p.ends_on)
+      ? `${(p.starts_on||'').slice(0,10)} – ${(p.ends_on||'').slice(0,10)}`
+      : '–';
+    tr.innerHTML = `
+      <td><strong>${esc(p.name)}</strong></td>
+      <td style="font-size:.8rem;white-space:nowrap">${zeitraum}</td>
+      <td style="font-size:.8rem">${TYPE_LABEL[p.shooting_type] ?? p.shooting_type}</td>
+      <td style="font-size:.8rem">${p.teilnehmer_count}</td>
+      <td><span class="badge ${p.active?'badge-active':'badge-inactive'}">${p.active?'Aktiv':'Inaktiv'}</span></td>
+      <td class="row-actions">
+        <button class="btn-eval" onclick="openPage('${p.id}','preisschiessen-anmeldung');event.stopPropagation()">Anmeldung</button>
+        <button class="btn-eval" onclick="openPage('${p.id}','preisschiessen-kasse');event.stopPropagation()">Kasse</button>
+        <button class="btn-eval" onclick="openPage('${p.id}','preisschiessen-teilnehmer');event.stopPropagation()">Teilnehmer</button>
+        ${canManage ? `<button class="btn-edit" onclick="editPS('${p.id}');event.stopPropagation()">Bearb.</button>` : ''}
+        ${canManage ? `<button class="btn-del"  onclick="deletePS('${p.id}','${esc(p.name)}');event.stopPropagation()">Löschen</button>` : ''}
+      </td>`;
+    tr.onclick = () => editPS(p.id);
+    tbody.appendChild(tr);
+  }
+}
+
+function editPS(id) {
+  location.href = '/preisschiessen-bearbeiten?id=' + id;
+}
+
+function openPage(id, page) {
+  localStorage.setItem('ps_current_id', id);
+  location.href = '/' + page;
+}
+
+async function deletePS(id, name) {
+  if (!confirm(`Preisschießen "${name}" wirklich löschen?\nAlle Teilnehmer, Käufe und Buchungen werden ebenfalls gelöscht.`)) return;
+  try {
+    await api(`/preisschiessen/${id}`, {method:'DELETE'});
+    await load();
+  } catch(err) { alert('Fehler: '+err.message); }
+}
+
+load();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

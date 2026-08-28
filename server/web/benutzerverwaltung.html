@@ -69,12 +69,12 @@
     4 feste Rollen mit je einem optionalen, gemeinsamen Passwort (kein individuelles Login).
     Ohne gesetztes Passwort ist der Rollenwechsel frei möglich. Ist für "Anwender" ein Passwort
     gesetzt, ist es auch beim allerersten Aufruf ohne aktive Rolle nötig. Änderungen an Kacheln,
-    Korrekturrecht und Passwort werden sofort gespeichert.
+    Korrekturrecht, Preisschießen-Recht und Passwort werden sofort gespeichert.
   </p>
   <div id="status"></div>
   <div class="scroll">
     <table id="tbl">
-      <thead><tr id="thead-row"><th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th></tr></thead>
+      <thead><tr id="thead-row"><th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th><th>Preisschießen verwalten</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
@@ -85,6 +85,7 @@ const TILE_LABELS = {
   lanes: 'Standsteuerung', stammdaten: 'Stammdaten', disciplines: 'Disziplinen',
   wettkampf: 'Wettkämpfe', standaktion: 'Standaktion', ergebnisse: 'Ergebnisse',
   simulator: 'Simulator', auswertung: 'Auswertung', settings: 'Einstellungen', archiv: 'Archiv',
+  preisschiessen: 'Preisschießen',
 };
 
 async function api(path, opts) {
@@ -121,7 +122,7 @@ async function load() {
 
 function renderHead() {
   const row = document.getElementById('thead-row');
-  row.innerHTML = '<th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th>' +
+  row.innerHTML = '<th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th><th>Preisschießen verwalten</th>' +
     knownTiles.map(t => `<th class="tile-col">${esc(TILE_LABELS[t] || t)}</th>`).join('');
 }
 
@@ -152,6 +153,10 @@ function renderRows(roles) {
       <td class="correction-cell">
         <input type="checkbox" ${r.can_correct_results ? 'checked' : ''}
           onchange="toggleCorrection('${r.role_key}',this)">
+      </td>
+      <td class="correction-cell">
+        <input type="checkbox" ${r.can_manage_preisschiessen ? 'checked' : ''}
+          onchange="toggleManagePreisschiessen('${r.role_key}',this)">
       </td>
       ${tileCells}
     </tr>`;
@@ -187,6 +192,18 @@ async function toggleCorrection(roleKey, checkbox) {
     await api(`/api/roles/${roleKey}/permissions`, {
       method: 'PUT', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({can_correct_results: checkbox.checked}),
+    });
+  } catch (e) {
+    checkbox.checked = !checkbox.checked;
+    alert('Fehler: ' + e.message);
+  }
+}
+
+async function toggleManagePreisschiessen(roleKey, checkbox) {
+  try {
+    await api(`/api/roles/${roleKey}/manage-preisschiessen`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({can_manage_preisschiessen: checkbox.checked}),
     });
   } catch (e) {
     checkbox.checked = !checkbox.checked;
