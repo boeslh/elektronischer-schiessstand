@@ -36,6 +36,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 //go:embed web
@@ -101,6 +103,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/admin/backups/upload", a.h(a.uploadBackupHandler))
 	mux.HandleFunc("POST /api/admin/export-selection", a.h(a.exportSelectionHandler))
 	mux.HandleFunc("POST /api/admin/import-selection", a.h(a.importSelectionHandler))
+	mux.HandleFunc("POST /api/admin/delete-selection", a.h(a.deleteSelectionHandler))
 	mux.HandleFunc("GET /import-export", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := a.requireAdmin(w, r); err != nil {
 			writeAccessDeniedPage(w, err)
@@ -127,6 +130,12 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/clubs/{id}", a.h(a.deleteClub))
 	mux.HandleFunc("POST /api/clubs/import", a.h(a.importClubs))
 
+	mux.HandleFunc("GET /api/shooter-classes", a.h(a.listShooterClasses))
+	mux.HandleFunc("POST /api/shooter-classes", a.h(a.createShooterClass))
+	mux.HandleFunc("PUT /api/shooter-classes/{id}", a.h(a.updateShooterClass))
+	mux.HandleFunc("DELETE /api/shooter-classes/{id}", a.h(a.deleteShooterClass))
+	mux.HandleFunc("POST /api/shooter-classes/import", a.h(a.importShooterClasses))
+
 	mux.HandleFunc("GET /api/shooters", a.h(a.listShooters))
 	mux.HandleFunc("GET /api/shooters/list", a.h(a.listShootersFull))
 	mux.HandleFunc("POST /api/shooters", a.h(a.createShooter))
@@ -134,6 +143,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/shooters/import", a.h(a.importMembers))
 	mux.HandleFunc("PUT /api/shooters/{id}", a.h(a.updateShooterFull))
 	mux.HandleFunc("DELETE /api/shooters/{id}", a.h(a.deleteShooter))
+	mux.HandleFunc("POST /api/shooters/recalculate-classes", a.h(a.recalculateSportsClasses))
 
 	mux.HandleFunc("GET /api/teams", a.h(a.listTeams))
 	mux.HandleFunc("POST /api/teams", a.h(a.createTeam))
@@ -144,6 +154,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/teams/{id}/members/{shooterID}", a.h(a.removeTeamMember))
 
 	mux.HandleFunc("GET /wettkampf", a.serveHTMLGated(webSub, "wettkampf.html", "wettkampf"))
+	mux.HandleFunc("GET /wettkampf-bearbeiten", a.serveHTMLGated(webSub, "wettkampf-bearbeiten.html", "wettkampf"))
 	mux.HandleFunc("GET /ergebnisse", a.serveHTMLGated(webSub, "ergebnisse.html", "ergebnisse"))
 	mux.HandleFunc("GET /ergebnis-ansicht", a.serveHTMLGated(webSub, "ergebnis-ansicht.html", "ergebnisse"))
 	mux.HandleFunc("GET /auswertung", a.serveHTMLGated(webSub, "auswertung.html", "auswertung"))
@@ -154,6 +165,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/auswertungen/{id}", a.h(a.deleteSavedAuswertung))
 	mux.HandleFunc("GET /api/results", a.h(a.listResults))
 	mux.HandleFunc("GET /api/competitions", a.h(a.listCompetitions))
+	mux.HandleFunc("GET /api/competitions/{id}", a.h(a.getCompetition))
 	mux.HandleFunc("POST /api/competitions", a.h(a.createCompetition))
 	mux.HandleFunc("PUT /api/competitions/{id}", a.h(a.updateCompetition))
 	mux.HandleFunc("DELETE /api/competitions/{id}", a.h(a.deleteCompetition))
@@ -920,6 +932,16 @@ func (a *APIServer) deleteShooter(w http.ResponseWriter, r *http.Request) (any, 
 	return map[string]any{"ok": true}, nil
 }
 
+func (a *APIServer) recalculateSportsClasses(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[struct {
+		Year int `json:"year"`
+	}](r)
+	if err != nil || body.Year < 1900 || body.Year > 2200 {
+		return nil, errors.New("gueltiges Sportjahr erforderlich")
+	}
+	return a.store.RecalculateSportsClasses(r.Context(), body.Year)
+}
+
 func (a *APIServer) importMembers(w http.ResponseWriter, r *http.Request) (any, error) {
 	body, err := decodeBody[struct {
 		Rows []MemberRow `json:"rows"`
@@ -1017,6 +1039,60 @@ func (a *APIServer) removeTeamMember(w http.ResponseWriter, r *http.Request) (an
 }
 
 // ----------------------------------------------------------------------------
+// Sportklassen
+// ----------------------------------------------------------------------------
+
+func (a *APIServer) listShooterClasses(w http.ResponseWriter, r *http.Request) (any, error) {
+	return a.store.ListShooterClasses(r.Context())
+}
+
+func (a *APIServer) createShooterClass(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[ShooterClass](r)
+	if err != nil || body.Code == "" || body.Name == "" {
+		return nil, errors.New("code und name erforderlich")
+	}
+	id, err := a.store.CreateShooterClass(r.Context(), body)
+	if err != nil {
+		return nil, err
+	}
+	w.WriteHeader(http.StatusCreated)
+	return map[string]string{"id": id}, nil
+}
+
+func (a *APIServer) updateShooterClass(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[ShooterClass](r)
+	if err != nil || body.Code == "" || body.Name == "" {
+		return nil, errors.New("code und name erforderlich")
+	}
+	body.ID = r.PathValue("id")
+	if err := a.store.UpdateShooterClass(r.Context(), body); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) deleteShooterClass(w http.ResponseWriter, r *http.Request) (any, error) {
+	if err := a.store.DeleteShooterClass(r.Context(), r.PathValue("id")); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) importShooterClasses(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[struct {
+		Classes []ShooterClass `json:"classes"`
+	}](r)
+	if err != nil || len(body.Classes) == 0 {
+		return nil, errors.New("classes erforderlich")
+	}
+	created, updated, err := a.store.ImportShooterClasses(r.Context(), body.Classes)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"created": created, "updated": updated}, nil
+}
+
+// ----------------------------------------------------------------------------
 // Wettkämpfe
 // ----------------------------------------------------------------------------
 
@@ -1032,6 +1108,17 @@ func (a *APIServer) listCompetitions(w http.ResponseWriter, r *http.Request) (an
 		return nil, err
 	}
 	return list, nil
+}
+
+func (a *APIServer) getCompetition(w http.ResponseWriter, r *http.Request) (any, error) {
+	c, err := a.store.GetCompetition(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, &httpError{code: http.StatusNotFound, msg: "Wettkampf nicht gefunden"}
+		}
+		return nil, err
+	}
+	return c, nil
 }
 
 func (a *APIServer) createCompetition(w http.ResponseWriter, r *http.Request) (any, error) {

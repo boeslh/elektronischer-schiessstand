@@ -152,6 +152,26 @@
     <div id="selective-import-msg"></div>
   </div>
 
+  <!-- ── Daten löschen ────────────────────────────────────────────────────── -->
+  <h2>Daten löschen</h2>
+  <div class="section">
+    <div class="hint warn-hint">
+      Löscht die ausgewählten Bereiche unwiderruflich aus der aktuellen Datenbank
+      (jeweils komplett, kein Zeitraum außer bei Ergebnissen - dort werden auch
+      gerade erst zugewiesene Stände ohne Schuss mitgelöscht, unabhängig vom
+      gewählten Zeitraum). Vor dem Löschen wird automatisch ein Sicherheits-Backup
+      angelegt. Existieren noch abhängige Daten aus einer nicht mit ausgewählten
+      Kategorie (z.B. Wettkämpfe löschen, obwohl dazugehörige Ergebnisse bestehen
+      bleiben sollen), wird die Löschung komplett abgebrochen - es wird dann nichts
+      verändert. Nur durchführen, wenn gerade kein Schießbetrieb läuft.
+    </div>
+    <div class="cat-group" id="del-cats"></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button type="button" class="btn-danger" id="btn-delete" onclick="runDelete()">Löschen</button>
+    </div>
+    <div id="delete-msg"></div>
+  </div>
+
   <!-- ── Restore von Datei ───────────────────────────────────────────────── -->
   <h2>Wiederherstellung von Datei</h2>
   <div class="section">
@@ -245,9 +265,10 @@ const CATEGORIES = [
   {id: 'meisterschaften', label: 'Meisterschaften/Preisschießen', disabled: true},
 ];
 
-function renderCategoryGroup(prefix) {
+function renderCategoryGroup(prefix, excludeIds) {
   const el = document.getElementById(prefix + '-cats');
-  el.innerHTML = CATEGORIES.map(c => {
+  const cats = excludeIds ? CATEGORIES.filter(c => !excludeIds.includes(c.id)) : CATEGORIES;
+  el.innerHTML = cats.map(c => {
     const cbId = `${prefix}-cat-${c.id}`;
     const cls = c.disabled ? 'cat-item disabled' : 'cat-item';
     let html = `<div class="${cls}">
@@ -271,7 +292,8 @@ function toggleDates(prefix) {
 
 function collectSelection(prefix) {
   const categories = CATEGORIES
-    .filter(c => !c.disabled && document.getElementById(`${prefix}-cat-${c.id}`).checked)
+    .filter(c => !c.disabled)
+    .filter(c => document.getElementById(`${prefix}-cat-${c.id}`)?.checked)
     .map(c => c.id);
   const body = {categories};
   if (categories.includes('ergebnisse')) {
@@ -369,6 +391,43 @@ async function runSelectiveImport() {
     if (!resp.ok) throw new Error(j.error || resp.statusText);
     msgEl.innerHTML = `<div class="msg ok"><strong>&#10003; Import erfolgreich</strong>
       <table style="margin-top:8px">${summaryRows(j.summary)}</table></div>`;
+  } catch(e) {
+    msgEl.innerHTML = `<div class="msg err">Fehler: ${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ─── Daten löschen ──────────────────────────────────────────────────────────
+async function runDelete() {
+  const msgEl = document.getElementById('delete-msg');
+  const body = collectSelection('del');
+  if (!body.categories.length) { msgEl.innerHTML = '<div class="msg err">Keine Kategorie ausgewählt.</div>'; return; }
+  if (body.categories.includes('ergebnisse') && (!body.date_from || !body.date_to)) {
+    msgEl.innerHTML = '<div class="msg err">Bitte Von- und Bis-Datum für Ergebnisse angeben.</div>'; return;
+  }
+
+  const labels = body.categories.map(id => CATEGORIES.find(c => c.id === id).label).join(', ');
+  const typed = prompt(
+    `Die ausgewählten Bereiche (${labels}) werden unwiderruflich aus der aktuellen Datenbank gelöscht.\n\n` +
+    `Davor wird automatisch ein Sicherheits-Backup des aktuellen Stands angelegt.\n\n` +
+    `Zum Bestätigen "LÖSCHEN" eingeben:`
+  );
+  if (typed !== 'LÖSCHEN') return;
+
+  const btn = document.getElementById('btn-delete');
+  btn.disabled = true;
+  msgEl.innerHTML = '<div class="msg warn"><span class="spinner-inline"></span> Lösche…</div>';
+  try {
+    const resp = await fetch('/api/admin/delete-selection', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const j = await resp.json();
+    if (!resp.ok) throw new Error(j.error || resp.statusText);
+    msgEl.innerHTML = `<div class="msg ok"><strong>&#10003; Löschen erfolgreich</strong>
+      <table style="margin-top:8px">${summaryRows(j.summary)}</table></div>`;
+    await loadBackups();
   } catch(e) {
     msgEl.innerHTML = `<div class="msg err">Fehler: ${esc(e.message)}</div>`;
   } finally {
@@ -491,6 +550,7 @@ async function uploadAndRestore() {
 // ─── Init ────────────────────────────────────────────────────────────────────
 renderCategoryGroup('exp');
 renderCategoryGroup('imp');
+renderCategoryGroup('del', ['konfigurationen']);
 loadBackups();
 </script>
 <script src="/role.js"></script>

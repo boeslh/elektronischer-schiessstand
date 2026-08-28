@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -930,6 +931,252 @@ func (s *Store) ImportClubs(ctx context.Context, entries []ImportClubEntry, crea
 }
 
 // ----------------------------------------------------------------------------
+// Stammdaten – Sportklassen
+// ----------------------------------------------------------------------------
+
+// ShooterClass entspricht einer Zeile des CSV-Exports "Sportklassen" aus dem
+// Verwaltungstool. type/sex werden als numerische Codes wie im Export
+// gespeichert (Anzeige uebersetzt clientseitig):
+//   type: 0=Kugel, 1=Bogen, 2=Kugel Auflage
+//   sex:  0=weiblich, 1=maennlich, NULL=offen
+type ShooterClass struct {
+	ID        string `json:"id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	ShortName string `json:"short_name"`
+	MinAge    *int   `json:"min_age"`
+	MaxAge    *int   `json:"max_age"`
+	Type      *int   `json:"type"`
+	Sex       *int   `json:"sex"`
+}
+
+func (s *Store) ListShooterClasses(ctx context.Context) ([]ShooterClass, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, code, name, COALESCE(short_name,''), min_age, max_age, type, sex
+		FROM shooter_classes
+		ORDER BY code`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ShooterClass
+	for rows.Next() {
+		var c ShooterClass
+		if err := rows.Scan(&c.ID, &c.Code, &c.Name, &c.ShortName,
+			&c.MinAge, &c.MaxAge, &c.Type, &c.Sex); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) CreateShooterClass(ctx context.Context, c ShooterClass) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO shooter_classes (code, name, short_name, min_age, max_age, type, sex)
+		VALUES ($1, $2, NULLIF($3,''), $4, $5, $6, $7)
+		RETURNING id`,
+		c.Code, c.Name, c.ShortName, c.MinAge, c.MaxAge, c.Type, c.Sex).Scan(&id)
+	return id, err
+}
+
+func (s *Store) UpdateShooterClass(ctx context.Context, c ShooterClass) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE shooter_classes SET
+		    code       = $1,
+		    name       = $2,
+		    short_name = NULLIF($3,''),
+		    min_age    = $4,
+		    max_age    = $5,
+		    type       = $6,
+		    sex        = $7
+		WHERE id = $8`,
+		c.Code, c.Name, c.ShortName, c.MinAge, c.MaxAge, c.Type, c.Sex, c.ID)
+	return err
+}
+
+func (s *Store) DeleteShooterClass(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM shooter_classes WHERE id=$1`, id)
+	return err
+}
+
+// ImportShooterClasses importiert Sportklassen per Upsert auf (code, type).
+// KLASSENNR (code) ist nur innerhalb einer Schießart (type) eindeutig - der
+// Export enthält dieselbe Nummer je einmal pro Schießart (siehe Migration
+// 020), daher NICHT nur auf code upserten.
+// Gibt (neu angelegt, aktualisiert, Fehler) zurück.
+func (s *Store) ImportShooterClasses(ctx context.Context, entries []ShooterClass) (int, int, error) {
+	var created, updated int
+	for _, e := range entries {
+		var wasInserted bool
+		err := s.pool.QueryRow(ctx, `
+			INSERT INTO shooter_classes (code, name, short_name, min_age, max_age, type, sex)
+			VALUES ($1, $2, NULLIF($3,''), $4, $5, $6, $7)
+			ON CONFLICT (code, type) DO UPDATE SET
+			    name       = EXCLUDED.name,
+			    short_name = EXCLUDED.short_name,
+			    min_age    = EXCLUDED.min_age,
+			    max_age    = EXCLUDED.max_age,
+			    type       = EXCLUDED.type,
+			    sex        = EXCLUDED.sex
+			RETURNING (xmax = 0)`,
+			e.Code, e.Name, e.ShortName, e.MinAge, e.MaxAge, e.Type, e.Sex,
+		).Scan(&wasInserted)
+		if err != nil {
+			return created, updated, fmt.Errorf("Sportklasse %q: %w", e.Code, err)
+		}
+		if wasInserted {
+			created++
+		} else {
+			updated++
+		}
+	}
+	return created, updated, nil
+}
+
+// RecalculateResult fasst das Ergebnis von RecalculateSportsClasses zusammen.
+type RecalculateResult struct {
+	Updated       int `json:"updated"`
+	SkippedNoData int `json:"skipped_no_data"` // Geschlecht oder Geburtsdatum fehlt
+	SkippedNoMatch int `json:"skipped_no_match"` // keine passende Sportklasse gefunden
+}
+
+// RecalculateSportsClasses ordnet jedem Schützen mit bekanntem Geschlecht und
+// Geburtsdatum die Sportklasse zu, deren Altersbereich das im gegebenen
+// Sportjahr erreichte Alter (Jahr - Geburtsjahr, Monat/Tag unerheblich)
+// enthält und deren Geschlecht passt (shooter_classes.sex NULL = offen, gilt
+// für beide). Betrachtet werden dabei NUR Klassen der Schießart Kugel
+// (type=0) - die allgemeine Mitglieder-Sportklasse bezieht sich auf Kugel,
+// nicht auf Bogen/Kugel Auflage, deren Altersbereiche sich mit Kugel-Klassen
+// überschneiden können. Bei mehreren passenden Klassen gewinnt die mit dem
+// engeren Altersbereich (unbegrenzte Grenzen zählen als sehr weit). Schützen
+// ohne Geschlecht/Geburtsdatum werden übersprungen (sports_class bleibt
+// unverändert), ebenso wenn keine passende Klasse existiert.
+func (s *Store) RecalculateSportsClasses(ctx context.Context, year int) (RecalculateResult, error) {
+	var res RecalculateResult
+
+	type shooterRow struct {
+		id     string
+		gender string
+		byear  *int
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, COALESCE(gender,''), EXTRACT(YEAR FROM birth_date)::int
+		FROM shooters`)
+	if err != nil {
+		return res, err
+	}
+	var shooterList []shooterRow
+	for rows.Next() {
+		var sr shooterRow
+		if err := rows.Scan(&sr.id, &sr.gender, &sr.byear); err != nil {
+			rows.Close()
+			return res, err
+		}
+		shooterList = append(shooterList, sr)
+	}
+	if err := rows.Err(); err != nil {
+		return res, err
+	}
+	rows.Close()
+
+	type classRow struct {
+		code           string
+		minAge, maxAge *int
+		sex            *int
+	}
+	classRows, err := s.pool.Query(ctx, `SELECT code, min_age, max_age, sex FROM shooter_classes WHERE type = 0`)
+	if err != nil {
+		return res, err
+	}
+	var classes []classRow
+	for classRows.Next() {
+		var cr classRow
+		if err := classRows.Scan(&cr.code, &cr.minAge, &cr.maxAge, &cr.sex); err != nil {
+			classRows.Close()
+			return res, err
+		}
+		classes = append(classes, cr)
+	}
+	if err := classRows.Err(); err != nil {
+		return res, err
+	}
+	classRows.Close()
+
+	const unboundedLow, unboundedHigh = -32768, 32767
+	rangeWidth := func(c classRow) int {
+		lo, hi := unboundedLow, unboundedHigh
+		if c.minAge != nil {
+			lo = *c.minAge
+		}
+		if c.maxAge != nil {
+			hi = *c.maxAge
+		}
+		return hi - lo
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback(ctx)
+
+	for _, sr := range shooterList {
+		var sexCode int
+		switch sr.gender {
+		case "M":
+			sexCode = 1
+		case "W":
+			sexCode = 0
+		default:
+			res.SkippedNoData++
+			continue
+		}
+		if sr.byear == nil {
+			res.SkippedNoData++
+			continue
+		}
+		age := year - *sr.byear
+
+		var best *classRow
+		for i := range classes {
+			c := &classes[i]
+			if c.sex != nil && *c.sex != sexCode {
+				continue
+			}
+			if c.minAge != nil && age < *c.minAge {
+				continue
+			}
+			if c.maxAge != nil && age > *c.maxAge {
+				continue
+			}
+			if best == nil || rangeWidth(*c) < rangeWidth(*best) {
+				best = c
+			}
+		}
+		if best == nil {
+			res.SkippedNoMatch++
+			continue
+		}
+		codeNum, convErr := strconv.Atoi(best.code)
+		if convErr != nil {
+			res.SkippedNoMatch++
+			continue
+		}
+		if _, err := tx.Exec(ctx, `UPDATE shooters SET sports_class=$1 WHERE id=$2`, codeNum, sr.id); err != nil {
+			return res, err
+		}
+		res.Updated++
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
+// ----------------------------------------------------------------------------
 // Stammdaten – Schützen (vollständiges Modell)
 // ----------------------------------------------------------------------------
 
@@ -1453,6 +1700,28 @@ func (s *Store) ListCompetitions(ctx context.Context, compType, status string, a
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) GetCompetition(ctx context.Context, id string) (Competition, error) {
+	var c Competition
+	err := s.pool.QueryRow(ctx, `
+		SELECT e.id, e.name, COALESCE(e.type,''), COALESCE(e.starts_on::text,''),
+		       COALESCE(e.ends_on::text,''), e.status::text,
+		       COALESCE(e.discipline_id::text,''), COALESCE(d.name,''),
+		       COALESCE(e.location,''), COALESCE(e.notes,''),
+		       COALESCE(e.active,TRUE),
+		       (SELECT COUNT(*) FROM starters st WHERE st.event_id = e.id),
+		       (SELECT COUNT(*) FROM competition_participants cp WHERE cp.event_id = e.id)
+		FROM events e
+		LEFT JOIN disciplines d ON d.id = e.discipline_id
+		WHERE e.id = $1::uuid`, id,
+	).Scan(
+		&c.ID, &c.Name, &c.Type, &c.StartsOn, &c.EndsOn, &c.Status,
+		&c.DisciplineID, &c.DisciplineName,
+		&c.Location, &c.Notes, &c.Active,
+		&c.StarterCount, &c.ParticipantCount,
+	)
+	return c, err
 }
 
 func (s *Store) CreateCompetition(ctx context.Context, c Competition) (string, error) {

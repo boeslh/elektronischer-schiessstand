@@ -117,7 +117,7 @@
 <body>
 
 <header>
-  <a class="back" href="/ergebnisse" title="Zurück zu den Ergebnissen">←</a>
+  <a class="back" href="/ergebnisse" id="backLink" title="Zurück">←</a>
   <h1 id="shooterName">–</h1>
   <span id="discipline"></span>
   <span id="eventLine"></span>
@@ -749,6 +749,26 @@ function renderList() {
   else hint.textContent = `Schuss ${getVisibleShots()[0]?.displayNo ?? ''}`;
   document.getElementById('resetBtn').style.visibility = selection ? 'visible' : 'hidden';
 }
+
+// Diese Seite wird aus mehreren Bereichen aufgerufen (Ergebnisliste, kuenftig
+// weitere). "Zurück" soll dorthin zurueckspringen, nicht immer zur fixen
+// Ergebnisliste - history.back() landet dank Browser-Bfcache i.d.R. exakt in
+// der vorherigen Ansicht inkl. Filtern/Scroll-Position. Nur nutzen, wenn die
+// Seite tatsaechlich per Klick aus dieser App heraus geoeffnet wurde (nicht
+// bei Direktaufruf/Lesezeichen) - sonst bleibt der href-Fallback aktiv.
+(function() {
+  const ref = document.referrer;
+  if (window.history.length > 1 && ref) {
+    try {
+      if (new URL(ref).origin === location.origin) {
+        document.getElementById('backLink').addEventListener('click', e => {
+          e.preventDefault();
+          history.back();
+        });
+      }
+    } catch { /* ungueltiger referrer - Fallback-href verwenden */ }
+  }
+})();
 
 init();
 // role.js laedt/entscheidet die Korrektur-Berechtigung asynchron nach - Liste

@@ -17,37 +17,18 @@ header a:hover{color:var(--text)}
 header h1{font-size:19px;font-weight:700}
 main{flex:1;padding:20px}
 
-/* ── Layout ── */
 .top-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
-.split{display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start}
-@media(max-width:900px){.split{grid-template-columns:1fr}}
+select.filter{background:#111;border:1px solid #2b3542;border-radius:5px;color:#e0e0e0;padding:6px 10px;font-size:.83rem}
 
-/* ── Cards ── */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px}
 .card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
 
-/* ── Table ── */
 table{width:100%;border-collapse:collapse}
 th{text-align:left;color:var(--dim);font-weight:500;padding:5px 8px;font-size:.78rem;border-bottom:1px solid var(--line)}
 td{padding:7px 8px;font-size:.83rem;border-bottom:1px solid #1e2530;vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:#1e2530}
 
-/* ── Form ── */
-label{display:block;font-size:.78rem;color:var(--dim);margin-bottom:4px;margin-top:10px}
-label:first-of-type{margin-top:0}
-input[type=text],input[type=date],select,textarea{
-  width:100%;background:#0e1218;border:1px solid var(--line);border-radius:6px;
-  color:var(--text);font-size:.85rem;padding:7px 10px;transition:border-color .15s
-}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
-textarea{resize:vertical;min-height:56px}
-.form-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.form-actions{display:flex;gap:8px;margin-top:14px}
-.btn-save{background:var(--acc);border:none;border-radius:6px;color:#0d1a16;font-size:.83rem;font-weight:600;padding:8px 18px;cursor:pointer}
-.btn-save:hover{opacity:.85}
-.btn-cancel{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);font-size:.83rem;padding:8px 14px;cursor:pointer}
-.btn-cancel:hover{border-color:var(--text);color:var(--text)}
 .btn-new{background:#1e2a38;border:1px solid var(--line);border-radius:6px;color:var(--acc);font-size:.83rem;padding:7px 14px;cursor:pointer}
 .btn-new:hover{background:#263545}
 .btn-edit{background:#1a2a1a;border:1px solid #2a4a2a;border-radius:4px;color:#4ab8a0;font-size:.75rem;padding:3px 8px;cursor:pointer}
@@ -55,7 +36,6 @@ textarea{resize:vertical;min-height:56px}
 .btn-del{background:#2a1a1a;border:1px solid #4a2a2a;border-radius:4px;color:#e05c5c;font-size:.75rem;padding:3px 8px;cursor:pointer}
 .row-actions{display:flex;gap:4px;justify-content:flex-end}
 
-/* ── Badges ── */
 .badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
 .badge-einzel{background:#1a2a3a;color:#64b5f6}
 .badge-runde{background:#1a3a2a;color:#4ab8a0}
@@ -64,44 +44,6 @@ textarea{resize:vertical;min-height:56px}
 .badge-running{background:#1a3a2a;color:#4ab8a0}
 .badge-finished{background:#1e2530;color:#75879a}
 .badge-archived{background:#1a1a1a;color:#555}
-
-/* ── Teilnehmer-Sektion ── */
-#detail-card{margin-top:16px}
-.entity-chip{display:inline-flex;align-items:center;gap:6px;background:#1e2530;border:1px solid var(--line);border-radius:18px;padding:5px 12px;font-size:.82rem;margin:4px}
-.entity-chip .remove{cursor:pointer;color:var(--err);font-weight:700;margin-left:2px;line-height:1}
-.entity-chip .remove:hover{color:#ff8080}
-.chips-wrap{margin:8px 0 12px;min-height:36px}
-.add-search{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
-.add-search input{flex:1;min-width:160px}
-.search-results{background:#0e1218;border:1px solid var(--line);border-radius:6px;max-height:200px;overflow-y:auto}
-.search-result-item{padding:8px 12px;cursor:pointer;font-size:.82rem;display:flex;justify-content:space-between;border-bottom:1px solid #1e2530}
-.search-result-item:last-child{border-bottom:none}
-.search-result-item:hover{background:#1e2530}
-
-/* ── Status-Buttons ── */
-.status-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
-.btn-status{background:#1e2a38;border:1px solid var(--line);border-radius:6px;color:var(--dim);font-size:.75rem;padding:5px 12px;cursor:pointer}
-.btn-status:hover{border-color:var(--acc);color:var(--acc)}
-
-.msg{font-size:.82rem;padding:7px 10px;border-radius:6px;display:none;margin-top:8px}
-.msg.ok{background:#1a3a2a;color:#4ab8a0}
-.msg.err{background:#3a1a1a;color:#e05c5c}
-
-/* ── Rollen-Tasten ── */
-.role-btn{border:1px solid #3a3a5a;border-radius:4px;font-size:.72rem;font-weight:700;
-          padding:2px 7px;cursor:pointer;background:#1a1a2e;color:#a0a0c0;transition:all .12s}
-.role-btn:hover{border-color:#aaa;color:#dce4ec}
-.role-btn.active-S{background:#1a3a2a;border-color:#4ab8a0;color:#4ab8a0}
-.role-btn.active-E{background:#2e2510;border-color:#e8a030;color:#e8a030}  /* auch gewertet */
-.role-btn.active-AK{background:#1e1e1e;border-color:#555;color:#666}       /* nicht gewertet */
-.btn-import{font-size:.75rem;padding:3px 10px;background:#1e2d3a;border:1px solid var(--acc);
-            color:var(--acc);border-radius:4px;cursor:pointer;font-weight:600}
-.btn-import:hover{background:#274055}
-.team-section{margin-bottom:18px}
-.team-section-hdr{display:flex;align-items:center;justify-content:space-between;
-                  padding:6px 10px;background:#161d26;border-radius:6px;margin-bottom:8px}
-.team-section-hdr span{font-size:.8rem;font-weight:600;color:var(--acc)}
-.team-section-hdr small{font-size:.72rem;color:var(--dim)}
 </style>
 </head>
 <body>
@@ -113,13 +55,13 @@ textarea{resize:vertical;min-height:56px}
 
 <main>
   <div class="top-bar">
-    <select id="filter-type" onchange="loadCompetitions()" style="background:#111;border:1px solid #2b3542;border-radius:5px;color:#e0e0e0;padding:6px 10px;font-size:.83rem">
+    <select id="filter-type" class="filter" onchange="loadCompetitions()">
       <option value="">Alle Typen</option>
       <option value="einzel">Einzelwettkampf</option>
       <option value="runde">Rundenwettkampf</option>
       <option value="gruppe">Gruppenwettkampf</option>
     </select>
-    <select id="filter-status" onchange="loadCompetitions()" style="background:#111;border:1px solid #2b3542;border-radius:5px;color:#e0e0e0;padding:6px 10px;font-size:.83rem">
+    <select id="filter-status" class="filter" onchange="loadCompetitions()">
       <option value="">Aktive (ohne Archivierte)</option>
       <option value="planned">Geplant</option>
       <option value="running">Laufend</option>
@@ -127,140 +69,15 @@ textarea{resize:vertical;min-height:56px}
       <option value="archived">Archiviert</option>
       <option value="_all_">Alle inkl. Archivierte</option>
     </select>
-    <button class="btn-new" onclick="newCompetition()">+ Neuer Wettkampf</button>
+    <button class="btn-new" onclick="location.href='/wettkampf-bearbeiten'">+ Neuer Wettkampf</button>
   </div>
 
-  <div class="split">
-    <!-- Liste -->
-    <div class="card">
-      <h2>Wettkämpfe</h2>
-      <table>
-        <thead><tr><th>Name</th><th>Typ</th><th>Datum</th><th>Disziplin</th><th>Status</th><th></th></tr></thead>
-        <tbody id="comp-tbody"></tbody>
-      </table>
-    </div>
-
-    <!-- Formular -->
-    <div class="card" id="form-card">
-      <h2>Wettkampf <span id="cf-title">anlegen</span></h2>
-      <form id="comp-form" onsubmit="saveCompetition(event)">
-        <input type="hidden" id="cf-id">
-
-        <label for="cf-name">Name *</label>
-        <input type="text" id="cf-name" required placeholder="z.B. Kreismeisterschaft 2025">
-
-        <label for="cf-type">Typ *</label>
-        <select id="cf-type" required>
-          <option value="">– wählen –</option>
-          <option value="einzel">Einzelwettkampf</option>
-          <option value="runde">Rundenwettkampf (2 Mannschaften)</option>
-          <option value="gruppe">Gruppenwettkampf (Mannschaften / Vereine / Gaue)</option>
-        </select>
-
-        <div class="form-row2">
-          <div>
-            <label for="cf-start">Datum von</label>
-            <input type="date" id="cf-start">
-          </div>
-          <div>
-            <label for="cf-end">Datum bis</label>
-            <input type="date" id="cf-end">
-          </div>
-        </div>
-
-        <label for="cf-disc">Disziplin</label>
-        <select id="cf-disc">
-          <option value="">– keine –</option>
-        </select>
-
-        <label for="cf-location">Ort / Halle</label>
-        <input type="text" id="cf-location" placeholder="z.B. Schützenheim Musterstadt">
-
-        <label for="cf-status">Status</label>
-        <select id="cf-status">
-          <option value="planned">Geplant</option>
-          <option value="running">Laufend</option>
-          <option value="finished">Abgeschlossen</option>
-          <option value="archived">Archiviert</option>
-        </select>
-
-        <label for="cf-notes">Notizen</label>
-        <textarea id="cf-notes" rows="2" placeholder="Optionale Anmerkungen"></textarea>
-
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
-          <input type="checkbox" id="cf-active" checked>
-          <span>Aktiv</span>
-        </label>
-
-        <div class="form-actions">
-          <button type="submit" class="btn-save">Speichern</button>
-          <button type="button" class="btn-cancel" onclick="clearForm()">Abbrechen</button>
-        </div>
-        <div id="cf-msg" class="msg"></div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Detail-Sektion: Teilnehmer + Starter -->
-  <div class="card" id="detail-card" style="display:none;margin-top:16px">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-      <div>
-        <div style="font-size:1rem;font-weight:700" id="dt-name"></div>
-        <div id="dt-meta" style="font-size:.78rem;color:var(--dim);margin-top:3px"></div>
-      </div>
-    </div>
-
-    <!-- Typ-abhängige Bereiche werden dynamisch eingeblendet -->
-
-    <!-- Runde: feste Heim/Gast-Auswahl -->
-    <div id="dt-runde" style="display:none">
-      <h2>Mannschaften</h2>
-      <div id="dt-runde-chips" class="chips-wrap"></div>
-      <div id="dt-runde-form" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
-        <div>
-          <label style="display:block;font-size:.75rem;color:var(--dim);margin-bottom:4px">Heim-Mannschaft</label>
-          <select id="dt-heim-sel" style="width:100%;background:#0e1218;border:1px solid #2b3542;border-radius:6px;color:#dce4ec;padding:7px 10px;font-size:.83rem">
-            <option value="">– wählen –</option>
-          </select>
-        </div>
-        <div>
-          <label style="display:block;font-size:.75rem;color:var(--dim);margin-bottom:4px">Gast-Mannschaft</label>
-          <select id="dt-gast-sel" style="width:100%;background:#0e1218;border:1px solid #2b3542;border-radius:6px;color:#dce4ec;padding:7px 10px;font-size:.83rem">
-            <option value="">– wählen –</option>
-          </select>
-        </div>
-      </div>
-      <button class="btn-new" style="margin-top:10px" onclick="saveRundeParticipants()">Mannschaften übernehmen</button>
-      <div id="dt-runde-msg" class="msg"></div>
-    </div>
-
-    <!-- Gruppe: Freitext-Suche für Teams / Vereine / Gaue -->
-    <div id="dt-gruppe" style="display:none">
-      <h2>Teilnehmende Einheiten</h2>
-      <div class="chips-wrap" id="dt-gruppe-chips"></div>
-      <div class="add-search">
-        <input type="search" id="dt-gruppe-search" placeholder="Mannschaft, Verein oder Gau suchen…" oninput="searchParticipant()">
-        <select id="dt-gruppe-entity" style="background:#111;border:1px solid #2b3542;border-radius:5px;color:#e0e0e0;padding:7px 10px;font-size:.83rem">
-          <option value="team">Mannschaft</option>
-          <option value="club">Verein</option>
-          <option value="gau">Gau</option>
-        </select>
-      </div>
-      <div id="dt-gruppe-results" class="search-results" style="display:none"></div>
-      <div id="dt-gruppe-msg" class="msg"></div>
-    </div>
-
-    <div id="dt-starters" style="display:none;margin-top:16px">
-      <h2>Starter</h2>
-      <!-- Für Einzel/Gruppe: einfache Suchzeile -->
-      <div id="dt-starter-simple" class="add-search" style="margin-bottom:10px">
-        <input type="search" id="dt-starter-search" placeholder="Schütze suchen…" oninput="searchStarter(null)">
-      </div>
-      <div id="dt-starter-results" class="search-results" style="display:none"></div>
-      <!-- Inhalt: bei Runde per Team gruppiert, sonst flache Tabelle -->
-      <div id="dt-starters-content"></div>
-      <div id="dt-starter-msg" class="msg"></div>
-    </div>
+  <div class="card">
+    <h2>Wettkämpfe</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Typ</th><th>Datum</th><th>Disziplin</th><th>Status</th><th></th></tr></thead>
+      <tbody id="comp-tbody"></tbody>
+    </table>
   </div>
 </main>
 
@@ -275,22 +92,12 @@ const api = (path, opts) => fetch('/api'+path, opts).then(async r => {
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function showMsg(id, text, type) {
-  const el = document.getElementById(id);
-  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 4000);
-}
 
 const TYPE_LABEL = { einzel:'Einzelwettkampf', runde:'Rundenwettkampf', gruppe:'Gruppenwettkampf' };
 const STATUS_LABEL = { planned:'Geplant', running:'Laufend', finished:'Abgeschlossen', archived:'Archiviert' };
-const ENTITY_LABEL = { team:'Mannschaft', club:'Verein', gau:'Gau' };
 
 let competitions = [];
-let disciplines  = [];
-let clubs = [], gaue = [], teams = [];
-let activeComp = null;
 
-// ── Laden ─────────────────────────────────────────────────────────────────
 async function loadCompetitions() {
   const type   = document.getElementById('filter-type').value;
   const status = document.getElementById('filter-status').value;
@@ -303,33 +110,8 @@ async function loadCompetitions() {
   }
   competitions = await api('/competitions?' + params) || [];
   renderCompetitions();
-  if (activeComp) {
-    const upd = competitions.find(c => c.id === activeComp.id);
-    if (upd) { activeComp = upd; renderDetail(); }
-  }
 }
 
-async function loadMeta() {
-  [disciplines, clubs, gaue, teams] = await Promise.all([
-    api('/disciplines'),
-    api('/clubs'),
-    api('/gaue'),
-    api('/teams'),
-  ]);
-  // Null-Schutz falls ein Endpoint eine leere Liste als null zurückgibt
-  disciplines = disciplines || [];
-  clubs       = clubs       || [];
-  gaue        = gaue        || [];
-  teams       = teams       || [];
-
-  const sel = document.getElementById('cf-disc');
-  sel.innerHTML = '<option value="">– keine –</option>';
-  for (const d of disciplines) {
-    sel.innerHTML += `<option value="${d.id}">${esc(d.name)}</option>`;
-  }
-}
-
-// ── Render Liste ──────────────────────────────────────────────────────────
 function renderCompetitions() {
   const tbody = document.getElementById('comp-tbody');
   tbody.innerHTML = '';
@@ -340,18 +122,14 @@ function renderCompetitions() {
   for (const c of competitions) {
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
-    if (activeComp && c.id === activeComp.id) tr.style.background = '#1e2530';
     const date = c.starts_on ? c.starts_on.slice(0,10) : '–';
     const cnt = c.type === 'einzel'
       ? `${c.starter_count} Starter`
       : `${c.participant_count} Teilnehmer`;
-    const isActive = activeComp && c.id === activeComp.id;
     tr.innerHTML = `
       <td>
         <strong>${esc(c.name)}</strong>
-        <div style="font-size:.73rem;color:var(--dim)">${esc(c.location)||''} &nbsp;${cnt}
-          ${!isActive ? '<span style="color:#3a5a7a;margin-left:6px">▼ anklicken</span>' : '<span style="color:var(--acc);margin-left:6px">▼ geöffnet</span>'}
-        </div>
+        <div style="font-size:.73rem;color:var(--dim)">${esc(c.location)||''} &nbsp;${cnt}</div>
       </td>
       <td><span class="badge badge-${c.type}">${TYPE_LABEL[c.type]||c.type}</span></td>
       <td style="font-size:.8rem;white-space:nowrap">${date}</td>
@@ -362,68 +140,13 @@ function renderCompetitions() {
         <button class="btn-edit" onclick="editComp('${c.id}');event.stopPropagation()">Bearb.</button>
         <button class="btn-del"  onclick="deleteComp('${c.id}','${esc(c.name)}');event.stopPropagation()">Löschen</button>
       </td>`;
-    tr.onclick = () => openDetail(c.id);
+    tr.onclick = () => editComp(c.id);
     tbody.appendChild(tr);
   }
 }
 
-// ── Formular ──────────────────────────────────────────────────────────────
-function newCompetition() { clearForm(); }
-function clearForm() {
-  document.getElementById('cf-id').value = '';
-  document.getElementById('comp-form').reset();
-  document.getElementById('cf-active').checked = true;
-  document.getElementById('cf-status').value = 'planned';
-  document.getElementById('cf-title').textContent = 'anlegen';
-  document.getElementById('cf-msg').style.display = 'none';
-}
-
 function editComp(id) {
-  const c = competitions.find(x => x.id === id);
-  if (!c) return;
-  document.getElementById('cf-title').textContent = 'bearbeiten';
-  document.getElementById('cf-id').value       = c.id;
-  document.getElementById('cf-name').value     = c.name;
-  document.getElementById('cf-type').value     = c.type;
-  document.getElementById('cf-start').value    = c.starts_on ? c.starts_on.slice(0,10) : '';
-  document.getElementById('cf-end').value      = c.ends_on   ? c.ends_on.slice(0,10)   : '';
-  document.getElementById('cf-disc').value     = c.discipline_id || '';
-  document.getElementById('cf-location').value = c.location || '';
-  document.getElementById('cf-status').value   = c.status || 'planned';
-  document.getElementById('cf-notes').value    = c.notes || '';
-  document.getElementById('cf-active').checked = c.active;
-  document.getElementById('cf-msg').style.display = 'none';
-  document.getElementById('form-card').scrollIntoView({behavior:'smooth'});
-}
-
-async function saveCompetition(e) {
-  e.preventDefault();
-  const id = document.getElementById('cf-id').value;
-  const body = {
-    name:          document.getElementById('cf-name').value.trim(),
-    type:          document.getElementById('cf-type').value,
-    starts_on:     document.getElementById('cf-start').value,
-    ends_on:       document.getElementById('cf-end').value,
-    discipline_id: document.getElementById('cf-disc').value,
-    location:      document.getElementById('cf-location').value.trim(),
-    status:        document.getElementById('cf-status').value,
-    notes:         document.getElementById('cf-notes').value.trim(),
-    active:        document.getElementById('cf-active').checked,
-  };
-  try {
-    let savedId = id;
-    if (id) {
-      await api(`/competitions/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    } else {
-      const res = await api('/competitions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-      savedId = res.id;
-    }
-    showMsg('cf-msg', id ? 'Gespeichert.' : 'Angelegt.', 'ok');
-    clearForm();
-    await loadCompetitions();
-    // Detail-Sektion automatisch öffnen – bei Runde/Gruppe sofort zu Teilnehmern
-    if (savedId) openDetail(savedId);
-  } catch(err) { showMsg('cf-msg', 'Fehler: '+err.message, 'err'); }
+  location.href = '/wettkampf-bearbeiten?id=' + id;
 }
 
 function openAuswertung(eventID, type) {
@@ -435,392 +158,12 @@ async function deleteComp(id, name) {
   if (!confirm(`Wettkampf "${name}" wirklich löschen?\nAlle Starter und Teilnehmer werden ebenfalls gelöscht.`)) return;
   try {
     await api(`/competitions/${id}`, {method:'DELETE'});
-    if (activeComp && activeComp.id === id) {
-      activeComp = null;
-      document.getElementById('detail-card').style.display = 'none';
-    }
     await loadCompetitions();
   } catch(err) { alert('Fehler: '+err.message); }
 }
 
-// ── Detail-Ansicht ─────────────────────────────────────────────────────────
-async function openDetail(id) {
-  activeComp = competitions.find(c => c.id === id);
-  if (!activeComp) return;
-  renderCompetitions();
-  renderDetail();
-  document.getElementById('detail-card').scrollIntoView({behavior:'smooth'});
-  await Promise.all([loadParticipants(), loadStarters()]);
-}
-
-function renderDetail() {
-  const c = activeComp;
-  document.getElementById('detail-card').style.display = 'block';
-  document.getElementById('dt-name').textContent = c.name;
-  const date = [c.starts_on?.slice(0,10), c.ends_on?.slice(0,10)].filter(Boolean).join(' – ');
-  const auswertungLink = (c.type === 'runde' || c.type === 'gruppe')
-    ? ` <a href="/auswertung?event_id=${c.id}${c.type==='gruppe'?'&tab=gruppe':''}" style="font-size:.75rem;color:#7ab0e0;text-decoration:none;margin-left:12px" title="Zur Auswertung">⬡ Auswertung</a>`
-    : '';
-  document.getElementById('dt-meta').innerHTML =
-    `<span class="badge badge-${c.type}" style="margin-right:8px">${TYPE_LABEL[c.type]||c.type}</span>`+
-    `<span class="badge badge-${c.status}" style="margin-right:8px">${STATUS_LABEL[c.status]||c.status}</span>`+
-    (date ? `${date}&nbsp;&nbsp;` : '')+
-    (c.discipline_name ? `${esc(c.discipline_name)}&nbsp;&nbsp;` : '')+
-    (c.location ? `📍 ${esc(c.location)}` : '')+
-    auswertungLink;
-
-  // Alle Teilnehmer-Sektionen ausblenden, dann typ-spezifisch einblenden
-  document.getElementById('dt-runde').style.display  = c.type === 'runde'  ? 'block' : 'none';
-  document.getElementById('dt-gruppe').style.display = c.type === 'gruppe' ? 'block' : 'none';
-  document.getElementById('dt-starters').style.display = 'block';
-
-  if (c.type === 'runde') {
-    fillRundeSelects();
-  }
-}
-
-// ── Runde: Heim/Gast-Dropdowns ────────────────────────────────────────────
-function fillRundeSelects() {
-  if (!teams.length) {
-    // Keine Mannschaften in DB – Hinweis zeigen
-    const hint = '<option value="">Keine Mannschaften vorhanden – zuerst unter Stammdaten anlegen</option>';
-    document.getElementById('dt-heim-sel').innerHTML = hint;
-    document.getElementById('dt-gast-sel').innerHTML = hint;
-    return;
-  }
-  const opts = '<option value="">– wählen –</option>' +
-    teams.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
-  document.getElementById('dt-heim-sel').innerHTML = opts;
-  document.getElementById('dt-gast-sel').innerHTML = opts;
-}
-
-let participants = [];
-async function loadParticipants() {
-  if (!activeComp || activeComp.type === 'einzel') { participants = []; return; }
-  participants = await api(`/competitions/${activeComp.id}/participants`) || [];
-  renderParticipants();
-}
-
-function renderParticipants() {
-  if (activeComp.type === 'runde') {
-    renderRundeParticipants();
-  } else if (activeComp.type === 'gruppe') {
-    renderGruppeParticipants();
-  }
-}
-
-function renderRundeParticipants() {
-  const chips = document.getElementById('dt-runde-chips');
-  chips.innerHTML = '';
-
-  // Aktuelle Auswahl in Dropdowns setzen
-  const heim = participants[0] || null;
-  const gast = participants[1] || null;
-  document.getElementById('dt-heim-sel').value = heim?.team_id || '';
-  document.getElementById('dt-gast-sel').value = gast?.team_id || '';
-
-  if (heim || gast) {
-    const makeChip = (p, label) => {
-      const div = document.createElement('div');
-      div.className = 'entity-chip';
-      div.innerHTML = `<span style="font-size:.7rem;color:var(--dim)">${label}</span>
-        <strong>${esc(p.label)}</strong>
-        <span class="remove" onclick="removeParticipant('${p.id}','${esc(p.label)}')" title="Entfernen">×</span>`;
-      chips.appendChild(div);
-    };
-    if (heim) makeChip(heim, 'Heim');
-    if (gast) makeChip(gast, 'Gast');
-  } else {
-    chips.innerHTML = '<div style="color:var(--dim);font-size:.82rem;margin-bottom:8px">Noch keine Mannschaften zugewiesen</div>';
-  }
-
-  // Formular ausblenden wenn beide gesetzt
-  document.getElementById('dt-runde-form').style.display =
-    (heim && gast) ? 'none' : 'grid';
-  document.getElementById('dt-runde').querySelector('.btn-new').style.display =
-    (heim && gast) ? 'none' : '';
-}
-
-async function saveRundeParticipants() {
-  const heimID = document.getElementById('dt-heim-sel').value;
-  const gastID = document.getElementById('dt-gast-sel').value;
-  if (!heimID || !gastID) {
-    showMsg('dt-runde-msg', 'Bitte Heim- und Gast-Mannschaft wählen.', 'err'); return;
-  }
-  if (heimID === gastID) {
-    showMsg('dt-runde-msg', 'Heim- und Gast-Mannschaft müssen verschieden sein.', 'err'); return;
-  }
-  try {
-    // Bestehende Einträge entfernen
-    for (const p of participants) {
-      await api(`/competitions/${activeComp.id}/participants/${p.id}`, {method:'DELETE'});
-    }
-    // Neu setzen
-    await api(`/competitions/${activeComp.id}/participants`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({team_id: heimID, sort_order: 0})
-    });
-    await api(`/competitions/${activeComp.id}/participants`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({team_id: gastID, sort_order: 1})
-    });
-    showMsg('dt-runde-msg', 'Mannschaften gespeichert.', 'ok');
-    await loadParticipants();
-    await loadCompetitions();
-  } catch(err) { showMsg('dt-runde-msg', 'Fehler: '+err.message, 'err'); }
-}
-
-// ── Gruppe: Freitext-Suche ─────────────────────────────────────────────────
-function renderGruppeParticipants() {
-  const wrap = document.getElementById('dt-gruppe-chips');
-  wrap.innerHTML = '';
-  for (const p of participants) {
-    const typeLabel = ENTITY_LABEL[p.entity_type] || p.entity_type;
-    const chip = document.createElement('div');
-    chip.className = 'entity-chip';
-    chip.innerHTML = `
-      <span style="font-size:.7rem;color:var(--dim)">${typeLabel}</span>
-      <strong>${esc(p.label)}</strong>
-      <span class="remove" onclick="removeParticipant('${p.id}','${esc(p.label)}')" title="Entfernen">×</span>`;
-    wrap.appendChild(chip);
-  }
-  if (!participants.length) {
-    wrap.innerHTML = '<div style="color:var(--dim);font-size:.82rem">Noch keine Teilnehmer</div>';
-  }
-}
-
-let partTimer = null;
-function searchParticipant() {
-  clearTimeout(partTimer);
-  partTimer = setTimeout(() => {
-    const q    = document.getElementById('dt-gruppe-search').value.trim();
-    const type = document.getElementById('dt-gruppe-entity').value || 'team';
-    const res  = document.getElementById('dt-gruppe-results');
-    if (q.length < 1) { res.style.display = 'none'; return; }
-
-    let list = [];
-    if (type === 'team') list = teams.filter(x => x.name.toLowerCase().includes(q.toLowerCase()));
-    if (type === 'club') list = clubs.filter(x => x.name.toLowerCase().includes(q.toLowerCase()));
-    if (type === 'gau')  list = gaue.filter( x => x.name.toLowerCase().includes(q.toLowerCase()));
-
-    if (!list.length) {
-      res.innerHTML = '<div class="search-result-item" style="color:var(--dim)">Keine Treffer</div>';
-      res.style.display = 'block'; return;
-    }
-    res.style.display = 'block';
-    res.innerHTML = list.slice(0,8).map(x => `
-      <div class="search-result-item" onclick="addParticipant('${type}','${x.id}','${esc(x.name)}')">
-        <span>${esc(x.name)}</span>
-        <span style="color:var(--dim);font-size:.75rem">${ENTITY_LABEL[type]}</span>
-      </div>`).join('');
-  }, 200);
-}
-
-async function addParticipant(type, entityID, name) {
-  document.getElementById('dt-gruppe-results').style.display = 'none';
-  document.getElementById('dt-gruppe-search').value = '';
-  const body = { sort_order: participants.length };
-  if (type === 'team') body.team_id = entityID;
-  if (type === 'club') body.club_id = entityID;
-  if (type === 'gau')  body.gau_id  = entityID;
-  try {
-    await api(`/competitions/${activeComp.id}/participants`, {
-      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
-    });
-    await loadParticipants();
-    await loadCompetitions();
-  } catch(err) { showMsg('dt-gruppe-msg', 'Fehler: '+err.message, 'err'); }
-}
-
-async function removeParticipant(pid, name) {
-  if (!confirm(`"${name}" als Teilnehmer entfernen?`)) return;
-  const msgId = activeComp.type === 'runde' ? 'dt-runde-msg' : 'dt-gruppe-msg';
-  try {
-    await api(`/competitions/${activeComp.id}/participants/${pid}`, {method:'DELETE'});
-    await loadParticipants();
-    await loadCompetitions();
-  } catch(err) { showMsg(msgId, 'Fehler: '+err.message, 'err'); }
-}
-
-// ── Starter ────────────────────────────────────────────────────────────────
-// S + E werden gewertet; AK nicht
-const ROLE_LABELS = { S:'Stammschütze', E:'Ersatzschütze (gewertet)', AK:'Außer Konkurrenz' };
-const ROLE_COUNTED = { S: true, E: true, AK: false };
-
-let starters = [];
-async function loadStarters() {
-  if (!activeComp) { starters = []; return; }
-  starters = await api(`/competitions/${activeComp.id}/starters`) || [];
-  renderStarters();
-}
-
-function renderStarters() {
-  const content = document.getElementById('dt-starters-content');
-  const simpleRow = document.getElementById('dt-starter-simple');
-
-  if (activeComp.type === 'runde' && participants.length > 0) {
-    // Heim/Gast gruppiert
-    simpleRow.style.display = 'none';
-    content.innerHTML = '';
-    for (const p of participants) {
-      const label = p.sort_order === 0 ? 'Heim' : 'Gast';
-      const teamStarters = starters.filter(s => s.team_id === p.team_id);
-      const sec = document.createElement('div');
-      sec.className = 'team-section';
-      sec.innerHTML = `
-        <div class="team-section-hdr">
-          <span>${label}: ${esc(p.label)}</span>
-          <div style="display:flex;align-items:center;gap:12px">
-            <small>${teamStarters.filter(s=>s.role==='S').length} Stamm ·
-                   ${teamStarters.filter(s=>s.role==='E').length} Ersatz ·
-                   ${teamStarters.filter(s=>s.role==='AK').length} AK</small>
-            <button class="btn-import" onclick="importTeam('${p.team_id}','${esc(p.label)}')">
-              ⬇ Mannschaft übernehmen
-            </button>
-          </div>
-        </div>
-        <div class="add-search" style="margin-bottom:8px">
-          <input type="search" id="search-team-${p.team_id}" placeholder="Schütze hinzufügen…"
-                 oninput="searchStarter('${p.team_id}')" style="flex:1">
-        </div>
-        <div id="results-team-${p.team_id}" class="search-results" style="display:none"></div>
-        ${starterTable(teamStarters)}`;
-      content.appendChild(sec);
-    }
-  } else {
-    // Flache Liste für Einzel / Gruppe
-    simpleRow.style.display = 'flex';
-    content.innerHTML = starterTable(starters);
-  }
-}
-
-function starterTable(list) {
-  if (!list.length) return `<p style="color:var(--dim);font-size:.82rem;padding:4px 0">Noch keine Starter eingetragen.</p>`;
-  const rows = list.map(st => {
-    const isAK  = st.role === 'AK';
-    const nameStyle = isAK ? 'color:var(--dim)' : '';
-    const badge = st.role === 'E'
-      ? ' <span style="font-size:.68rem;background:#2e2510;border:1px solid #e8a030;color:#e8a030;border-radius:3px;padding:1px 5px">E</span>'
-      : st.role === 'AK'
-      ? ' <span style="font-size:.68rem;background:#1e1e1e;border:1px solid #555;color:#666;border-radius:3px;padding:1px 5px">AK</span>'
-      : '';
-    return `<tr>
-      <td style="color:var(--dim);font-size:.78rem;text-align:center">${st.start_no||'–'}</td>
-      <td style="${nameStyle}"><strong>${esc(st.last_name)}</strong>, ${esc(st.first_name)}${badge}</td>
-      <td style="font-size:.78rem;${isAK?'color:var(--dim)':''}">${esc(st.club_name)}</td>
-      <td style="white-space:nowrap">
-        <button class="role-btn ${st.role==='S'?'active-S':''}" onclick="setRole('${st.id}','S')" title="Stammschütze – gewertet">S</button>
-        <button class="role-btn ${st.role==='E'?'active-E':''}" onclick="setRole('${st.id}','E')" title="Ersatzschütze – auch gewertet, in Tabelle markiert">E</button>
-        <button class="role-btn ${st.role==='AK'?'active-AK':''}" onclick="setRole('${st.id}','AK')" title="Außer Konkurrenz – nicht gewertet">AK</button>
-      </td>
-      <td class="row-actions">
-        <button class="btn-del" onclick="removeStarter('${st.id}','${esc(st.last_name+', '+st.first_name)}')">–</button>
-      </td>
-    </tr>`;
-  }).join('');
-  return `<table>
-    <thead><tr><th>Nr.</th><th>Name</th><th>Verein</th><th>Rolle</th><th></th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
-async function setRole(starterID, role) {
-  try {
-    await api(`/competitions/${activeComp.id}/starters/${starterID}/role`, {
-      method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({role}),
-    });
-    // Lokal aktualisieren ohne Reload
-    const st = starters.find(s => s.id === starterID);
-    if (st) { st.role = role; renderStarters(); }
-  } catch(err) { showMsg('dt-starter-msg', 'Fehler: '+err.message, 'err'); }
-}
-
-let starterTimer = null;
-function searchStarter(teamID) {
-  clearTimeout(starterTimer);
-  const inputID = teamID ? `search-team-${teamID}` : 'dt-starter-search';
-  const resID   = teamID ? `results-team-${teamID}` : 'dt-starter-results';
-  starterTimer = setTimeout(async () => {
-    const q   = document.getElementById(inputID)?.value.trim() || '';
-    const res = document.getElementById(resID);
-    if (!res) return;
-    if (q.length < 2) { res.style.display = 'none'; return; }
-
-    const data = await api(`/shooters/list?q=${encodeURIComponent(q)}&page=1&page_size=20`);
-    const list = data.shooters || [];
-    if (!list.length) {
-      res.innerHTML = '<div class="search-result-item" style="color:var(--dim)">Keine Treffer</div>';
-      res.style.display = 'block'; return;
-    }
-    res.style.display = 'block';
-    res.innerHTML = list.map(s => {
-      const already = starters.some(st => st.shooter_id === s.id);
-      return `<div class="search-result-item"
-        onclick="${already ? '' : `addStarter('${s.id}','${teamID||''}');event.stopPropagation()`}"
-        style="${already ? 'opacity:.4;cursor:default' : ''}">
-        <span><strong>${esc(s.last_name)}</strong>, ${esc(s.first_name)}
-          ${already ? ' <em style="color:var(--dim)">(bereits eingetragen)</em>' : ''}</span>
-        <span style="color:var(--dim);font-size:.75rem">${esc(s.club_name)}${s.pass_no?' · '+s.pass_no:''}</span>
-      </div>`;
-    }).join('');
-  }, 250);
-}
-
-async function addStarter(shooterID, teamID) {
-  // Sucheingaben leeren
-  document.getElementById('dt-starter-results').style.display = 'none';
-  if (document.getElementById('dt-starter-search'))
-    document.getElementById('dt-starter-search').value = '';
-  if (teamID && document.getElementById(`results-team-${teamID}`))
-    document.getElementById(`results-team-${teamID}`).style.display = 'none';
-  if (teamID && document.getElementById(`search-team-${teamID}`))
-    document.getElementById(`search-team-${teamID}`).value = '';
-
-  try {
-    await api(`/competitions/${activeComp.id}/starters`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        shooter_id:    shooterID,
-        discipline_id: activeComp.discipline_id || '',
-        team_id:       teamID || '',
-        role:          'S',
-      }),
-    });
-    await loadStarters();
-    await loadCompetitions();
-  } catch(err) { showMsg('dt-starter-msg', 'Fehler: '+err.message, 'err'); }
-}
-
-async function removeStarter(sid, name) {
-  if (!confirm(`"${name}" aus den Startern entfernen?`)) return;
-  try {
-    await api(`/competitions/${activeComp.id}/starters/${sid}`, {method:'DELETE'});
-    await loadStarters();
-    await loadCompetitions();
-  } catch(err) { showMsg('dt-starter-msg', 'Fehler: '+err.message, 'err'); }
-}
-
-async function importTeam(teamID, teamName) {
-  try {
-    const res = await api(`/competitions/${activeComp.id}/starters/import-team`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({team_id: teamID}),
-    });
-    const n = res.added || 0;
-    showMsg('dt-starter-msg',
-      n > 0 ? `${n} Schütze${n===1?'':'n'} aus „${teamName}" übernommen`
-            : `Alle Schützen aus „${teamName}" sind bereits eingetragen`,
-      'ok');
-    await loadStarters();
-    await loadCompetitions();
-  } catch(err) { showMsg('dt-starter-msg', 'Fehler: '+err.message, 'err'); }
-}
-
 // ── Init ───────────────────────────────────────────────────────────────────
-(async () => {
-  await Promise.all([loadMeta(), loadCompetitions()]);
-})();
+loadCompetitions();
 </script>
 <script src="/role.js"></script>
 </body>

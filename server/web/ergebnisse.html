@@ -252,7 +252,7 @@ function renderTable(rows) {
       <td class="num">${r.shot_count || '–'}</td>
       <td class="num">${score}</td>
       <td>${badge}</td>
-      <td><a class="btn-sec" href="${scorecardURL(r)}" target="_blank" rel="noopener"
+      <td><a class="btn-sec" href="${scorecardURL(r)}"
              onclick="event.stopPropagation()"
              style="text-decoration:none;display:inline-block;white-space:nowrap">🎯 Grafische Ansicht</a></td>`;
 
@@ -380,7 +380,7 @@ function renderDetail(r, rawShots) {
   const shots = rawShots.filter(s => DISPLAY_STATUSES.indexOf(s.status) !== -1);
 
   const viewBtn = `<div style="margin-bottom:12px">
-    <a class="btn-sec" href="${scorecardURL(r)}" target="_blank" rel="noopener"
+    <a class="btn-sec" href="${scorecardURL(r)}"
        style="text-decoration:none;display:inline-block">🎯 Grafische Ansicht</a>
   </div>`;
 

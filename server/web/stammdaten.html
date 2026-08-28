@@ -106,6 +106,7 @@ form input:focus, form select:focus { outline: none; border-color: #e94560; }
   <button class="tab-btn"        onclick="switchTab('vereine', this)">Vereine</button>
   <button class="tab-btn"        onclick="switchTab('mitglieder', this)">Mitglieder</button>
   <button class="tab-btn"        onclick="switchTab('mannschaften', this)">Mannschaften</button>
+  <button class="tab-btn"        onclick="switchTab('sportklassen', this)">Sportklassen</button>
 </div>
 
 <!-- ====== TAB GAUE ====== -->
@@ -219,6 +220,9 @@ form input:focus, form select:focus { outline: none; border-color: #e94560; }
           <option value="">Alle Vereine</option>
         </select>
         <button class="btn-new" onclick="newShooter()">+ Neu</button>
+      </div>
+      <div style="margin-bottom:12px">
+        <button class="btn-edit" style="padding:6px 12px" onclick="recalcSportsClasses()">Sportklasse neu berechnen</button>
       </div>
       <table>
         <thead><tr><th>Name</th><th>Geb.</th><th>Verein</th><th>Passnr.</th><th></th></tr></thead>
@@ -387,6 +391,86 @@ form input:focus, form select:focus { outline: none; border-color: #e94560; }
       <tbody id="tm-tbody"></tbody>
     </table>
     <div id="tm-msg" style="display:none;margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- ====== TAB SPORTKLASSEN ====== -->
+<div id="tab-sportklassen" class="tab-content">
+  <div class="split">
+    <!-- Liste -->
+    <div class="card">
+      <h2>Alle Sportklassen</h2>
+      <div class="search-row">
+        <input type="search" id="sk-search" placeholder="Suchen…" oninput="filterShooterClasses()">
+        <button class="btn-new" onclick="newShooterClass()">+ Neue Sportklasse</button>
+      </div>
+      <table>
+        <thead><tr><th>Nr.</th><th>Name</th><th>Kurz</th><th>Alter</th><th>Schießart</th><th>Geschlecht</th><th></th></tr></thead>
+        <tbody id="sk-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Formular -->
+    <div class="card form-card">
+      <h2>Sportklasse <span id="skf-title">anlegen</span></h2>
+      <form id="sk-form" onsubmit="saveShooterClass(event)">
+        <input type="hidden" id="skf-id">
+        <label for="skf-code">Klassennummer *</label>
+        <input type="text" id="skf-code" placeholder="z.B. 13" required>
+        <label for="skf-name">Name *</label>
+        <input type="text" id="skf-name" placeholder="z.B. Herren I" required>
+        <label for="skf-short">Kurzbezeichnung</label>
+        <input type="text" id="skf-short" placeholder="z.B. HI">
+        <div class="form-row2">
+          <div><label for="skf-agefrom">Alter von</label><input type="number" id="skf-agefrom" min="0" max="120"></div>
+          <div><label for="skf-ageto">Alter bis</label><input type="number" id="skf-ageto" min="0" max="120"></div>
+        </div>
+        <label for="skf-type">Schießart</label>
+        <select id="skf-type">
+          <option value="">– keine –</option>
+          <option value="0">Kugel</option>
+          <option value="1">Bogen</option>
+          <option value="2">Kugel Auflage</option>
+        </select>
+        <label for="skf-sex">Geschlecht</label>
+        <select id="skf-sex">
+          <option value="">– offen –</option>
+          <option value="1">männlich</option>
+          <option value="0">weiblich</option>
+        </select>
+        <div class="form-actions">
+          <button type="submit" class="btn-save">Speichern</button>
+          <button type="button" class="btn-cancel" onclick="clearShooterClassForm()">Abbrechen</button>
+        </div>
+        <div id="skf-msg" style="display:none"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Import -->
+  <div class="card import-card">
+    <h2 onclick="toggleClassImport()">
+      CSV-Import Sportklassen
+      <span class="toggle" id="skimport-toggle">▼ öffnen</span>
+    </h2>
+    <div class="import-body" id="skimport-body">
+      <p style="font-size:.83rem;color:#a0a0c0;margin-bottom:10px">
+        Importiert aus dem Sportklassen-Export des Verwaltungstools (ISO-8859-1,
+        Semikolon-getrennt). Erwartete Spalten: KLASSENNR, KLASSE, KlasseKURZ,
+        ALTERVON, ALTERBIS, TYP (0=Kugel/1=Bogen/2=Kugel Auflage), KLASSENTYP
+        (Geschlecht: 1=männlich/0=weiblich). Vorhandene Klassen werden anhand
+        der Klassennummer aktualisiert.
+      </p>
+      <div class="file-row">
+        <input type="file" id="skimport-file" accept=".csv" onchange="parseShooterClassCSV()">
+      </div>
+      <div id="skimport-preview" class="preview-table"></div>
+      <div id="skimport-info" style="font-size:.83rem;color:#a0a0c0;margin-top:6px"></div>
+      <button class="btn-import" id="btn-skimport" onclick="runShooterClassImport()" disabled>
+        Importieren
+      </button>
+      <div id="skimport-msg" style="display:none"></div>
+    </div>
   </div>
 </div>
 
@@ -757,6 +841,37 @@ function renderPager(page, pageSize) {
 }
 
 function gotoPage(p) { shPage = p; loadShooters(); }
+
+// ──── Sportklasse neu berechnen ─────────────────────────────────────────────
+// Ordnet allen Mitgliedern mit bekanntem Geschlecht und Geburtsdatum anhand
+// des im gewaehlten Sportjahr erreichten Alters (Monat/Tag unerheblich) die
+// passende Sportklasse zu. Mitglieder ohne Geschlecht/Geburtsdatum werden
+// uebersprungen (Sportklasse bleibt unveraendert).
+async function recalcSportsClasses() {
+  const currentYear = new Date().getFullYear();
+  const input = prompt('Für welches Sportjahr soll die Sportklasse neu berechnet werden?', currentYear);
+  if (input === null) return;
+  const year = parseInt(input.trim());
+  if (isNaN(year) || year < 1900 || year > 2200) {
+    alert('Ungültiges Sportjahr.');
+    return;
+  }
+  try {
+    const res = await api('/shooters/recalculate-classes', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({year}),
+    });
+    const skippedTotal = (res.skipped_no_data || 0) + (res.skipped_no_match || 0);
+    let msg = `Sportklasse neu berechnet für Sportjahr ${year}:\n` +
+      `${res.updated} Schütze${res.updated===1?'':'n'} aktualisiert.\n` +
+      `${skippedTotal} übersprungen`;
+    if (skippedTotal > 0) {
+      msg += ` (${res.skipped_no_data} ohne Geschlecht/Geburtsdatum, ${res.skipped_no_match} ohne passende Sportklasse)`;
+    }
+    alert(msg + '.');
+    await loadShooters();
+  } catch(err) { alert('Fehler: ' + err.message); }
+}
 
 function newShooter() { clearShooterForm(); }
 function clearShooterForm() {
@@ -1156,6 +1271,203 @@ async function removeMember(shooterID, name) {
   } catch(err) { showMsg('tm-msg', 'Fehler: '+err.message, 'err'); }
 }
 
+// ──── Sportklassen ──────────────────────────────────────────────────────────
+const SK_TYPE_LABEL = {0:'Kugel', 1:'Bogen', 2:'Kugel Auflage'};
+const SK_SEX_LABEL  = {0:'weiblich', 1:'männlich'};
+
+let shooterClasses = [];
+let importClassRows = [];
+
+async function loadShooterClasses() {
+  shooterClasses = await api('/shooter-classes') || [];
+  renderShooterClasses(shooterClasses);
+}
+
+function renderShooterClasses(list) {
+  const tbody = document.getElementById('sk-tbody');
+  tbody.innerHTML = '';
+  for (const c of list) {
+    const age = (c.min_age != null || c.max_age != null)
+      ? `${c.min_age ?? ''}–${c.max_age ?? ''}` : '–';
+    const typ = c.type != null ? (SK_TYPE_LABEL[c.type] || c.type) : '–';
+    const sex = c.sex != null ? (SK_SEX_LABEL[c.sex] || c.sex) : 'offen';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${esc(c.code)}</strong></td>
+      <td>${esc(c.name)}</td>
+      <td style="color:#a0a0c0">${esc(c.short_name)}</td>
+      <td style="font-size:.82rem">${age}</td>
+      <td style="font-size:.82rem">${esc(typ)}</td>
+      <td style="font-size:.82rem">${esc(sex)}</td>
+      <td class="row-actions">
+        <button class="btn-edit" onclick="editShooterClass('${c.id}')">Bearbeiten</button>
+        <button class="btn-del"  onclick="deleteShooterClass('${c.id}','${esc(c.name)}')">Löschen</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function filterShooterClasses() {
+  const q = document.getElementById('sk-search').value.toLowerCase();
+  renderShooterClasses(q ? shooterClasses.filter(c =>
+    c.name.toLowerCase().includes(q) ||
+    c.code.toLowerCase().includes(q) ||
+    (c.short_name || '').toLowerCase().includes(q)) : shooterClasses);
+}
+
+// ──── Sportklasse CRUD ──────────────────────────────────────────────────────
+function newShooterClass() {
+  clearShooterClassForm();
+  document.getElementById('skf-title').textContent = 'anlegen';
+}
+function clearShooterClassForm() {
+  document.getElementById('skf-id').value = '';
+  document.getElementById('sk-form').reset();
+  document.getElementById('skf-title').textContent = 'anlegen';
+  hideMsg('skf-msg');
+}
+function editShooterClass(id) {
+  const c = shooterClasses.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('skf-title').textContent = 'bearbeiten';
+  document.getElementById('skf-id').value = c.id;
+  document.getElementById('skf-code').value = c.code;
+  document.getElementById('skf-name').value = c.name;
+  document.getElementById('skf-short').value = c.short_name || '';
+  document.getElementById('skf-agefrom').value = c.min_age ?? '';
+  document.getElementById('skf-ageto').value = c.max_age ?? '';
+  document.getElementById('skf-type').value = c.type ?? '';
+  document.getElementById('skf-sex').value = c.sex ?? '';
+  hideMsg('skf-msg');
+  switchTab('sportklassen', document.querySelectorAll('.tab-btn')[4]);
+}
+async function saveShooterClass(e) {
+  e.preventDefault();
+  const id = document.getElementById('skf-id').value;
+  const ageFrom = document.getElementById('skf-agefrom').value;
+  const ageTo   = document.getElementById('skf-ageto').value;
+  const type    = document.getElementById('skf-type').value;
+  const sex     = document.getElementById('skf-sex').value;
+  const body = {
+    code:       document.getElementById('skf-code').value.trim(),
+    name:       document.getElementById('skf-name').value.trim(),
+    short_name: document.getElementById('skf-short').value.trim(),
+    min_age:    ageFrom !== '' ? parseInt(ageFrom) : null,
+    max_age:    ageTo   !== '' ? parseInt(ageTo)   : null,
+    type:       type !== '' ? parseInt(type) : null,
+    sex:        sex  !== '' ? parseInt(sex)  : null,
+  };
+  try {
+    if (id) await api(`/shooter-classes/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    else     await api('/shooter-classes',       {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    showMsg('skf-msg', id ? 'Gespeichert.' : 'Sportklasse angelegt.', 'ok');
+    clearShooterClassForm();
+    await loadShooterClasses();
+  } catch(err) { showMsg('skf-msg', 'Fehler: ' + err.message, 'err'); }
+}
+async function deleteShooterClass(id, name) {
+  if (!confirm(`Sportklasse "${name}" wirklich löschen?`)) return;
+  try {
+    await api(`/shooter-classes/${id}`, {method:'DELETE'});
+    await loadShooterClasses();
+  } catch(err) { alert('Fehler: ' + err.message); }
+}
+
+// ──── Sportklassen CSV-Import ───────────────────────────────────────────────
+function toggleClassImport() {
+  const body = document.getElementById('skimport-body');
+  const tog  = document.getElementById('skimport-toggle');
+  const open = body.classList.toggle('open');
+  tog.textContent = open ? '▲ schließen' : '▼ öffnen';
+}
+
+function parseShooterClassCSV() {
+  const file = document.getElementById('skimport-file').files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = new TextDecoder('iso-8859-1').decode(e.target.result);
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) {
+      document.getElementById('skimport-info').textContent = 'Datei leer oder ungültig.';
+      return;
+    }
+    // Spaltennamen case-insensitiv abgleichen - der Export aus dem
+    // Verwaltungstool ist bei Groß-/Kleinschreibung nicht immer konsistent.
+    const headers = lines[0].split(';').map(h => h.trim().toLowerCase());
+    const idx = h => headers.indexOf(h.toLowerCase());
+    const iNR   = idx('KLASSENNR');
+    const iKL   = idx('KLASSE');
+    const iKURZ = idx('KlasseKURZ');
+    const iVON  = idx('ALTERVON');
+    const iBIS  = idx('ALTERBIS');
+    const iTYP  = idx('TYP');
+    const iGES  = idx('KLASSENTYP');
+    if (iNR < 0 || iKL < 0) {
+      document.getElementById('skimport-info').textContent =
+        'Spalten KLASSENNR und KLASSE nicht gefunden.';
+      return;
+    }
+
+    const toInt = v => { const n = parseInt(v); return isNaN(n) ? null : n; };
+
+    importClassRows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(';');
+      const code = cols[iNR]?.trim();
+      const name = cols[iKL]?.trim();
+      if (!code || !name) continue;
+      importClassRows.push({
+        code, name,
+        short_name: iKURZ >= 0 ? (cols[iKURZ]?.trim() || '') : '',
+        min_age:    iVON  >= 0 ? toInt(cols[iVON]?.trim())  : null,
+        max_age:    iBIS  >= 0 ? toInt(cols[iBIS]?.trim())  : null,
+        type:       iTYP  >= 0 ? toInt(cols[iTYP]?.trim())  : null,
+        sex:        iGES  >= 0 ? toInt(cols[iGES]?.trim())  : null,
+      });
+    }
+
+    const preview = document.getElementById('skimport-preview');
+    const shown = importClassRows.slice(0, 8);
+    preview.innerHTML = `<table>
+      <thead><tr><th>Nr.</th><th>Name</th><th>Kurz</th><th>Alter</th><th>Schießart</th><th>Geschlecht</th></tr></thead>
+      <tbody>${shown.map(r => `<tr>
+        <td>${esc(r.code)}</td>
+        <td>${esc(r.name)}</td>
+        <td>${esc(r.short_name)}</td>
+        <td>${r.min_age ?? ''}–${r.max_age ?? ''}</td>
+        <td>${r.type != null ? esc(SK_TYPE_LABEL[r.type] || r.type) : '–'}</td>
+        <td>${r.sex != null ? esc(SK_SEX_LABEL[r.sex] || r.sex) : 'offen'}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+
+    document.getElementById('skimport-info').textContent =
+      `${importClassRows.length} Sportklassen erkannt${importClassRows.length > 8 ? ` (${importClassRows.length - 8} weitere nicht angezeigt)` : ''}.`;
+    document.getElementById('btn-skimport').disabled = importClassRows.length === 0;
+    hideMsg('skimport-msg');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function runShooterClassImport() {
+  if (!importClassRows.length) return;
+  document.getElementById('btn-skimport').disabled = true;
+  try {
+    const result = await api('/shooter-classes/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({classes: importClassRows}),
+    });
+    showMsg('skimport-msg',
+      `Import abgeschlossen: ${result.created} neu, ${result.updated} aktualisiert.`, 'ok');
+    await loadShooterClasses();
+  } catch(err) {
+    showMsg('skimport-msg', 'Fehler: ' + err.message, 'err');
+  } finally {
+    document.getElementById('btn-skimport').disabled = false;
+  }
+}
+
 // ──── Init ────────────────────────────────────────────────────────────────
 (async () => {
   await loadGaue();
@@ -1164,6 +1476,7 @@ async function removeMember(shooterID, name) {
   fillTeamSelects();
   await loadShooters();
   await loadTeams();
+  await loadShooterClasses();
 })();
 </script>
 <script src="/role.js"></script>
