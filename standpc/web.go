@@ -21,12 +21,15 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,25 +43,32 @@ type sseMsg struct {
 }
 
 type WebServer struct {
-	cfg         *Config
-	sessions    *SessionManager          // gesetzt nach Konstruktion
-	disciplines []DisciplineDef          // unveraenderlich nach Start
-	targets     map[string]TargetGeometry // unveraenderlich nach Start
-	announceURL string                   // eigene HTTP-URL fuer Server-Discovery
+	cfg           *Config
+	sessions      *SessionManager           // gesetzt nach Konstruktion
+	disciplines   []DisciplineDef           // unveraenderlich nach Start
+	targets       map[string]TargetGeometry // unveraenderlich nach Start
+	announceURL   string                    // eigene HTTP-URL fuer Server-Discovery
+	devShotCh     chan<- RawShot            // gesetzt in main(), fuer POST /dev/shot (Entwicklermodus)
+	devSeq        int32                     // fortlaufende Seq-Nummer fuer Klick-Schuesse (atomic)
+	fontSizesFile string                    // Zieldatei fuer Persistenz eines Pushs (offline-robust)
 
 	mu             sync.Mutex
 	clients        map[chan sseMsg]struct{}
 	history        []*Shot // Sitzungsverlauf fuer neu verbundene Clients
 	historyGen     int     // wird bei ResetHistory inkrementiert
 	decimalScoring bool    // gecacht aus letztem BroadcastStatus; unter mu
+	fontSizes      FontSizes
 }
 
-func NewWebServer(cfg *Config, disciplines []DisciplineDef, targets map[string]TargetGeometry) *WebServer {
+func NewWebServer(cfg *Config, disciplines []DisciplineDef, targets map[string]TargetGeometry,
+	fontSizes FontSizes, fontSizesFile string) *WebServer {
 	ws := &WebServer{
-		cfg:         cfg,
-		disciplines: disciplines,
-		targets:     targets,
-		clients:     make(map[chan sseMsg]struct{}),
+		cfg:           cfg,
+		disciplines:   disciplines,
+		targets:       targets,
+		clients:       make(map[chan sseMsg]struct{}),
+		fontSizes:     fontSizes,
+		fontSizesFile: fontSizesFile,
 	}
 	ws.announceURL = resolveAnnounceURL(cfg)
 	if ws.announceURL != "" {
@@ -108,13 +118,21 @@ func (ws *WebServer) Run(ctx context.Context) {
 	mux.HandleFunc("GET /shots", ws.handleShots)
 	mux.HandleFunc("GET /status", ws.handleStatus)
 	mux.HandleFunc("POST /mode", ws.handleSetMode)
+	mux.HandleFunc("POST /dev/shot", ws.handleDevShot)
 	mux.HandleFunc("GET /disciplines", ws.handleDisciplines)
 	mux.HandleFunc("POST /discipline", ws.handleSetDiscipline)
 	mux.HandleFunc("GET /targets", ws.handleTargets)
 	mux.HandleFunc("GET /display", ws.handleDisplay)
+	mux.HandleFunc("GET /preisschiessen", ws.handlePreisschiessen)
+	mux.HandleFunc("POST /preisschiessen/scheibe", ws.handleChoosePreisschiessenScheibe)
+	mux.HandleFunc("POST /preisschiessen/buchen", ws.handleBuchenPreisschiessen)
+	mux.HandleFunc("POST /preisschiessen/freigeben", ws.handleFreeLanePreisschiessen)
+	mux.HandleFunc("POST /preisschiessen/scheibe-abschliessen", ws.handleScheibeAbschliessenPreisschiessen)
 	mux.HandleFunc("GET /api/local-sessions", ws.handleLocalSessions)
 	mux.HandleFunc("GET /api/local-sessions/{id}/shots", ws.handleLocalSessionShots)
 	mux.HandleFunc("PUT /api/disciplines/config", ws.handlePutDisciplinesConfig)
+	mux.HandleFunc("GET /font-sizes", ws.handleFontSizes)
+	mux.HandleFunc("PUT /api/font-sizes", ws.handlePutFontSizes)
 
 	srv := &http.Server{Addr: ws.cfg.HTTPListen, Handler: mux}
 	go func() {
@@ -199,6 +217,18 @@ func (ws *WebServer) BroadcastStatus(si StatusInfo) {
 	}
 	ws.broadcast("status", data)
 	ws.pushLiveState(si.Mode)
+}
+
+// BroadcastPreisschiessen sendet den Preisschiessen-Zustand des Stands
+// (welcher Teilnehmer wartet/schiesst, was er waehlen/buchen kann) an alle
+// verbundenen Browser. info==nil bedeutet: kein Preisschiessen an diesem
+// Stand - wird als SSE-Event mit JSON "null" gesendet.
+func (ws *WebServer) BroadcastPreisschiessen(info *PSLaneInfoLocal) {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return
+	}
+	ws.broadcast("preisschiessen", data)
 }
 
 // pushLiveState schickt den aktuellen Zustand an den zentralen Server.
@@ -314,6 +344,42 @@ func (ws *WebServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(ws.sessions.Status())
 }
 
+// handleDevShot loest einen synthetischen Schuss an einer per Mausklick
+// gewaehlten Scheibenposition aus - nur wenn der globale Entwicklermodus
+// aktiv ist (server-seitig durchgesetzt, unabhaengig vom Browser-Zustand).
+// Der Schuss laeuft ab hier durch exakt dieselbe Pipeline wie ein echter
+// Hardware-Schuss (Scoring, Probe/Wertung-Zaehlung, DB, Broadcast) - siehe
+// die Verarbeitungsschleife in main().
+func (ws *WebServer) handleDevShot(w http.ResponseWriter, r *http.Request) {
+	if ws.sessions == nil || !ws.sessions.DevMode() {
+		http.Error(w, "Entwicklermodus nicht aktiv", http.StatusForbidden)
+		return
+	}
+	if ws.devShotCh == nil {
+		http.Error(w, "nicht verfuegbar", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		XMM float64 `json:"x_mm"`
+		YMM float64 `json:"y_mm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "ungueltige Anfrage", http.StatusBadRequest)
+		return
+	}
+	seq := int(atomic.AddInt32(&ws.devSeq, 1))
+	ws.devShotCh <- RawShot{
+		Type:     "shot",
+		Seq:      seq,
+		XUm:      int64(math.Round(body.XMM * 1000)),
+		YUm:      int64(math.Round(body.YMM * 1000)),
+		PosValid: 1,
+		Hits:     4,
+		Clean:    1,
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func (ws *WebServer) handleSetMode(w http.ResponseWriter, r *http.Request) {
 	if ws.sessions == nil {
 		http.Error(w, "nicht bereit", http.StatusServiceUnavailable)
@@ -330,9 +396,8 @@ func (ws *WebServer) handleSetMode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "mode muss 'probe' oder 'wertung' sein", http.StatusBadRequest)
 		return
 	}
-	if !ws.sessions.SetMode(body.Mode) {
-		http.Error(w, "Zurueckschalten nicht moeglich: Wertungsschuesse bereits abgegeben",
-			http.StatusConflict)
+	if ok, reason := ws.sessions.SetMode(body.Mode); !ok {
+		http.Error(w, "Umschalten nicht moeglich: "+reason, http.StatusConflict)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -402,6 +467,76 @@ func (ws *WebServer) handleSetDiscipline(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(ws.sessions.Status())
 }
 
+func (ws *WebServer) handlePreisschiessen(w http.ResponseWriter, r *http.Request) {
+	if ws.sessions == nil {
+		http.Error(w, "nicht bereit", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ws.sessions.PSInfo())
+}
+
+// forwardPreisschiessen reicht eine Preisschiessen-Aktion des Schuetzen
+// (Scheibe waehlen / buchen) unveraendert an den zentralen Server weiter -
+// dort liegen alle Daten (Guthaben, Kaeufe, Sessions), der Stand-PC ist nur
+// die Anzeige/Eingabe davor. Bei Erfolg wird sofort nachgepollt, damit die
+// Anzeige nicht auf den naechsten 3s-Tick warten muss.
+func (ws *WebServer) forwardPreisschiessen(w http.ResponseWriter, r *http.Request, subpath string) {
+	if ws.cfg.ServerURL == "" {
+		http.Error(w, "kein server_url konfiguriert", http.StatusServiceUnavailable)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "ungueltige Anfrage", http.StatusBadRequest)
+		return
+	}
+	url := fmt.Sprintf("%s/api/lanes/%d/preisschiessen/%s", ws.cfg.ServerURL, ws.cfg.LaneNo, subpath)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Server nicht erreichbar: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	// PollNow() MUSS abgeschlossen sein, BEVOR die Antwort an den Browser geht:
+	// sonst kann (z.B. bei "Scheibe waehlen") ein Schuss eintreffen, waehrend
+	// dieser Stand-PC-Prozess lokal noch die alte Session/Scheibe/Anzeige kennt
+	// (der Browser hat "Erfolg" gesehen und das Menue geschlossen, glaubt also
+	// schon an die neue Scheibe) - PreisschiessenAwaitingChoice() schuetzt zwar
+	// die DB davor, aber Anzeige (Scheibenname/-farbe/-geometrie) waere in
+	// diesem Fenster trotzdem noch veraltet.
+	if resp.StatusCode == http.StatusOK && ws.sessions != nil {
+		ws.sessions.PollNow()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody)
+}
+
+func (ws *WebServer) handleChoosePreisschiessenScheibe(w http.ResponseWriter, r *http.Request) {
+	ws.forwardPreisschiessen(w, r, "scheibe")
+}
+
+func (ws *WebServer) handleBuchenPreisschiessen(w http.ResponseWriter, r *http.Request) {
+	ws.forwardPreisschiessen(w, r, "buchen")
+}
+
+func (ws *WebServer) handleFreeLanePreisschiessen(w http.ResponseWriter, r *http.Request) {
+	ws.forwardPreisschiessen(w, r, "freigeben")
+}
+
+func (ws *WebServer) handleScheibeAbschliessenPreisschiessen(w http.ResponseWriter, r *http.Request) {
+	ws.forwardPreisschiessen(w, r, "scheibe-abschliessen")
+}
+
 func (ws *WebServer) handleLocalSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := ListLocalSessions(ws.cfg.ShotLogDir, ws.cfg.LaneNo)
 	if err != nil {
@@ -460,4 +595,42 @@ func (ws *WebServer) handlePutDisciplinesConfig(w http.ResponseWriter, r *http.R
 		"count":    len(cfg.Disciplines),
 		"default":  cfg.Default,
 	})
+}
+
+func (ws *WebServer) handleFontSizes(w http.ResponseWriter, r *http.Request) {
+	ws.mu.Lock()
+	fs := ws.fontSizes
+	ws.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(fs)
+}
+
+// handlePutFontSizes empfaengt einen Schriftgroessen-Push vom Server
+// (Einstellungen), persistiert ihn lokal (font_sizes.json - bleibt auch nach
+// einem Neustart ohne Serververbindung erhalten) und benachrichtigt bereits
+// verbundene Browser sofort per SSE.
+func (ws *WebServer) handlePutFontSizes(w http.ResponseWriter, r *http.Request) {
+	var fs FontSizes
+	if err := json.NewDecoder(r.Body).Decode(&fs); err != nil {
+		http.Error(w, "ungueltiger Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if ws.fontSizesFile != "" {
+		data, _ := json.MarshalIndent(fs, "", "  ")
+		if err := os.WriteFile(ws.fontSizesFile, data, 0o644); err != nil {
+			http.Error(w, "Datei schreiben: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	ws.mu.Lock()
+	ws.fontSizes = fs
+	ws.mu.Unlock()
+
+	data, _ := json.Marshal(fs)
+	ws.broadcast("fontsizes", data)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"written": ws.fontSizesFile != ""})
 }

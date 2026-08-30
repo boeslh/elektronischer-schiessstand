@@ -522,12 +522,22 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		offX, offY                    float64
 	)
 	var eventName, eventType string
+	var trialShots, scoringShots, shotsPerSeries, targetNo int
+	var decimalScoring bool
+	var lastShotNo, probeCount, wertungShotsFired int
 	err := s.pool.QueryRow(ctx, `
 		SELECT se.id, se.status, d.name,
 		       COALESCE(sh.last_name || ', ' || sh.first_name, ''),
 		       c.sensor_pos, c.plate_angle_deg, c.sound_speed_mps,
 		       c.plate_offset_x, c.plate_offset_y,
-		       COALESCE(ev.name,''), COALESCE(ev.type::text,'')
+		       COALESCE(ev.name,''), COALESCE(ev.type::text,''),
+		       COALESCE(d.max_sighting_shots,-1), d.match_shot_count,
+		       d.shots_per_series, d.decimal_scoring, d.standpc_target_no,
+		       COALESCE((SELECT MAX(shot_no) FROM shots WHERE session_id=se.id), 0),
+		       COALESCE((SELECT COUNT(*) FROM shots
+		                 WHERE session_id=se.id AND kind='sighting' AND status='valid'), 0),
+		       COALESCE((SELECT COUNT(*) FROM shots
+		                 WHERE session_id=se.id AND kind='match' AND status='valid'), 0)
 		FROM sessions se
 		JOIN lanes l        ON l.id  = se.lane_id
 		JOIN disciplines d  ON d.id  = se.discipline_id
@@ -539,7 +549,9 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		ORDER BY se.started_at DESC NULLS LAST LIMIT 1`,
 		laneNo).Scan(&sessionID, &status, &discipline, &shooterName,
 		&sensorPos, &plateAngle, &soundSpeed, &offX, &offY,
-		&eventName, &eventType)
+		&eventName, &eventType,
+		&trialShots, &scoringShots, &shotsPerSeries, &decimalScoring, &targetNo,
+		&lastShotNo, &probeCount, &wertungShotsFired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil // Stand frei -> Stand-PC arbeitet ohne Session
 	}
@@ -547,17 +559,37 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		return nil, err
 	}
 	return map[string]any{
-		"session_id":      sessionID,
-		"status":          status,
-		"discipline":      discipline,
-		"shooter":         shooterName,
-		"sensor_pos":      jsonRaw(sensorPos),
-		"plate_angle_deg": plateAngle,
-		"sound_speed_mps": soundSpeed,
-		"plate_offset_x":  offX,
-		"plate_offset_y":  offY,
-		"event_name":      eventName,
-		"event_type":      eventType,
+		"session_id":       sessionID,
+		"status":           status,
+		"discipline":       discipline,
+		"shooter":          shooterName,
+		"sensor_pos":       jsonRaw(sensorPos),
+		"plate_angle_deg":  plateAngle,
+		"sound_speed_mps":  soundSpeed,
+		"plate_offset_x":   offX,
+		"plate_offset_y":   offY,
+		"event_name":       eventName,
+		"event_type":       eventType,
+		// Disziplinparameter direkt mitgeliefert (statt dass der Stand-PC sie
+		// per Namen aus seiner eigenen, potenziell veralteten/unvollstaendigen
+		// disciplines.json nachschlagen muss - Server ist hier die einzige
+		// Wahrheitsquelle, siehe Bugfix "Scheibe wird nicht automatisch
+		// beendet" bei lokal unbekannten Disziplinnamen).
+		"trial_shots":      trialShots,
+		"scoring_shots":    scoringShots,
+		"shots_per_series": shotsPerSeries,
+		"decimal_scoring":  decimalScoring,
+		"target_no":        targetNo,
+		// Authoritativer Schusszaehler-Stand dieser Session (server-seitig
+		// aus den tatsaechlich gespeicherten Schuessen ermittelt) - der
+		// Stand-PC uebernimmt das bei JEDER neuen Zuweisung dieser Session
+		// (Neustart am selben Stand, aber auch Standwechsel auf einen ANDEREN
+		// Stand-PC), statt sich auf lokale Zustandsdateien zu verlassen, die
+		// bei einem Standwechsel naturgemaess nicht existieren wuerden -
+		// siehe Bugfix "doppelte Seriennummern nach Standwechsel/Neustart".
+		"last_shot_no":        lastShotNo,
+		"probe_count":         probeCount,
+		"wertung_shots_fired": wertungShotsFired,
 	}, nil
 }
 

@@ -185,20 +185,20 @@ func (w *DBWriter) insertShot(e dbEntry) error {
 	// shot_no = PC-seitiger Sessionzaehler (1-basiert, inkl. reject); device_seq = ESP32
 	_, err := w.pool.Exec(ctx, `
 		INSERT INTO shots (
-			session_id, shot_no, kind, status, fired_at,
+			session_id, shot_no, kind, status, fired_at, series_no,
 			device_seq, sensor_hits,
 			x_mm, y_mm, ring, decimal_value, is_inner_ten, center_distance,
 			air_ns, x_um, y_um, pos_res_um, precision_um, cluster_hits,
 			pos_valid, piezo_ns, piezo_ok, clean, reject_reason, device_ts_ms
 		) VALUES (
-			$1::uuid, $2, $3::shot_kind, $4::shot_status, $5,
-			$6, $7,
-			$8::float8, $9::float8, $10::smallint, $11::numeric, $12, $13::numeric,
-			$14::jsonb, $15::bigint, $16::bigint, $17::bigint, $18::bigint, $19::smallint,
-			$20::boolean, $21::bigint, $22::boolean, $23::boolean, $24, $25::bigint
+			$1::uuid, $2, $3::shot_kind, $4::shot_status, $5, $6,
+			$7, $8,
+			$9::float8, $10::float8, $11::smallint, $12::numeric, $13, $14::numeric,
+			$15::jsonb, $16::bigint, $17::bigint, $18::bigint, $19::bigint, $20::smallint,
+			$21::boolean, $22::bigint, $23::boolean, $24::boolean, $25, $26::bigint
 		)
 		ON CONFLICT (session_id, shot_no) DO NOTHING`,
-		e.sessionID, e.shotNo, kind, status, s.FiredAt,
+		e.sessionID, e.shotNo, kind, status, s.FiredAt, s.SeriesNo,
 		s.Seq, s.Hits,
 		s.XMM, s.YMM, s.Ring, s.Decimal, s.InnerTen, s.CenterDistance,
 		airNs, s.XUm, s.YUm, s.PosResUm, s.PrecisionUm, s.ClusterHits,

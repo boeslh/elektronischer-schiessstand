@@ -10,6 +10,11 @@
     --text: #d8e0e8; --dim: #6a7888; --acc: #4ab8a0; --hit: #ffb347;
     --probe-bg: #2a2010; --probe-fg: #f0a830;
     --wertung-bg: #0d2318; --wertung-fg: #3ecf7a;
+
+    /* Konfigurierbare Schriftgroessen (Einstellungen -> Push), Defaults =
+       bisherige feste Werte. Werden per JS (applyFontSizes) gesetzt. */
+    --fs-name: 16px; --fs-scheibe: 13px; --fs-status: 11px;
+    --fs-menu: 14px; --fs-menu-ps: 14px; --fs-ergebnis: 13px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -24,77 +29,121 @@
     padding: 4px 8px;
   }
   header h1 { font-size: 18px; font-weight: 600; }
-  #shooter   { font-size: 16px; font-weight: 600; }
-  #discipline { font-size: 13px; color: var(--dim); }
+  #shooter   { font-size: var(--fs-name); font-weight: 600; }
+  #discipline { font-size: var(--fs-scheibe); color: var(--dim); }
   #eventName  { font-size: 11px; color: var(--acc, #7ba7ff); margin-top: 1px; min-height: 14px; }
   #connStatus { font-size: 12px; color: var(--dim); margin-left: auto; }
   #connStatus.live { color: var(--acc); }
+  #laneBadge { font-size: 13px; font-weight: 600; color: var(--dim); white-space: nowrap; }
+
+  #devBadge {
+    display: none; font-size: 11px; color: #ffb347; border: 1px solid #5a3a1a;
+    border-radius: 4px; padding: 2px 8px; white-space: nowrap;
+  }
+  body.dev-mode #devBadge { display: inline-block; }
+  body.dev-mode #target { cursor: crosshair; }
 
   #modeWrap { display: flex; align-items: center; gap: 8px; }
   #modeBadge {
-    font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+    font-size: var(--fs-status); font-weight: 700; letter-spacing: 1.5px;
     text-transform: uppercase; padding: 3px 10px; border-radius: 4px;
     transition: background 0.2s, color 0.2s;
   }
   #modeBadge.probe   { background: var(--probe-bg);   color: var(--probe-fg); }
   #modeBadge.wertung { background: var(--wertung-bg); color: var(--wertung-fg); }
   #modeBtn {
-    font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer;
+    font-size: var(--fs-status); padding: 3px 10px; border-radius: 4px; cursor: pointer;
     border: 1px solid var(--line); background: var(--panel); color: var(--text);
   }
   #modeBtn:hover:not(:disabled) { background: var(--line); }
   #modeBtn:disabled { opacity: 0.35; cursor: default; }
 
-  /* ── Menü-Button ── */
-  #menuBtn {
+  /* ── Menü-Buttons ── */
+  #psBtn, #discBtn, #zoomBtn {
     font-size: 16px; padding: 3px 10px; border-radius: 4px; cursor: pointer;
     border: 1px solid var(--line); background: var(--panel); color: var(--text);
     line-height: 1;
   }
-  #menuBtn:hover { background: var(--line); }
+  #psBtn:hover, #discBtn:hover, #zoomBtn:hover { background: var(--line); }
 
-  /* ── Menü-Modal ── */
-  #menuOverlay {
+  /* ── Menü-Modale (3 unabhängige: Preisschießen / Disziplin / Zoom) ── */
+  .menu-overlay {
     display: none; position: fixed; inset: 0;
     background: rgba(0,0,0,0.55); z-index: 100;
     align-items: flex-start; justify-content: flex-end;
   }
-  #menuOverlay.open { display: flex; }
-  #menuPanel {
+  .menu-overlay.open { display: flex; }
+  .menu-panel {
     background: var(--panel); border: 1px solid var(--line);
     border-radius: 8px; margin: 48px 12px 0 0;
     width: 280px; overflow: hidden;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   }
+  /* Preisschießen-Menü mittig statt oben rechts - ist die primäre Aktion
+     am Stand (öffnet sich automatisch), soll entsprechend im Fokus stehen. */
+  #psOverlay { align-items: center; justify-content: center; }
+  #psOverlay .menu-panel { margin: 0; width: 560px; max-width: calc(100vw - 24px); }
   .menu-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 14px; border-bottom: 1px solid var(--line);
-    font-size: 13px; font-weight: 600; color: var(--dim);
+    font-size: calc(var(--fs-menu) - 1px); font-weight: 600; color: var(--dim);
     text-transform: uppercase; letter-spacing: 1px;
   }
-  #menuClose {
-    background: none; border: none; color: var(--dim); font-size: 16px;
+  .menu-header-sub {
+    font-size: calc(var(--fs-menu) - 3px); font-weight: 400; text-transform: none;
+    letter-spacing: normal; color: var(--dim); margin-top: 2px;
+  }
+  .menu-close {
+    background: none; border: none; color: var(--dim); font-size: calc(var(--fs-menu) + 2px);
     cursor: pointer; padding: 0 2px; line-height: 1;
   }
-  #menuClose:hover { color: var(--text); }
+  .menu-close:hover { color: var(--text); }
   .menu-section { padding: 10px 0; }
   .menu-section-label {
-    font-size: 10px; color: var(--dim); text-transform: uppercase;
+    font-size: calc(var(--fs-menu) - 4px); color: var(--dim); text-transform: uppercase;
     letter-spacing: 1px; padding: 2px 14px 6px;
   }
   .disc-btn {
     display: block; width: 100%; text-align: left;
     padding: 9px 14px; background: none; border: none;
-    color: var(--text); font-size: 14px; cursor: pointer;
+    color: var(--text); font-size: var(--fs-menu); cursor: pointer;
   }
   .disc-btn:hover { background: var(--line); }
   .disc-btn.active { color: var(--acc); font-weight: 600; }
   .disc-btn .disc-detail {
-    font-size: 11px; color: var(--dim); margin-top: 1px;
+    font-size: calc(var(--fs-menu) - 3px); color: var(--dim); margin-top: 1px;
   }
   .menu-section + .menu-section {
     border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px;
   }
+
+  /* ── Preisschießen-Menü ── */
+  .ps-header { padding: 2px 14px 8px; }
+  .ps-header .ps-name { font-size: var(--fs-menu-ps); font-weight: 600; }
+  .ps-header .ps-guthaben { font-size: calc(var(--fs-menu-ps) - 2px); color: var(--dim); margin-top: 2px; }
+  .ps-subhead {
+    font-size: calc(var(--fs-menu-ps) - 4px); color: var(--dim); text-transform: uppercase;
+    letter-spacing: 1px; padding: 8px 14px 4px;
+  }
+  .ps-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: 100%; text-align: left;
+    padding: 9px 14px; background: none; border: none;
+    color: var(--text); font-size: var(--fs-menu-ps); cursor: pointer;
+  }
+  .ps-item:hover { background: var(--line); }
+  .ps-item .ps-price { font-size: calc(var(--fs-menu-ps) - 2px); color: var(--dim); flex-shrink: 0; }
+  .ps-empty { padding: 4px 14px 8px; font-size: calc(var(--fs-menu-ps) - 2px); color: var(--dim); }
+  .ps-free-btn {
+    justify-content: center; margin: 10px 14px 4px; width: calc(100% - 28px);
+    border: 1px solid #5a3a1a; border-radius: 6px; color: #ffb347;
+  }
+  .ps-free-btn:hover { background: #2a1c0f; }
+  .ps-close-btn {
+    justify-content: center; margin: 4px 14px 8px; width: calc(100% - 28px);
+    border: 1px solid #5a1a1a; border-radius: 6px; color: #ff5c5c;
+  }
+  .ps-close-btn:hover { background: #2a1010; }
 
   .panel { background: var(--panel); border: 1px solid var(--line);
            border-radius: 8px; overflow: hidden; }
@@ -107,7 +156,7 @@
     text-align: center; padding: 14px 12px 10px;
     border-bottom: 1px solid var(--line); flex-shrink: 0;
   }
-  #lastRing { font-size: 64px; font-weight: 700; color: var(--acc); line-height: 1; }
+  #lastRing { font-size: calc(var(--fs-ergebnis) + 51px); font-weight: 700; color: var(--acc); line-height: 1; }
   #lastInfo { font-size: 12px; color: var(--dim); margin-top: 6px; }
 
   /* ── Gesamt + Serien ── */
@@ -117,7 +166,7 @@
     display: flex; align-items: baseline; justify-content: center; gap: 8px;
     padding: 8px 12px 6px; border-bottom: 1px solid var(--line);
   }
-  #totalLine .tv { font-size: 28px; font-weight: 700; color: var(--acc); }
+  #totalLine .tv { font-size: calc(var(--fs-ergebnis) + 15px); font-weight: 700; color: var(--acc); }
   #totalLine .tl { font-size: 11px; color: var(--dim); text-transform: uppercase;
                    letter-spacing: 1px; }
 
@@ -133,12 +182,12 @@
     padding: 5px 2px 4px;
   }
   .serie-cell .sn { font-size: 9px; color: var(--dim); text-transform: uppercase; }
-  .serie-cell .sv { font-size: 19px; font-weight: 700; line-height: 1.1; }
+  .serie-cell .sv { font-size: calc(var(--fs-ergebnis) + 6px); font-weight: 700; line-height: 1.1; }
   .serie-cell.current .sv { color: var(--hit); }  /* laufende Serie */
   .serie-cell .si { font-size: 9px; color: var(--dim); }  /* x/10 bei unvollständig */
 
   /* ── Schussliste ── */
-  #list { flex: 1; overflow-y: auto; font-size: 13px; }
+  #list { flex: 1; overflow-y: auto; font-size: var(--fs-ergebnis); }
   #list table { width: 100%; border-collapse: collapse; }
   #list td, #list th {
     padding: 6px 10px; text-align: right;
@@ -175,23 +224,66 @@
     <span id="modeBadge" class="probe">Probe</span>
     <button id="modeBtn">→ Wertung</button>
   </div>
-  <button id="menuBtn" title="Menü">☰</button>
+  <button id="psBtn" title="Preisschießen" style="display:none">🏆</button>
+  <button id="discBtn" title="Disziplin wählen">🎯</button>
+  <button id="zoomBtn" title="Zoom">🔍</button>
+  <span id="devBadge" title="Klick auf die Scheibe löst einen Schuss aus">🛠 Testmodus</span>
   <span id="connStatus">verbinde…</span>
+  <span id="laneBadge"></span>
 </header>
 
-<!-- Menü-Modal -->
-<div id="menuOverlay">
-  <div id="menuPanel">
+<!-- Preisschießen-Menü: nur sichtbar/oeffenbar wenn der Stand im Preisschiessen-Modus ist -->
+<div class="menu-overlay" id="psOverlay">
+  <div class="menu-panel">
     <div class="menu-header">
-      <span>Einstellungen</span>
-      <button id="menuClose">✕</button>
+      <div>
+        <span>Preisschießen</span>
+        <div class="menu-header-sub" id="psPreisschiessenName"></div>
+      </div>
+      <button class="menu-close" onclick="closeMenu('psOverlay')">✕</button>
+    </div>
+    <div class="menu-section" id="psSection">
+      <div class="ps-header">
+        <div class="ps-name" id="psName"></div>
+        <div class="ps-guthaben" id="psGuthaben"></div>
+      </div>
+      <div id="psScheibeBlock">
+        <div class="ps-subhead">Scheibe wählen</div>
+        <div id="psScheibeList"><!-- wird per JS befüllt --></div>
+        <div id="psNoScheibeHint" class="ps-empty" style="display:none">Keine weitere Scheibe verfügbar.</div>
+      </div>
+      <div class="ps-subhead">Weitere Scheibe/Set buchen</div>
+      <div id="psAngebotList"><!-- wird per JS befüllt --></div>
+      <button type="button" class="ps-item ps-free-btn" id="psFreeBtn">Stand freigeben</button>
+      <div id="psActiveBlock" style="display:none">
+        <button type="button" class="ps-item ps-close-btn" id="psAbschliessenBtn">Scheibe abschließen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Disziplin-Menü: nur sichtbar/oeffenbar wenn kein Schütze über den Server
+     zugewiesen ist (weder normale Standbelegung noch Preisschießen) -->
+<div class="menu-overlay" id="discOverlay">
+  <div class="menu-panel">
+    <div class="menu-header">
+      <span>Disziplin wählen</span>
+      <button class="menu-close" onclick="closeMenu('discOverlay')">✕</button>
     </div>
     <div class="menu-section">
-      <div class="menu-section-label">Disziplin wählen</div>
       <div id="discList"><!-- wird per JS befüllt --></div>
     </div>
+  </div>
+</div>
+
+<!-- Zoom-Menü: immer verfügbar -->
+<div class="menu-overlay" id="zoomOverlay">
+  <div class="menu-panel">
+    <div class="menu-header">
+      <span>Zoom</span>
+      <button class="menu-close" onclick="closeMenu('zoomOverlay')">✕</button>
+    </div>
     <div class="menu-section">
-      <div class="menu-section-label">Zoom</div>
       <div id="zoomList"><!-- wird per JS befüllt --></div>
     </div>
   </div>
@@ -239,6 +331,8 @@ let currentHistoryGen = null; // history_gen der letzten angewandten Statusmeldu
 let discipline    = null;
 let currentTarget = null;   // aktives TargetGeometry-Objekt
 let targetsMap    = {};     // von /targets geladen: {"1": {...}, "7": {...}}
+let spiegelEl     = null;   // SVG-Element des Spiegels (Mittelbereich), fuer applyTargetColor
+let currentTargetColor = ''; // aktuelle Preisschiessen-Scheibenfarbe (current_target_color), '' = Standard
 let zoomMode      = 'auto'; // 'auto' | '1'..'5'
 let currentOuterR = 0;      // Außenradius der aktuellen Scheibe in mm
 
@@ -335,7 +429,7 @@ function buildZoomMenu() {
       ? `±${(opt.fraction * currentOuterR).toFixed(1)} mm Radius`
       : 'passt sich der aktuellen Serie an';
     btn.innerHTML = `<div>${opt.label}</div><div class="disc-detail">${detail}</div>`;
-    btn.addEventListener('click', () => { setZoomMode(opt.key); closeMenu(); });
+    btn.addEventListener('click', () => { setZoomMode(opt.key); closeMenu('zoomOverlay'); });
     c.appendChild(btn);
   });
 }
@@ -369,14 +463,18 @@ function buildTarget(target) {
   bg.setAttribute('fill', '#e8e4dc');
   svg.appendChild(bg);
 
-  // 2. Schwarzer Spiegel: Kreis bis zum äußersten "filled=true"-Ring
+  // 2. Spiegel: Kreis bis zum äußersten "filled=true"-Ring - Farbe normal
+  // schwarz, bei Preisschießen aber je Scheiben-Art konfigurierbar (siehe
+  // applyTargetColor/currentTargetColor, gespeist aus psInfo.current_target_color).
   let darkR = 0;
   for (const r of rings) if (r.filled) darkR = Math.max(darkR, r.d / 2);
+  spiegelEl = null;
   if (darkR > 0) {
     const sp = document.createElementNS(NS, 'circle');
     sp.setAttribute('r', darkR);
-    sp.setAttribute('fill', '#1c1c1c');
+    sp.setAttribute('fill', currentTargetColor || '#1c1c1c');
     svg.appendChild(sp);
+    spiegelEl = sp;
   }
 
   // 3. Ringlinien (nur Kontur, kein Fill)
@@ -444,6 +542,15 @@ function buildTarget(target) {
   updateZoom(); // viewBox je nach aktuellem Zoom-Modus setzen
 }
 
+// Setzt die Spiegelfarbe (Mittelbereich der Scheibe) - ohne kompletten
+// Neuaufbau des Ziels, damit ein Farbwechsel (z.B. Scheibe abgeschlossen,
+// naechste Preisschiessen-Scheibe mit anderer Farbe gewaehlt) nicht die
+// Zoom-/Trefferanzeige stoert. '' setzt auf die Standardfarbe zurueck.
+function applyTargetColor(color) {
+  currentTargetColor = color || '';
+  if (spiegelEl) spiegelEl.setAttribute('fill', currentTargetColor || '#1c1c1c');
+}
+
 // ── Zustand ─────────────────────────────────────────────────────────────────
 let shots = [];
 
@@ -494,6 +601,7 @@ function clearDisplay() {
   updateZoom();
   lastShotEl = null;
 }
+
 
 // ── Schuss darstellen ──────────────────────────────────────────────────────────────────
 function shotColorByRing(ring) {
@@ -593,28 +701,26 @@ function applyStatus(st) {
   currentHistoryGen = st.history_gen;
   discipline        = st.discipline || null;
 
+  document.getElementById('laneBadge').textContent = st.lane_no ? `Stand ${st.lane_no}` : '';
+  document.body.classList.toggle('dev-mode', !!st.dev_mode);
+
   modeBadge.textContent = currentMode === 'wertung' ? 'Wertung' : 'Probe';
   modeBadge.className   = currentMode === 'wertung' ? 'wertung' : 'probe';
 
+  const noProbePhase = discipline && discipline.trial_shots === 0;
   if (currentMode === 'probe') {
     modeBtn.textContent = '→ Wertung';
     modeBtn.disabled    = false;
   } else {
     modeBtn.textContent = '← Probe';
-    modeBtn.disabled    = st.wertung_count > 0;
+    modeBtn.disabled    = st.wertung_count > 0 || noProbePhase;
   }
 
 
-  document.getElementById('shooter').textContent =
-    st.shooter || 'Schützenanzeige';
-
-  const discEl = document.getElementById('discipline');
-  if (discipline) {
-    discEl.textContent =
-      `${discipline.name} · ${discipline.trial_shots} Probe / ${discipline.scoring_shots} Wertung`;
-  } else {
-    discEl.textContent = st.discipline_name || '';
-  }
+  lastSessionShooter = st.shooter || '';
+  updateShooterHeader();
+  updateMenuButtonVisibility();
+  updateDisciplineHeader();
 
   const eventTypeDE = { einzel: 'Einzelwettkampf', runde: 'Rundenwettkampf', gruppe: 'Gruppenwettkampf' };
   const evEl = document.getElementById('eventName');
@@ -638,6 +744,19 @@ function applyStatus(st) {
   }
 }
 
+// Zeigt bei Preisschießen den Scheibennamen an, sonst die technische
+// Disziplinbezeichnung - der Schütze kennt seine Scheibe beim Namen.
+function updateDisciplineHeader() {
+  const discEl = document.getElementById('discipline');
+  if (psInfo && !psInfo.pending && psInfo.current_scheibe_name) {
+    discEl.textContent = psInfo.current_scheibe_name;
+  } else if (discipline) {
+    discEl.textContent =
+      `${discipline.name} · ${discipline.trial_shots} Probe / ${discipline.scoring_shots} Wertung`;
+  } else {
+    discEl.textContent = '';
+  }
+}
 function showNotification(msg) {
   const el = document.getElementById('notification');
   el.textContent = msg;
@@ -660,21 +779,73 @@ modeBtn.addEventListener('click', () => {
   .catch(err => { alert('Umschalten nicht möglich:\n' + err.message); modeBtn.disabled = false; });
 });
 
+// ── Entwicklermodus: Schuss per Mausklick ───────────────────────────────────
+// Nur aktiv wenn body.dev-mode gesetzt ist (siehe applyStatus). Rechnet den
+// Klick per SVG-CTM in mm um - Umkehrung von renderShots (cx=x_mm, cy=-y_mm).
+svg.addEventListener('click', e => {
+  if (!document.body.classList.contains('dev-mode')) return;
+  const pt = svg.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return;
+  const p = pt.matrixTransform(ctm.inverse());
+  const x_mm = p.x, y_mm = -p.y;
+  fetch('/dev/shot', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({x_mm, y_mm}),
+  }).catch(err => alert('Fehler: ' + err.message));
+});
+
 // ── Menü ─────────────────────────────────────────────────────────────────────
 let allDisciplines = [];
+let psInfo = null; // Preisschiessen-Zustand des Stands (null = keins), via SSE-Event "preisschiessen"
+let psWasPending = false; // fuer Aufsteigende-Flanke-Erkennung (Menue nur EINMAL automatisch oeffnen)
+let buchenConfirmedFor = null; // teilnehmer_id, fuer die "Buchen" schon einmal bestaetigt wurde (Schutz vor Fehlklick)
+let lastSessionShooter = ''; // Schuetze aus der aktiven Session (leer, solange nur "pending")
 
-function openMenu() { document.getElementById('menuOverlay').classList.add('open'); }
-function closeMenu() { document.getElementById('menuOverlay').classList.remove('open'); }
+// Zeigt den Schuetzen-Namen sofort an - auch bevor eine Session existiert
+// (waehrend der Preisschiessen-Teilnehmer noch seine Scheibe waehlen muss).
+function updateShooterHeader() {
+  const el = document.getElementById('shooter');
+  if (lastSessionShooter) { el.textContent = lastSessionShooter; return; }
+  if (psInfo) { el.textContent = `#${psInfo.teilnehmer_nr} ${psInfo.shooter_name}`; return; }
+  el.textContent = 'Schützenanzeige';
+}
 
-document.getElementById('menuBtn').addEventListener('click', () => {
+function openMenu(id) { document.getElementById(id).classList.add('open'); }
+function closeMenu(id) { document.getElementById(id).classList.remove('open'); }
+
+document.getElementById('psBtn').addEventListener('click', () => {
+  renderPSMenu();
+  openMenu('psOverlay');
+});
+document.getElementById('discBtn').addEventListener('click', () => {
   buildDiscList(discipline ? discipline.name : '');
+  openMenu('discOverlay');
+});
+document.getElementById('zoomBtn').addEventListener('click', () => {
   buildZoomMenu();
-  openMenu();
+  openMenu('zoomOverlay');
 });
-document.getElementById('menuClose').addEventListener('click', closeMenu);
-document.getElementById('menuOverlay').addEventListener('click', e => {
-  if (e.target === document.getElementById('menuOverlay')) closeMenu();
+['psOverlay', 'discOverlay', 'zoomOverlay'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('click', e => { if (e.target === el) closeMenu(id); });
 });
+
+// Sichtbarkeit der Disziplin- und Preisschießen-Menü-Buttons: Disziplin nur
+// wenn kein Schütze über den Server zugewiesen ist (weder normale
+// Standbelegung noch Preisschießen, egal ob wartend oder bereits aktiv) -
+// Preisschießen nur solange der Stand im Preisschießen-Modus ist.
+function updateMenuButtonVisibility() {
+  const discBtn = document.getElementById('discBtn');
+  const psBtn   = document.getElementById('psBtn');
+  const showDisc = !lastSessionShooter && !psInfo;
+  discBtn.style.display = showDisc ? '' : 'none';
+  if (!showDisc) closeMenu('discOverlay');
+  psBtn.style.display = psInfo ? '' : 'none';
+  if (!psInfo) closeMenu('psOverlay');
+}
 
 function buildDiscList(currentName) {
   const container = document.getElementById('discList');
@@ -696,7 +867,7 @@ function buildDiscList(currentName) {
         body: JSON.stringify({name: d.name}),
       })
       .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
-      .then(st => { applyStatus(st); clearDisplay(); closeMenu(); })
+      .then(st => { applyStatus(st); clearDisplay(); closeMenu('discOverlay'); })
       .catch(err => alert('Fehler: ' + err.message));
     });
     container.appendChild(btn);
@@ -704,6 +875,121 @@ function buildDiscList(currentName) {
 }
 
 fetch('/disciplines').then(r => r.json()).then(list => { allDisciplines = list || []; });
+
+// ── Preisschießen ────────────────────────────────────────────────────────────
+function formatEuro(v) { return (v || 0).toFixed(2).replace('.', ',') + ' €'; }
+
+document.getElementById('psFreeBtn').addEventListener('click', () => {
+  if (!confirm('Stand freigeben? Die Session wird beendet, bereits geschossene Schüsse bleiben gespeichert.')) return;
+  fetch('/preisschiessen/freigeben', {method: 'POST'})
+    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+    .then(() => { clearDisplay(); closeMenu('psOverlay'); })
+    .catch(err => alert('Fehler: ' + err.message));
+});
+
+document.getElementById('psAbschliessenBtn').addEventListener('click', () => {
+  if (!confirm('Scheibe abschließen? Sie gilt danach als beendet, so als wären alle Schüsse abgegeben worden.')) return;
+  fetch('/preisschiessen/scheibe-abschliessen', {method: 'POST'})
+    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+    .then(() => { clearDisplay(); closeMenu('psOverlay'); })
+    .catch(err => alert('Fehler: ' + err.message));
+});
+
+// Zeigt/befüllt die Preisschießen-Sektion im Menü anhand von psInfo (kommt
+// per SSE-Event "preisschiessen" bzw. initial per GET /preisschiessen).
+function renderPSMenu() {
+  const nowPending = !!(psInfo && psInfo.pending);
+  updateShooterHeader();
+  updateMenuButtonVisibility();
+  updateDisciplineHeader();
+
+  if (!psInfo) {
+    psWasPending = false;
+    applyTargetColor('');
+    return;
+  }
+
+  document.getElementById('psPreisschiessenName').textContent = psInfo.preisschiessen_name || '';
+  document.getElementById('psName').textContent =
+    `#${psInfo.teilnehmer_nr} ${psInfo.shooter_name}`;
+  document.getElementById('psGuthaben').textContent =
+    `Guthaben: ${formatEuro(psInfo.guthaben)}`;
+
+  const scheibeBlock = document.getElementById('psScheibeBlock');
+  const scheibeList  = document.getElementById('psScheibeList');
+  const noScheibeHint = document.getElementById('psNoScheibeHint');
+  const activeBlock  = document.getElementById('psActiveBlock');
+  if (nowPending) {
+    applyTargetColor('');
+    scheibeBlock.style.display = 'block';
+    activeBlock.style.display = 'none';
+    const typen = psInfo.scheiben_typen || [];
+    scheibeList.innerHTML = '';
+    typen.forEach(typ => {
+      const btn = document.createElement('button');
+      btn.className = 'ps-item';
+      btn.innerHTML = `<span>${typ.name} (${typ.gekauft}/${typ.beendet})</span>`;
+      btn.addEventListener('click', () => {
+        fetch('/preisschiessen/scheibe', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({scheibe_id: typ.scheibe_id}),
+        })
+        .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+        .then(() => { clearDisplay(); closeMenu('psOverlay'); })
+        .catch(err => alert('Fehler: ' + err.message));
+      });
+      scheibeList.appendChild(btn);
+    });
+    // Keine Scheibe mehr verfügbar: Hinweis - der Schütze kann unten weitere
+    // Scheiben/Sets buchen oder den Stand freigeben.
+    noScheibeHint.style.display = typen.length ? 'none' : 'block';
+  } else {
+    applyTargetColor(psInfo.current_target_color);
+    scheibeBlock.style.display = 'none';
+    // Aktiv am Schießen: Scheibe kann bewusst vorzeitig abgeschlossen werden.
+    activeBlock.style.display = 'block';
+  }
+
+  // Menü automatisch in den Vordergrund holen, sobald eine Auswahl ansteht
+  // (initiale Zuweisung oder gerade geschossene Scheibe beendet) - nur bei
+  // der aufsteigenden Flanke, damit ein bewusst geschlossenes Menü nicht bei
+  // jedem Poll erneut aufgezwungen wird.
+  if (nowPending && !psWasPending) openMenu('psOverlay');
+  psWasPending = nowPending;
+
+  const angebotList = document.getElementById('psAngebotList');
+  angebotList.innerHTML = '';
+  const angebot = psInfo.angebot || {scheiben: [], sets: []};
+  const buchItem = (item, typ) => {
+    const btn = document.createElement('button');
+    btn.className = 'ps-item';
+    btn.innerHTML = `<span>${item.name}</span><span class="ps-price">${formatEuro(item.price)}</span>`;
+    btn.addEventListener('click', () => {
+      if (buchenConfirmedFor !== psInfo.teilnehmer_id) {
+        if (!confirm(`"${item.name}" für ${formatEuro(item.price)} buchen?\nFalls Ihr Guthaben negativ ist, gehen Sie nach dem Schießen zur Kasse.`)) return;
+        buchenConfirmedFor = psInfo.teilnehmer_id;
+      }
+      const body = typ === 'scheibe'
+        ? {items: [{typ: 'scheibe', scheibe_id: item.id}]}
+        : {items: [{typ: 'set', set_id: item.id}]};
+      fetch('/preisschiessen/buchen', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      })
+      .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+      .then(() => showNotification(`${item.name} gebucht.`))
+      .catch(err => alert('Buchen nicht möglich:\n' + err.message));
+    });
+    angebotList.appendChild(btn);
+  };
+  (angebot.sets || []).forEach(s => buchItem(s, 'set'));
+  (angebot.scheiben || []).forEach(s => buchItem(s, 'scheibe'));
+  if (!(angebot.sets || []).length && !(angebot.scheiben || []).length) {
+    angebotList.innerHTML = '<div class="ps-empty">Nichts verfügbar</div>';
+  }
+}
 
 // ── Start: Anzeigeconfig + Scheiben laden, dann Status + Schüsse ──────────────
 Promise.all([
@@ -723,6 +1009,21 @@ Promise.all([
   arr.forEach((s, i) => addShot(s, i === arr.length - 1));
 });
 
+fetch('/preisschiessen').then(r => r.json()).then(info => { psInfo = info; renderPSMenu(); });
+
+// ── Schriftgroessen (Einstellungen -> Push) ─────────────────────────────────
+function applyFontSizes(fs) {
+  if (!fs) return;
+  const root = document.documentElement.style;
+  root.setProperty('--fs-name', fs.name + 'px');
+  root.setProperty('--fs-scheibe', fs.scheibe + 'px');
+  root.setProperty('--fs-status', fs.status + 'px');
+  root.setProperty('--fs-menu', fs.menu + 'px');
+  root.setProperty('--fs-menu-ps', fs.menu_ps + 'px');
+  root.setProperty('--fs-ergebnis', fs.ergebnisse + 'px');
+}
+fetch('/font-sizes').then(r => r.json()).then(applyFontSizes);
+
 const es     = new EventSource('/events');
 const connEl = document.getElementById('connStatus');
 es.onopen  = () => { connEl.textContent = '● live'; connEl.className = 'live'; };
@@ -733,11 +1034,21 @@ es.addEventListener('status', ev => {
   const st = JSON.parse(ev.data);
   // history_gen aendert sich bei JEDEM Sessionwechsel (auch ohne Moduswechsel,
   // z.B. Neubelegung waehrend beide Male "probe") - Modusvergleich allein
-  // reicht nicht, um die Anzeige zuverlaessig zurueckzusetzen.
+  // reicht nicht, um die Anzeige zuverlaessig zurueckzusetzen. Ein echter
+  // Seiten-Reload statt eines reinen JS-Neuaufbaus stellt sicher, dass eine
+  // laenger offene Kiosk-Anzeige nach jedem Sessionwechsel garantiert den
+  // aktuellen Stand zeigt (inkl. bereits geschossener Schuesse bei einer
+  // wiederaufgenommenen Scheibe) - unabhaengig davon, wie lange die Seite
+  // schon offen ist bzw. welcher Auslieferungsstand ihr JS gerade hat.
   const changed = currentHistoryGen !== null && st.history_gen !== currentHistoryGen;
+  if (changed) { location.reload(); return; }
   applyStatus(st);
-  if (changed) clearDisplay();
 });
+es.addEventListener('preisschiessen', ev => {
+  psInfo = JSON.parse(ev.data);
+  renderPSMenu();
+});
+es.addEventListener('fontsizes', ev => applyFontSizes(JSON.parse(ev.data)));
 </script>
 </body>
 </html>

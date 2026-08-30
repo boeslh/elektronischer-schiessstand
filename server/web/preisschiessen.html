@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Preisschießen – Schießstand</title>
+<title>Preisschießen</title>
 <style>
 :root {
   --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
@@ -11,33 +11,117 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
-header{border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:14px}
+header{border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 header a{color:var(--dim);text-decoration:none;font-size:13px}
 header a:hover{color:var(--text)}
 header h1{font-size:19px;font-weight:700}
-main{flex:1;padding:20px}
+header select{background:#0e1218;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 10px;font-size:.83rem;margin-left:auto}
+header .btn-liste{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);font-size:.8rem;padding:6px 12px;cursor:pointer;white-space:nowrap}
+header .btn-liste:hover{border-color:var(--text);color:var(--text)}
+main{flex:1;padding:20px;max-width:1100px;margin:0 auto;width:100%}
 
-.top-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.tabs{display:flex;gap:2px;margin-bottom:14px}
+.tab-btn{background:#1a2230;border:1px solid var(--line);color:var(--dim);padding:8px 16px;
+         cursor:pointer;font-size:.83rem;border-radius:6px 6px 0 0}
+.tab-btn.active{color:var(--acc);border-bottom-color:var(--panel);background:var(--panel)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px;margin-bottom:16px}
+.card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+
+label{display:block;font-size:.78rem;color:var(--dim);margin-bottom:4px;margin-top:10px}
+label:first-of-type{margin-top:0}
+input[type=text],input[type=date],input[type=search],input[type=number],select,textarea{
+  width:100%;background:#0e1218;border:1px solid var(--line);border-radius:6px;
+  color:var(--text);font-size:.85rem;padding:7px 10px;transition:border-color .15s
+}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+.form-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-actions{display:flex;gap:8px;margin-top:14px}
+.btn-save{background:var(--acc);border:none;border-radius:6px;color:#0d1a16;font-size:.83rem;font-weight:600;padding:8px 18px;cursor:pointer}
+.btn-save:hover{opacity:.85}
+.btn-save:disabled{opacity:.4;cursor:default}
+.btn-cancel{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);font-size:.83rem;padding:8px 14px;cursor:pointer}
+.btn-cancel:hover{border-color:var(--text);color:var(--text)}
+.btn-link{background:none;border:none;color:var(--acc);font-size:.8rem;cursor:pointer;padding:0}
 .btn-new{background:#1e2a38;border:1px solid var(--line);border-radius:6px;color:var(--acc);font-size:.83rem;padding:7px 14px;cursor:pointer}
 .btn-new:hover{background:#263545}
+.btn-edit{background:#1a2a1a;border:1px solid #2a4a2a;border-radius:4px;color:#4ab8a0;font-size:.75rem;padding:3px 8px;cursor:pointer}
+.btn-del{background:#2a1a1a;border:1px solid #4a2a2a;border-radius:4px;color:#e05c5c;font-size:.75rem;padding:3px 8px;cursor:pointer}
+.btn-eval{background:#1a2030;border:1px solid #2a3a5a;border-radius:4px;color:#7ab0e0;font-size:.75rem;padding:3px 8px;cursor:pointer}
+.row-actions{display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap}
 
-.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px}
-.card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+.search-results{background:#0e1218;border:1px solid var(--line);border-radius:6px;max-height:240px;overflow-y:auto;margin-top:8px}
+.search-result-item{padding:9px 12px;cursor:pointer;font-size:.85rem;display:flex;justify-content:space-between;border-bottom:1px solid #1e2530}
+.search-result-item:last-child{border-bottom:none}
+.search-result-item:hover{background:#1e2530}
+.search-result-item .nr{color:var(--acc);font-weight:700;margin-right:8px}
+.search-result-item .club{color:var(--dim);font-size:.78rem}
+.reg-badge{display:inline-block;background:#1a3a1a;color:#3dcc6e;border-radius:10px;padding:1px 8px;font-size:.72rem;font-weight:700;margin-right:8px}
+
+.offer-row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #1e2530}
+.offer-row:last-child{border-bottom:none}
+.offer-row .name{font-size:.87rem}
+.offer-row .price{color:var(--dim);font-size:.8rem;margin-left:8px}
+.offer-row .items{color:var(--dim);font-size:.75rem;display:block}
+.btn-buy{background:#1a2a1a;border:1px solid #2a4a2a;border-radius:4px;color:#4ab8a0;font-size:.78rem;padding:4px 10px;cursor:pointer}
+.btn-buy:hover{background:#24401f}
+.btn-ret{background:#2a1a1a;border:1px solid #4a2a2a;border-radius:4px;color:#e05c5c;font-size:.75rem;padding:3px 8px;cursor:pointer}
+
+.saldo{font-size:1.6rem;font-weight:700;color:var(--acc)}
+.saldo.neg{color:var(--err)}
+.saldo-row{display:flex;align-items:center;justify-content:space-between;margin:10px 0}
+.btn-pay{background:#1e2a38;border:1px solid var(--acc);border-radius:6px;color:var(--acc);font-size:.85rem;font-weight:600;padding:9px 18px;cursor:pointer}
+.btn-pay:hover{background:#243040}
+.pay-panel{background:#0e1218;border:1px solid var(--line);border-radius:8px;padding:14px;margin:10px 0}
+.pay-panel h3{font-size:.85rem;color:var(--acc);margin-bottom:8px}
+
+.teilnehmer-badge{display:flex;align-items:center;justify-content:space-between;background:#0e1218;border:1px solid var(--line);border-radius:6px;padding:10px 14px;margin-bottom:14px}
+.teilnehmer-badge .nr{font-size:1.3rem;font-weight:700;color:var(--acc)}
+.teilnehmer-badge .name{font-size:.95rem}
+.teilnehmer-badge .class{font-size:.78rem;color:var(--dim)}
 
 table{width:100%;border-collapse:collapse}
 th{text-align:left;color:var(--dim);font-weight:500;padding:5px 8px;font-size:.78rem;border-bottom:1px solid var(--line)}
 td{padding:7px 8px;font-size:.83rem;border-bottom:1px solid #1e2530;vertical-align:middle}
 tr:last-child td{border-bottom:none}
-tr:hover td{background:#1e2530}
-
-.btn-edit{background:#1a2a1a;border:1px solid #2a4a2a;border-radius:4px;color:#4ab8a0;font-size:.75rem;padding:3px 8px;cursor:pointer}
-.btn-eval{background:#1a2030;border:1px solid #2a3a5a;border-radius:4px;color:#7ab0e0;font-size:.75rem;padding:3px 8px;cursor:pointer}
-.btn-del{background:#2a1a1a;border:1px solid #4a2a2a;border-radius:4px;color:#e05c5c;font-size:.75rem;padding:3px 8px;cursor:pointer}
-.row-actions{display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap}
+tr.total td{font-weight:700;border-top:2px solid var(--line);border-bottom:none}
+tr.tn-row{cursor:pointer}
+tr.tn-row:hover td{background:#1e2530}
+tr.tn-row.active td{background:#1a2a2a}
 
 .badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
-.badge-active{background:#1a3a2a;color:#4ab8a0}
-.badge-inactive{background:#1e2530;color:#75879a}
+.badge-open{background:#1a2a3a;color:#64b5f6}
+.badge-returned{background:#1e2530;color:#75879a}
+.badge-yes{background:#1a3a2a;color:#4ab8a0}
+.badge-no{background:#1e2530;color:#75879a}
+.badge-gekauft{background:#1a2a3a;color:#64b5f6}
+.badge-begonnen{background:#2e2510;color:#e8a030}
+.badge-beendet{background:#1a3a2a;color:#4ab8a0}
+
+.stand-form{display:flex;gap:6px;align-items:center}
+.stand-form select{width:auto;min-width:110px}
+
+.split{display:grid;grid-template-columns:1fr 380px;gap:16px}
+@media (max-width: 900px) { .split { grid-template-columns:1fr } }
+.form-card{position:sticky;top:16px}
+.check-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:.83rem}
+.check-row input[type=checkbox]{accent-color:var(--acc)}
+.checklist{max-height:160px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:#0e1218}
+.item-row{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:.83rem}
+.item-row .qty{width:60px}
+.item-row .name{flex:1}
+.color-dot{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid var(--line);margin-right:5px;vertical-align:middle}
+input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line);border-radius:6px;background:#0e1218;cursor:pointer;flex:0 0 auto}
+.color-row{display:flex;gap:8px;align-items:center}
+.color-row select{flex:1}
+
+.hint{color:var(--dim);font-size:.82rem}
+.msg{font-size:.82rem;padding:7px 10px;border-radius:6px;display:none;margin-top:8px}
+.msg.ok{background:#1a3a2a;color:#4ab8a0}
+.msg.err{background:#3a1a1a;color:#e05c5c}
+.msg.info{background:#1a2a3a;color:#64b5f6}
 </style>
 </head>
 <body>
@@ -45,100 +129,1509 @@ tr:hover td{background:#1e2530}
 <header>
   <a href="/">← Startseite</a>
   <h1>Preisschießen</h1>
+  <select id="ps-select" onchange="onPSChange()"></select>
+  <button type="button" class="btn-liste" onclick="location.href='/preisschiessen-liste'" title="Alle Preisschießen anzeigen, anlegen, löschen">📋 Liste</button>
 </header>
 
 <main>
-  <div class="top-bar">
-    <button class="btn-new" id="btn-new-ps" style="display:none" onclick="location.href='/preisschiessen-bearbeiten'">+ Neues Preisschießen</button>
+  <div id="no-ps" class="card" style="display:none">
+    <p class="hint">Kein aktives Preisschießen vorhanden. <a href="/preisschiessen-bearbeiten" style="color:var(--acc)">Neues Preisschießen anlegen</a>.</p>
   </div>
 
-  <div class="card">
-    <h2>Preisschießen</h2>
-    <table>
-      <thead><tr><th>Name</th><th>Zeitraum</th><th>Typ</th><th>Teilnehmer</th><th>Status</th><th></th></tr></thead>
-      <tbody id="ps-tbody"></tbody>
-    </table>
+  <div id="app" style="display:none">
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchMainTab('anmeldung', this)">Anmeldung</button>
+      <button class="tab-btn" onclick="switchMainTab('kasse', this)">Kasse</button>
+      <button class="tab-btn" onclick="switchMainTab('teilnehmer', this)">Teilnehmer</button>
+      <button class="tab-btn" onclick="switchMainTab('stand', this)">Stand</button>
+      <button class="tab-btn" onclick="switchMainTab('verwaltung', this)">Verwaltung</button>
+    </div>
+
+    <!-- ══════════════════════════ Anmeldung ══════════════════════════ -->
+    <div id="maintab-anmeldung" class="tab-content active">
+      <div class="card">
+        <h2>Mitglied suchen</h2>
+        <input type="search" id="an-q" placeholder="Nachname oder Vorname…" oninput="anSearchShooters()">
+        <div class="search-results" id="an-results" style="display:none"></div>
+        <button type="button" class="btn-link" style="margin-top:10px" onclick="anToggleNewMember()">+ Neues Mitglied anlegen</button>
+
+        <div id="an-new-member-form" style="display:none;margin-top:12px">
+          <label for="an-nm-last">Nachname *</label>
+          <input type="text" id="an-nm-last" required>
+          <div class="form-row2">
+            <div><label for="an-nm-first">Vorname</label><input type="text" id="an-nm-first"></div>
+            <div><label for="an-nm-birth">Geburtsdatum</label><input type="date" id="an-nm-birth"></div>
+          </div>
+          <div class="form-row2">
+            <div><label for="an-nm-club">Verein</label><select id="an-nm-club"><option value="">– keiner –</option></select></div>
+            <div><label for="an-nm-pass">Passnummer</label><input type="text" id="an-nm-pass"></div>
+          </div>
+          <label for="an-nm-gender">Geschlecht</label>
+          <select id="an-nm-gender"><option value="">– unbekannt –</option><option value="M">männlich</option><option value="W">weiblich</option></select>
+          <div class="form-actions">
+            <button type="button" class="btn-save" onclick="anCreateAndRegister()">Anlegen &amp; Anmelden</button>
+            <button type="button" class="btn-cancel" onclick="anToggleNewMember()">Abbrechen</button>
+          </div>
+        </div>
+        <div id="an-search-msg" class="msg"></div>
+        <p class="hint" style="margin-top:10px">Nach Auswahl oder Neuanlage geht es direkt im Tab „Kasse“ weiter (Guthaben aufladen, Set/Scheiben kaufen).</p>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════ Kasse ══════════════════════════ -->
+    <div id="maintab-kasse" class="tab-content">
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchKasseSubtab('kasse', this)">Kasse</button>
+        <button class="tab-btn" onclick="switchKasseSubtab('auswertung', this)">Auswertung</button>
+        <button class="tab-btn" onclick="switchKasseSubtab('guthaben', this)">Guthaben</button>
+      </div>
+
+      <div id="kasse-sub-kasse" class="tab-content active">
+        <div id="ka-search-card" class="card">
+          <h2>Teilnehmer suchen</h2>
+          <input type="search" id="ka-q" placeholder="Teilnehmernummer oder Name…" oninput="kaSearchTeilnehmer()">
+          <div class="search-results" id="ka-results" style="display:none"></div>
+        </div>
+
+        <div id="ka-konto-card" class="card" style="display:none">
+          <h2>Konto</h2>
+          <div class="teilnehmer-badge">
+            <div>
+              <div class="name" id="ka-tk-name"></div>
+              <div class="class" id="ka-tk-class"></div>
+            </div>
+            <div class="nr" id="ka-tk-nr"></div>
+          </div>
+
+          <div class="saldo-row">
+            <div><label style="margin:0">Guthaben</label><span class="saldo" id="ka-tk-saldo">0,00 €</span></div>
+            <button type="button" class="btn-pay" onclick="kaOpenBezahlen()">💶 Bezahlen</button>
+          </div>
+
+          <!-- Bezahlvorgang: bewusst getrennter Schritt vom Kaufen. Erhaltener
+               Betrag gleicht ein evtl. negatives Guthaben aus und schließt den
+               Warenkorb mit ein; bleibt danach ein Rest, entscheidet der
+               Kassierer explizit, ob er als Guthaben bleibt oder als Rückgeld
+               ausgezahlt wird. -->
+          <div id="ka-bezahlen-panel" class="pay-panel" style="display:none">
+            <h3>Bezahlen</h3>
+            <p class="hint" id="ka-pay-status"></p>
+            <label for="ka-pay-erhalten">Erhaltener Betrag (€)</label>
+            <input type="number" id="ka-pay-erhalten" step="0.01" min="0" value="0" oninput="kaUpdatePayPreview()">
+            <p class="hint" id="ka-pay-preview" style="margin-top:8px"></p>
+            <div class="form-actions" id="ka-pay-actions"></div>
+            <div id="ka-pay-result" class="msg"></div>
+            <div class="form-actions">
+              <button type="button" class="btn-cancel" onclick="kaCloseBezahlen()">Schließen</button>
+            </div>
+          </div>
+          <div id="ka-tk-msg" class="msg"></div>
+
+          <label style="margin-top:16px">Sets</label>
+          <div id="ka-tk-sets"></div>
+          <label style="margin-top:16px">Einzelne Scheiben</label>
+          <div id="ka-tk-scheiben"></div>
+
+          <!-- Warenkorb: 2-stufiger Kauf - erst hier sammeln, nichts wird
+               gebucht bis ein abgeschlossener Bezahlvorgang (auch ohne
+               Bareinzahlung möglich) die Positionen tatsächlich anlegt. -->
+          <label style="margin-top:16px">Warenkorb</label>
+          <div id="ka-tk-cart"></div>
+
+          <label style="margin-top:16px">Käufe</label>
+          <table>
+            <thead><tr><th>Datum</th><th>Art</th><th>Preis</th><th>Status</th><th></th></tr></thead>
+            <tbody id="ka-tk-konto-tbody"></tbody>
+          </table>
+
+          <div class="form-actions">
+            <button type="button" class="btn-cancel" onclick="kaCloseTeilnehmer()">Anderer Teilnehmer</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="kasse-sub-auswertung" class="tab-content">
+        <div class="card">
+          <h2>Filter</h2>
+          <label for="ka-aw-date">Datum (leer = gesamtes Preisschießen)</label>
+          <input type="date" id="ka-aw-date" onchange="kaLoadAuswertung()">
+        </div>
+
+        <div class="card">
+          <h2>Bareinnahmen</h2>
+          <table>
+            <thead><tr><th>Datum</th><th>Aufladung</th><th>Auszahlung</th><th>Bareinnahme</th></tr></thead>
+            <tbody id="ka-aw-bar-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h2>Verkäufe nach Scheiben-/Set-Typ</h2>
+          <table>
+            <thead><tr><th>Datum</th><th>Art</th><th>Name</th><th>Menge</th><th>Summe</th></tr></thead>
+            <tbody id="ka-aw-verkauf-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Teilnehmer mit offenem Guthaben (positiv wie negativ) - Sprungpunkt
+           zur Kasse, um dort mit "Bezahlen" auszugleichen. -->
+      <div id="kasse-sub-guthaben" class="tab-content">
+        <div class="card">
+          <h2>Filter</h2>
+          <input type="search" id="ka-gu-q" placeholder="Name oder Teilnehmernummer…" oninput="kaRenderGuthaben()">
+        </div>
+
+        <div class="card">
+          <h2>Guthaben im Minus</h2>
+          <table>
+            <thead><tr><th>Nr</th><th>Name</th><th>Klasse</th><th>Guthaben</th><th></th></tr></thead>
+            <tbody id="ka-gu-neg-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h2>Guthaben im Plus</h2>
+          <table>
+            <thead><tr><th>Nr</th><th>Name</th><th>Klasse</th><th>Guthaben</th><th></th></tr></thead>
+            <tbody id="ka-gu-pos-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════ Teilnehmer ══════════════════════════ -->
+    <div id="maintab-teilnehmer" class="tab-content">
+      <div class="card">
+        <h2>Teilnehmer</h2>
+        <input type="search" id="tn-q" placeholder="Nummer oder Name suchen…" oninput="tnRenderList()">
+        <table style="margin-top:10px">
+          <thead><tr><th>Nr.</th><th>Name</th><th>Klasse</th><th>Guthaben</th><th>Scheiben</th><th></th></tr></thead>
+          <tbody id="tn-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="tn-detail-card" class="card" style="display:none">
+        <h2>Details</h2>
+        <div class="teilnehmer-badge">
+          <div>
+            <div class="name" id="tn-d-name"></div>
+            <div class="class" id="tn-d-class"></div>
+          </div>
+          <div class="nr" id="tn-d-nr"></div>
+        </div>
+        <p>Guthaben: <span class="saldo" id="tn-d-saldo">0,00 €</span></p>
+
+        <label style="margin-top:16px">Gekaufte Scheiben</label>
+        <table>
+          <thead><tr><th>Ser.-Nr.</th><th>Scheibe</th><th>Status</th><th>Schüsse</th><th>Stand</th></tr></thead>
+          <tbody id="tn-einheiten-tbody"></tbody>
+        </table>
+        <div id="tn-d-msg" class="msg"></div>
+
+        <div class="row-actions" style="margin-top:16px;justify-content:flex-start">
+          <button type="button" class="btn-buy" onclick="tnGotoKasse()">Zur Kasse (Scheiben nachkaufen)</button>
+          <button type="button" class="btn-buy" onclick="tnGotoStand()">Zum Stand (Standbelegung)</button>
+          <button type="button" class="btn-cancel" onclick="tnCloseDetail()">Schließen</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════ Stand ══════════════════════════ -->
+    <div id="maintab-stand" class="tab-content">
+      <div id="st-search-card" class="card">
+        <h2>Teilnehmer suchen</h2>
+        <input type="search" id="st-q" placeholder="Teilnehmernummer oder Name…" oninput="stSearchTeilnehmer()">
+        <div class="search-results" id="st-results" style="display:none"></div>
+      </div>
+
+      <!-- Kompakte Übersicht aller Stände - analog der Standsteuerung im
+           Server-Bereich, aber auf das Wesentliche fürs Preisschießen
+           reduziert (Name/Scheibe/Schüsse) und mit Ein-Klick-Freigabe. -->
+      <div class="card">
+        <h2>Stände</h2>
+        <table>
+          <thead><tr><th>Stand</th><th>Teilnehmer</th><th>Scheibe</th><th>Schüsse</th><th></th></tr></thead>
+          <tbody id="st-overview-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="st-detail-card" class="card" style="display:none">
+        <h2>Standbelegung</h2>
+        <div class="teilnehmer-badge">
+          <div>
+            <div class="name" id="st-d-name"></div>
+            <div class="class" id="st-d-class"></div>
+          </div>
+          <div class="nr" id="st-d-nr"></div>
+        </div>
+
+        <p class="hint">Der Teilnehmer wird nur einem Stand zugewiesen. Die Scheibe wählt der Schütze
+          selbst am Stand-PC (dort erscheint dazu ein Menü); ebenso kann er dort weitere Scheiben/Sets
+          gegen sein Guthaben nachbuchen.</p>
+        <div id="st-pending-info" class="hint" style="display:none"></div>
+        <div class="form-row2">
+          <div>
+            <label for="st-lane-sel">Stand</label>
+            <select id="st-lane-sel"></select>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-save" id="st-assign-btn" onclick="stAssign()">Zuweisen</button>
+          <button type="button" class="btn-cancel" id="st-clear-btn" onclick="stClearPending()" style="display:none">Zuweisung aufheben</button>
+        </div>
+        <div id="st-msg" class="msg"></div>
+
+        <label style="margin-top:16px">Übersicht</label>
+        <table>
+          <thead><tr><th>Ser.-Nr.</th><th>Scheibe</th><th>Status</th><th>Stand</th></tr></thead>
+          <tbody id="st-tbody"></tbody>
+        </table>
+
+        <div class="form-actions">
+          <button type="button" class="btn-cancel" onclick="stCloseDetail()">Anderer Teilnehmer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════ Verwaltung ══════════════════════════ -->
+    <div id="maintab-verwaltung" class="tab-content">
+      <div class="card">
+        <h2>Grunddaten</h2>
+        <form id="vw-ps-form" onsubmit="vwSavePS(event)">
+          <label for="vw-pf-name">Name *</label>
+          <input type="text" id="vw-pf-name" required placeholder="z.B. Preisschießen Herbst 2026">
+          <div class="form-row2">
+            <div><label for="vw-pf-start">Datum von</label><input type="date" id="vw-pf-start"></div>
+            <div><label for="vw-pf-end">Datum bis</label><input type="date" id="vw-pf-end"></div>
+          </div>
+          <label for="vw-pf-type">Typ</label>
+          <select id="vw-pf-type">
+            <option value="0">Kugel</option>
+            <option value="1">Bogen</option>
+            <option value="2">Kugel Auflage</option>
+          </select>
+          <label for="vw-pf-maxneg">Maximal erlaubtes Minus-Guthaben (€)</label>
+          <input type="number" id="vw-pf-maxneg" step="0.01" min="0" value="0">
+          <p class="hint" style="margin-top:4px">
+            Wie weit darf das Guthaben eines Teilnehmers beim Kauf ins Minus rutschen,
+            bevor bezahlt wird? 0 = kein Minus erlaubt (Kauf nur bei ausreichendem Guthaben).
+          </p>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+            <input type="checkbox" id="vw-pf-active" checked>
+            <span>Aktiv</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+            <input type="checkbox" id="vw-pf-sets-standpc">
+            <span>Sets am Stand-PC buchbar</span>
+          </label>
+          <p class="hint" style="margin-top:4px">
+            Standardmäßig aus - Sets werden dann nur an der Kasse angeboten, damit
+            die Auswahl am Stand-PC übersichtlich bleibt (einzelne Scheiben sind davon
+            unabhängig immer am Stand-PC buchbar).
+          </p>
+          <div class="form-actions">
+            <button type="submit" class="btn-save" id="vw-pf-save-btn" style="display:none">Speichern</button>
+          </div>
+          <div id="vw-pf-msg" class="msg"></div>
+        </form>
+        <div style="margin-top:12px">
+          <button class="btn-edit" style="padding:6px 12px" onclick="vwRecalcClasses()">Klasse neu berechnen</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchVerwaltungSubtab('scheiben', this)">Scheiben</button>
+        <button class="tab-btn" onclick="switchVerwaltungSubtab('sets', this)">Sets</button>
+      </div>
+
+      <!-- ══ Scheiben ══ -->
+      <div id="verwaltung-sub-scheiben" class="tab-content active">
+        <div class="split">
+          <div class="card">
+            <h2>Scheiben</h2>
+            <table>
+              <thead><tr><th>Name</th><th>Disziplin</th><th>Preis</th><th>Einzeln</th><th>Max/Teiln.</th><th>Aktiv</th><th></th></tr></thead>
+              <tbody id="vw-sc-tbody"></tbody>
+            </table>
+          </div>
+          <div class="card form-card">
+            <h2>Scheibe <span id="vw-scf-title">anlegen</span></h2>
+            <form id="vw-sc-form" onsubmit="vwSaveScheibe(event)">
+              <input type="hidden" id="vw-scf-id">
+              <label for="vw-scf-name">Name *</label>
+              <input type="text" id="vw-scf-name" required placeholder="z.B. LG Wertung">
+              <label for="vw-scf-disc">Disziplin *</label>
+              <select id="vw-scf-disc" required><option value="">– wählen –</option></select>
+              <div class="form-row2">
+                <div><label for="vw-scf-price">Preis (€) *</label><input type="number" id="vw-scf-price" step="0.01" min="0" required></div>
+                <div>
+                  <label for="vw-scf-color-preset">Zielscheibenfarbe</label>
+                  <div class="color-row">
+                    <select id="vw-scf-color-preset" onchange="vwApplyColorPreset()">
+                      <option value="#000000">Schwarz</option>
+                      <option value="#ffffff">Weiß</option>
+                      <option value="#8b0000">Dunkelrot</option>
+                      <option value="#8a6d00">Ocker</option>
+                      <option value="#0d47a1">Dunkelblau</option>
+                      <option value="#43a047">Grün</option>
+                      <option value="#fb8c00">Orange</option>
+                      <option value="#8e24aa">Violett</option>
+                      <option value="custom">Benutzerdefiniert…</option>
+                    </select>
+                    <input type="color" id="vw-scf-color" value="#000000" oninput="vwOnColorInputChange()">
+                  </div>
+                </div>
+              </div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+                <input type="checkbox" id="vw-scf-standalone" checked>
+                <span>Einzeln verkäuflich (sonst nur im Set)</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="vw-scf-active" checked>
+                <span>Aktiv</span>
+              </label>
+              <label for="vw-scf-maxpro">Maximale Anzahl pro Teilnehmer (leer = unbegrenzt)</label>
+              <input type="number" id="vw-scf-maxpro" min="1" step="1" placeholder="unbegrenzt">
+              <label>Nur für Schützenklassen (leer = alle)</label>
+              <div class="checklist" id="vw-scf-classes"></div>
+              <label>Erfordert vorherigen Kauf eines dieser Sets (leer = kein Gating)</label>
+              <div class="checklist" id="vw-scf-requires"></div>
+              <div class="form-actions">
+                <button type="submit" class="btn-save" id="vw-scf-save-btn" style="display:none">Speichern</button>
+                <button type="button" class="btn-cancel" onclick="vwClearScheibeForm()">Abbrechen</button>
+              </div>
+              <div id="vw-scf-msg" class="msg"></div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Sets ══ -->
+      <div id="verwaltung-sub-sets" class="tab-content">
+        <div class="split">
+          <div class="card">
+            <h2>Sets</h2>
+            <table>
+              <thead><tr><th>Name</th><th>Preis</th><th>Enthält</th><th>Max/Teiln.</th><th>Aktiv</th><th></th></tr></thead>
+              <tbody id="vw-st-tbody"></tbody>
+            </table>
+          </div>
+          <div class="card form-card">
+            <h2>Set <span id="vw-stf-title">anlegen</span></h2>
+            <form id="vw-st-form" onsubmit="vwSaveSet(event)">
+              <input type="hidden" id="vw-stf-id">
+              <label for="vw-stf-name">Name *</label>
+              <input type="text" id="vw-stf-name" required placeholder="z.B. Einlage LG">
+              <label for="vw-stf-price">Preis (€) *</label>
+              <input type="number" id="vw-stf-price" step="0.01" min="0" required>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+                <input type="checkbox" id="vw-stf-active" checked>
+                <span>Aktiv</span>
+              </label>
+              <label for="vw-stf-maxpro">Maximale Anzahl pro Teilnehmer (leer = unbegrenzt)</label>
+              <input type="number" id="vw-stf-maxpro" min="1" step="1" placeholder="unbegrenzt">
+              <label>Enthaltene Scheiben</label>
+              <div class="checklist" id="vw-stf-items"></div>
+              <label>Nur für Schützenklassen (leer = alle)</label>
+              <div class="checklist" id="vw-stf-classes"></div>
+              <div class="form-actions">
+                <button type="submit" class="btn-save" id="vw-stf-save-btn" style="display:none">Speichern</button>
+                <button type="button" class="btn-cancel" onclick="vwClearSetForm()">Abbrechen</button>
+              </div>
+              <div id="vw-stf-msg" class="msg"></div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </main>
 
 <script src="/settings.js"></script>
 <script>
+// ── Gemeinsame Helfer ────────────────────────────────────────────────────
 const api = (path, opts) => fetch('/api'+path, opts).then(async r => {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
 });
-
+const jsonOpts = (method, body) => ({method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+function eur(n) { return (n || 0).toFixed(2).replace('.', ',') + ' €'; }
 
+const TYP_LABEL = {scheibe: 'Scheibe', set: 'Set'};
 const TYPE_LABEL = {0:'Kugel', 1:'Bogen', 2:'Kugel Auflage'};
 
-let list = [];
-let canManage = false;
+let psList = [];
+let currentPS = null;
 
-function updateManageVisibility() {
-  canManage = !!window.SCHIESSSTAND_ROLE?.can_manage_preisschiessen;
-  document.getElementById('btn-new-ps').style.display = canManage ? '' : 'none';
-  render();
-}
-window.addEventListener('schiessstand-role-ready', updateManageVisibility);
-
-async function load() {
-  list = await api('/preisschiessen') || [];
-  render();
-}
-
-function render() {
-  const tbody = document.getElementById('ps-tbody');
-  tbody.innerHTML = '';
-  if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--dim);text-align:center">Keine Preisschießen</td></tr>';
+// ── Preisschießen-Auswahl (gemeinsam für alle Tabs) ─────────────────────
+async function loadPS() {
+  psList = (await api('/preisschiessen') || []).filter(p => p.active);
+  const sel = document.getElementById('ps-select');
+  sel.innerHTML = psList.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  if (!psList.length) {
+    document.getElementById('no-ps').style.display = 'block';
+    document.getElementById('app').style.display = 'none';
     return;
   }
-  for (const p of list) {
+  document.getElementById('app').style.display = 'block';
+  const saved = localStorage.getItem('ps_current_id');
+  sel.value = psList.some(p => p.id === saved) ? saved : psList[0].id;
+  currentPS = psList.find(p => p.id === sel.value);
+  localStorage.setItem('ps_current_id', currentPS.id);
+  await reloadAllTabs();
+}
+
+async function onPSChange() {
+  const sel = document.getElementById('ps-select');
+  currentPS = psList.find(p => p.id === sel.value);
+  localStorage.setItem('ps_current_id', currentPS.id);
+  kaCloseTeilnehmer();
+  anResetForm();
+  tnCloseDetail();
+  stCloseDetail();
+  await reloadAllTabs();
+}
+
+async function reloadAllTabs() {
+  await Promise.all([
+    anLoadRegisteredMap(),
+    tnLoadTeilnehmerList(),
+    kaLoadAuswertung(),
+    vwLoadForCurrentPS(),
+    stLoadLaneOverview(),
+  ]);
+}
+
+function switchMainTab(name, btn) {
+  document.querySelectorAll('#app > .tabs > .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#app > .tab-content').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('maintab-'+name).classList.add('active');
+  if (name === 'stand') stLoadLaneOverview();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Anmeldung
+// ══════════════════════════════════════════════════════════════════════
+let anRegisteredMap = {}; // shooter_id -> teilnehmer_nr
+let anSearchTimer = null;
+
+async function anLoadRegisteredMap() {
+  anRegisteredMap = {};
+  if (!currentPS) return;
+  const list = await api(`/preisschiessen/${currentPS.id}/teilnehmer`) || [];
+  for (const t of list) anRegisteredMap[t.shooter_id] = t.teilnehmer_nr;
+}
+
+async function anLoadClubs() {
+  const clubs = await api('/clubs') || [];
+  const sel = document.getElementById('an-nm-club');
+  sel.innerHTML = '<option value="">– keiner –</option>' + clubs.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+}
+
+function anSearchShooters() {
+  clearTimeout(anSearchTimer);
+  const q = document.getElementById('an-q').value.trim();
+  const results = document.getElementById('an-results');
+  if (!q) { results.style.display = 'none'; return; }
+  anSearchTimer = setTimeout(async () => {
+    const list = await api('/shooters?q=' + encodeURIComponent(q)) || [];
+    results.style.display = list.length ? 'block' : 'none';
+    results.innerHTML = list.map(sh => {
+      const nr = anRegisteredMap[sh.id];
+      const badge = nr !== undefined ? `<span class="reg-badge">#${nr}</span>` : '';
+      return `
+      <div class="search-result-item" onclick="anRegisterShooter('${sh.id}')">
+        <span>${badge}${esc(sh.last_name)}, ${esc(sh.first_name)}</span>
+        <span class="club">${esc(sh.club || '')}</span>
+      </div>`;
+    }).join('');
+  }, 250);
+}
+
+function anToggleNewMember() {
+  const form = document.getElementById('an-new-member-form');
+  const show = form.style.display === 'none';
+  form.style.display = show ? 'block' : 'none';
+  if (show) anLoadClubs();
+}
+
+async function anCreateAndRegister() {
+  const last = document.getElementById('an-nm-last').value.trim();
+  if (!last) { showMsg('an-search-msg', 'Nachname erforderlich', 'err'); return; }
+  const body = {
+    last_name: last,
+    first_name: document.getElementById('an-nm-first').value.trim(),
+    birth_date: document.getElementById('an-nm-birth').value,
+    club_id: document.getElementById('an-nm-club').value,
+    pass_no: document.getElementById('an-nm-pass').value.trim(),
+    gender: document.getElementById('an-nm-gender').value,
+    country: 'GER',
+  };
+  try {
+    const res = await api('/shooters/full', jsonOpts('POST', body));
+    await anRegisterShooter(res.id);
+  } catch(err) { showMsg('an-search-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function anRegisterShooter(shooterID) {
+  if (!currentPS) return;
+  if (anRegisteredMap[shooterID] !== undefined) {
+    showMsg('an-search-msg', `Bereits angemeldet als Teilnehmer #${anRegisteredMap[shooterID]}.`, 'info');
+    return;
+  }
+  try {
+    const t = await api(`/preisschiessen/${currentPS.id}/teilnehmer`, jsonOpts('POST', {shooter_id: shooterID}));
+    anRegisteredMap[shooterID] = t.teilnehmer_nr;
+    anResetForm();
+    await tnLoadTeilnehmerList();
+    document.querySelector('#app > .tabs > .tab-btn:nth-child(2)').click(); // Kasse-Tab
+    await kaOpenTeilnehmer(t.id);
+  } catch(err) { showMsg('an-search-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+function anResetForm() {
+  document.getElementById('an-q').value = '';
+  document.getElementById('an-results').style.display = 'none';
+  document.getElementById('an-new-member-form').style.display = 'none';
+  document.getElementById('an-nm-last').value = '';
+  document.getElementById('an-nm-first').value = '';
+  document.getElementById('an-nm-birth').value = '';
+  document.getElementById('an-nm-pass').value = '';
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Kasse (Konto/Warenkorb/Bezahlen - auch von Anmeldung und Teilnehmer aus
+// angesteuert)
+// ══════════════════════════════════════════════════════════════════════
+let kaCurrentTeilnehmer = null;
+let kaSearchTimer = null;
+let kaCart = []; // [{typ, id, name, price}] - rein clientseitig, bis Buchen/Bezahlen
+
+function switchKasseSubtab(name, btn) {
+  const scope = document.getElementById('maintab-kasse');
+  scope.querySelectorAll(':scope > .tabs > .tab-btn').forEach(b => b.classList.remove('active'));
+  scope.querySelectorAll(':scope > .tab-content').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('kasse-sub-'+name).classList.add('active');
+  if (name === 'auswertung') kaLoadAuswertung();
+  if (name === 'guthaben') kaLoadGuthabenList();
+}
+
+function kaSearchTeilnehmer() {
+  clearTimeout(kaSearchTimer);
+  const q = document.getElementById('ka-q').value.trim();
+  const results = document.getElementById('ka-results');
+  if (!q) { results.style.display = 'none'; return; }
+  kaSearchTimer = setTimeout(async () => {
+    const list = await api(`/preisschiessen/${currentPS.id}/teilnehmer?q=` + encodeURIComponent(q)) || [];
+    results.style.display = list.length ? 'block' : 'none';
+    results.innerHTML = list.map(t => `
+      <div class="search-result-item" onclick="kaOpenTeilnehmer('${t.id}')">
+        <span><span class="nr">#${t.teilnehmer_nr}</span>${esc(t.shooter_name)}</span>
+        <span class="club">${eur(t.guthaben)}</span>
+      </div>`).join('');
+  }, 250);
+}
+
+async function kaOpenTeilnehmer(id) {
+  // Sprungpunkte (z.B. aus Guthaben/Auswertung/Teilnehmer/Stand) zeigen das
+  // Konto immer auf der "Kasse"-Unterseite - unabhängig davon, welche
+  // Kasse-Unterseite gerade aktiv war (sonst bleibt die Konto-Karte unter
+  // einer anderen aktiven Unterseite unsichtbar).
+  const kasseSubBtn = document.querySelector('#maintab-kasse > .tabs > .tab-btn:nth-child(1)');
+  if (kasseSubBtn) switchKasseSubtab('kasse', kasseSubBtn);
+  kaCurrentTeilnehmer = {id};
+  document.getElementById('ka-search-card').style.display = 'none';
+  document.getElementById('ka-konto-card').style.display = 'block';
+  kaCloseBezahlen();
+  kaCart = [];
+  kaRenderCart();
+  await kaRefreshTeilnehmer();
+}
+
+function kaCloseTeilnehmer() {
+  kaCurrentTeilnehmer = null;
+  document.getElementById('ka-search-card').style.display = 'block';
+  document.getElementById('ka-konto-card').style.display = 'none';
+  document.getElementById('ka-q').value = '';
+  document.getElementById('ka-results').style.display = 'none';
+  kaCloseBezahlen();
+  kaCart = [];
+  kaRenderCart();
+}
+
+async function kaRefreshTeilnehmer() {
+  kaCurrentTeilnehmer = await api(`/preisschiessen/${currentPS.id}/teilnehmer/${kaCurrentTeilnehmer.id}`);
+  document.getElementById('ka-tk-name').textContent = kaCurrentTeilnehmer.shooter_name;
+  document.getElementById('ka-tk-class').textContent = kaCurrentTeilnehmer.class_name || 'keine Klasse zugeordnet';
+  document.getElementById('ka-tk-nr').textContent = '#' + kaCurrentTeilnehmer.teilnehmer_nr;
+  const saldoEl = document.getElementById('ka-tk-saldo');
+  saldoEl.textContent = eur(kaCurrentTeilnehmer.guthaben);
+  saldoEl.classList.toggle('neg', kaCurrentTeilnehmer.guthaben < 0);
+  if (document.getElementById('ka-bezahlen-panel').style.display !== 'none') kaUpdatePayPreview();
+  await Promise.all([kaRenderAngebot(), kaRenderKonto()]);
+}
+
+async function kaRenderAngebot() {
+  const [{scheiben, sets}, konto] = await Promise.all([
+    api(`/preisschiessen/${currentPS.id}/teilnehmer/${kaCurrentTeilnehmer.id}/angebot`),
+    api(`/preisschiessen/${currentPS.id}/teilnehmer/${kaCurrentTeilnehmer.id}/konto`),
+  ]);
+
+  const setsEl = document.getElementById('ka-tk-sets');
+  setsEl.innerHTML = (sets && sets.length) ? sets.map(s => `
+    <div class="offer-row">
+      <div>
+        <span class="name">${esc(s.name)}</span>
+        <span class="items">${(s.items||[]).map(it => `${it.quantity}× ${esc(it.scheibe_name)}`).join(', ')}</span>
+      </div>
+      <div>
+        <span class="price">${eur(s.price)}</span>
+        <button class="btn-buy" onclick='kaAddToCart("set","${s.id}",${JSON.stringify(s.name)},${s.price},${s.max_pro_teilnehmer ?? 'null'})'>In Warenkorb</button>
+      </div>
+    </div>`).join('') : '<p class="hint">Keine Sets verfügbar.</p>';
+
+  // Set-Voraussetzung (required_set_ids): das Set gilt schon als "vorhanden",
+  // wenn es entweder bereits gekauft (Konto, nicht zurückgegeben) oder gerade
+  // erst im eigenen Warenkorb liegt - so wird eine davon abhängige Scheibe
+  // sofort auswählbar, sobald das Set in den Warenkorb gelegt wurde, auch
+  // ohne dass vorher bezahlt wurde.
+  const ownedSetIds = new Set((konto||[]).filter(k => k.typ === 'set' && !k.returned_at).map(k => k.set_id));
+  const cartSetIds = new Set(kaCart.filter(c => c.typ === 'set').map(c => c.id));
+  const hasRequiredSet = (sc) => !sc.required_set_ids || !sc.required_set_ids.length ||
+    sc.required_set_ids.some(id => ownedSetIds.has(id) || cartSetIds.has(id));
+
+  const scheibenEl = document.getElementById('ka-tk-scheiben');
+  const verfuegbar = (scheiben || []).filter(hasRequiredSet);
+  scheibenEl.innerHTML = verfuegbar.length ? verfuegbar.map(sc => `
+    <div class="offer-row">
+      <span class="name">${esc(sc.name)}</span>
+      <div><span class="price">${eur(sc.price)}</span>
+      <button class="btn-buy" onclick='kaAddToCart("scheibe","${sc.id}",${JSON.stringify(sc.name)},${sc.price},${sc.max_pro_teilnehmer ?? 'null'})'>In Warenkorb</button></div>
+    </div>`).join('') : '<p class="hint">Keine einzelnen Scheiben verfügbar.</p>';
+}
+
+async function kaRenderKonto() {
+  const konto = await api(`/preisschiessen/${currentPS.id}/teilnehmer/${kaCurrentTeilnehmer.id}/konto`) || [];
+  const tbody = document.getElementById('ka-tk-konto-tbody');
+  tbody.innerHTML = konto.length ? konto.map(k => `
+    <tr>
+      <td style="font-size:.78rem;white-space:nowrap">${(k.purchased_at||'').slice(0,16).replace('T',' ')}</td>
+      <td>${esc(k.name)} <span class="hint">(${TYP_LABEL[k.typ]||k.typ})</span></td>
+      <td>${eur(k.preis)}</td>
+      <td>${k.returned_at ? '<span class="badge badge-returned">Zurückgegeben</span>' : '<span class="badge badge-open">Offen</span>'}</td>
+      <td>${k.returned_at ? '' : `<button class="btn-ret" onclick="kaRuckgabe('${k.id}')">Zurückgeben</button>`}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Käufe</td></tr>';
+}
+
+// ── Warenkorb (2-stufiger Kauf) ─────────────────────────────────────────
+function kaAddToCart(typ, id, name, price, maxProTeilnehmer) {
+  if (maxProTeilnehmer != null) {
+    const countInCart = kaCart.filter(c => c.typ === typ && c.id === id).length;
+    if (countInCart >= maxProTeilnehmer) {
+      showMsg('ka-tk-msg', `Maximal ${maxProTeilnehmer}× möglich.`, 'err');
+      return;
+    }
+  }
+  kaCart.push({typ, id, name, price});
+  kaRenderCart();
+  if (typ === 'set') kaRenderAngebot(); // evtl. davon abhängige Scheiben jetzt freischalten
+}
+
+function kaRemoveFromCart(i) {
+  const removed = kaCart[i];
+  kaCart.splice(i, 1);
+  kaRenderCart();
+  if (removed && removed.typ === 'set') kaRenderAngebot(); // evtl. davon abhängige Scheiben wieder sperren
+}
+
+function kaCartTotal() { return kaCart.reduce((s, c) => s + c.price, 0); }
+function kaCartPayload() { return kaCart.map(c => c.typ === 'set' ? {typ:'set', set_id:c.id} : {typ:'scheibe', scheibe_id:c.id}); }
+
+function kaRenderCart() {
+  const el = document.getElementById('ka-tk-cart');
+  el.innerHTML = kaCart.length ? kaCart.map((c, i) => `
+    <div class="offer-row">
+      <span class="name">${esc(c.name)}</span>
+      <div><span class="price">${eur(c.price)}</span>
+      <button class="btn-ret" onclick="kaRemoveFromCart(${i})">Entfernen</button></div>
+    </div>`).join('') + `
+    <div class="offer-row" style="font-weight:700"><span>Summe</span><span>${eur(kaCartTotal())}</span></div>`
+    : '<p class="hint">Warenkorb ist leer.</p>';
+
+  if (document.getElementById('ka-bezahlen-panel').style.display !== 'none') kaUpdatePayPreview();
+}
+
+// ── Bezahlen (bewusst getrennter Schritt, schließt den Warenkorb mit ein;
+//    auch ohne Bareinzahlung nutzbar, um den Warenkorb rein gegen
+//    vorhandenes Guthaben zu buchen) ──────────────────────────────────────
+function kaOpenBezahlen() {
+  document.getElementById('ka-bezahlen-panel').style.display = 'block';
+  document.getElementById('ka-pay-erhalten').value = '';
+  const resultEl = document.getElementById('ka-pay-result');
+  resultEl.style.display = 'none';
+  resultEl.textContent = '';
+  kaUpdatePayPreview();
+}
+
+function kaCloseBezahlen() {
+  document.getElementById('ka-bezahlen-panel').style.display = 'none';
+}
+
+function kaUpdatePayPreview() {
+  if (!kaCurrentTeilnehmer) return;
+  const erhalten = parseFloat(document.getElementById('ka-pay-erhalten').value) || 0;
+  const saldo = kaCurrentTeilnehmer.guthaben;
+  const wk = kaCartTotal();
+  const neu = saldo + erhalten - wk;
+
+  document.getElementById('ka-pay-status').textContent =
+    (saldo < 0 ? `Offener Betrag: ${eur(-saldo)}` : `Aktuelles Guthaben: ${eur(saldo)}`) +
+    (wk > 0 ? ` · Warenkorb: ${eur(wk)}` : '');
+  document.getElementById('ka-pay-preview').textContent = `Guthaben nach Zahlung: ${eur(neu)}`;
+
+  const actions = document.getElementById('ka-pay-actions');
+  if (neu > 0.004) {
+    actions.innerHTML = `
+      <button type="button" class="btn-cancel" onclick="kaFinalizeBezahlen(false)">Rest als Guthaben behalten</button>
+      <button type="button" class="btn-save" onclick="kaFinalizeBezahlen(true)">Rückgeld auszahlen (${eur(neu)})</button>`;
+  } else {
+    actions.innerHTML = `<button type="button" class="btn-save" onclick="kaFinalizeBezahlen(false)">Bezahlung buchen</button>`;
+  }
+}
+
+async function kaFinalizeBezahlen(restAuszahlen) {
+  const betrag_erhalten = parseFloat(document.getElementById('ka-pay-erhalten').value) || 0;
+  try {
+    const res = await api(`/preisschiessen/${currentPS.id}/teilnehmer/${kaCurrentTeilnehmer.id}/bezahlen`,
+      jsonOpts('POST', {items: kaCartPayload(), betrag_erhalten, rest_auszahlen: restAuszahlen}));
+    kaCart = [];
+    kaRenderCart();
+    await kaRefreshTeilnehmer();
+    await tnLoadTeilnehmerList();
+    const resultEl = document.getElementById('ka-pay-result');
+    if (res.rueckgeld > 0) {
+      resultEl.textContent = `Rückgeld: ${eur(res.rueckgeld)}`;
+      resultEl.className = 'msg ok';
+      resultEl.style.display = 'block';
+    } else {
+      resultEl.style.display = 'none';
+      showMsg('ka-tk-msg', 'Bezahlung gebucht.', 'ok');
+    }
+    document.getElementById('ka-pay-erhalten').value = '';
+    kaUpdatePayPreview();
+  } catch(err) { showMsg('ka-tk-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function kaRuckgabe(kaufID) {
+  if (!confirm('Kauf wirklich zurückgeben? Der Kaufpreis wird dem Guthaben gutgeschrieben.')) return;
+  try {
+    await api(`/preisschiessen/${currentPS.id}/kaeufe/${kaufID}/ruckgabe`, {method:'POST'});
+    await kaRefreshTeilnehmer();
+    await tnLoadTeilnehmerList();
+    showMsg('ka-tk-msg', 'Zurückgegeben.', 'ok');
+  } catch(err) { showMsg('ka-tk-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function kaLoadAuswertung() {
+  if (!currentPS) return;
+  const date = document.getElementById('ka-aw-date').value;
+  const aw = await api(`/preisschiessen/${currentPS.id}/auswertung?date=` + encodeURIComponent(date));
+
+  const barTbody = document.getElementById('ka-aw-bar-tbody');
+  const bar = aw.bareinnahmen || [];
+  let sumAuf = 0, sumAus = 0, sumBar = 0;
+  barTbody.innerHTML = bar.map(r => {
+    sumAuf += r.aufladung; sumAus += r.auszahlung; sumBar += r.bareinnahme;
+    return `<tr><td>${r.datum}</td><td>${eur(r.aufladung)}</td><td>${eur(r.auszahlung)}</td><td>${eur(r.bareinnahme)}</td></tr>`;
+  }).join('');
+  barTbody.innerHTML += bar.length
+    ? `<tr class="total"><td>Gesamt</td><td>${eur(sumAuf)}</td><td>${eur(sumAus)}</td><td>${eur(sumBar)}</td></tr>`
+    : '<tr><td colspan="4" style="color:var(--dim);text-align:center">Keine Buchungen</td></tr>';
+
+  const vkTbody = document.getElementById('ka-aw-verkauf-tbody');
+  const vk = aw.verkaeufe || [];
+  let sumSumme = 0;
+  vkTbody.innerHTML = vk.map(r => {
+    sumSumme += r.summe;
+    return `<tr><td>${r.datum}</td><td>${TYP_LABEL[r.typ]||r.typ}</td><td>${esc(r.name)}</td><td>${r.menge}</td><td>${eur(r.summe)}</td></tr>`;
+  }).join('');
+  vkTbody.innerHTML += vk.length
+    ? `<tr class="total"><td colspan="4">Gesamt</td><td>${eur(sumSumme)}</td></tr>`
+    : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Verkäufe</td></tr>';
+}
+
+// ── Guthaben: alle Teilnehmer mit offenem (positivem oder negativem)
+//    Guthaben, getrennt in zwei Tabellen, mit Sprungpunkt zur Kasse. ──
+let kaGuthabenList = [];
+
+async function kaLoadGuthabenList() {
+  if (!currentPS) return;
+  kaGuthabenList = await api(`/preisschiessen/${currentPS.id}/teilnehmer`) || [];
+  kaRenderGuthaben();
+}
+
+function kaRenderGuthaben() {
+  const q = document.getElementById('ka-gu-q').value.trim().toLowerCase();
+  const matches = t => !q || t.shooter_name.toLowerCase().includes(q) || String(t.teilnehmer_nr) === q;
+
+  const relevant = kaGuthabenList.filter(t => t.guthaben !== 0 && matches(t));
+  const neg = relevant.filter(t => t.guthaben < 0).sort((a, b) => a.guthaben - b.guthaben);
+  const pos = relevant.filter(t => t.guthaben > 0).sort((a, b) => b.guthaben - a.guthaben);
+
+  const renderRows = list => list.map(t => `
+    <tr>
+      <td>#${t.teilnehmer_nr}</td>
+      <td>${esc(t.shooter_name)}</td>
+      <td style="font-size:.8rem">${esc(t.class_name || '–')}</td>
+      <td class="saldo ${t.guthaben < 0 ? 'neg' : ''}">${eur(t.guthaben)}</td>
+      <td class="row-actions"><button class="btn-eval" onclick="kaOpenTeilnehmer('${t.id}')">Kasse</button></td>
+    </tr>`).join('');
+
+  document.getElementById('ka-gu-neg-tbody').innerHTML = neg.length
+    ? renderRows(neg)
+    : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Teilnehmer mit negativem Guthaben</td></tr>';
+  document.getElementById('ka-gu-pos-tbody').innerHTML = pos.length
+    ? renderRows(pos)
+    : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Teilnehmer mit positivem Guthaben</td></tr>';
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Teilnehmer
+// ══════════════════════════════════════════════════════════════════════
+const TN_STATUS_LABEL = {gekauft:'Gekauft', begonnen:'Begonnen', beendet:'Beendet'};
+let tnTeilnehmerList = [];
+let tnSelectedId = null;
+
+async function tnLoadTeilnehmerList() {
+  if (!currentPS) return;
+  tnTeilnehmerList = await api(`/preisschiessen/${currentPS.id}/teilnehmer`) || [];
+  tnRenderList();
+}
+
+function tnRenderList() {
+  const q = document.getElementById('tn-q').value.trim().toLowerCase();
+  const tbody = document.getElementById('tn-tbody');
+  const filtered = !q ? tnTeilnehmerList : tnTeilnehmerList.filter(t =>
+    t.shooter_name.toLowerCase().includes(q) || String(t.teilnehmer_nr) === q);
+  tbody.innerHTML = '';
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--dim);text-align:center">Keine Teilnehmer</td></tr>';
+    return;
+  }
+  for (const t of filtered) {
     const tr = document.createElement('tr');
-    tr.style.cursor = 'pointer';
-    const zeitraum = (p.starts_on || p.ends_on)
-      ? `${(p.starts_on||'').slice(0,10)} – ${(p.ends_on||'').slice(0,10)}`
-      : '–';
+    tr.className = 'tn-row' + (t.id === tnSelectedId ? ' active' : '');
     tr.innerHTML = `
-      <td><strong>${esc(p.name)}</strong></td>
-      <td style="font-size:.8rem;white-space:nowrap">${zeitraum}</td>
-      <td style="font-size:.8rem">${TYPE_LABEL[p.shooting_type] ?? p.shooting_type}</td>
-      <td style="font-size:.8rem">${p.teilnehmer_count}</td>
-      <td><span class="badge ${p.active?'badge-active':'badge-inactive'}">${p.active?'Aktiv':'Inaktiv'}</span></td>
+      <td>#${t.teilnehmer_nr}</td>
+      <td>${esc(t.shooter_name)}</td>
+      <td style="font-size:.8rem">${esc(t.class_name || '–')}</td>
+      <td class="saldo ${t.guthaben < 0 ? 'neg' : ''}" style="font-size:.83rem">${eur(t.guthaben)}</td>
+      <td style="font-size:.8rem">${t.scheiben_count}</td>
       <td class="row-actions">
-        <button class="btn-eval" onclick="openPage('${p.id}','preisschiessen-anmeldung');event.stopPropagation()">Anmeldung</button>
-        <button class="btn-eval" onclick="openPage('${p.id}','preisschiessen-kasse');event.stopPropagation()">Kasse</button>
-        <button class="btn-eval" onclick="openPage('${p.id}','preisschiessen-teilnehmer');event.stopPropagation()">Teilnehmer</button>
-        ${canManage ? `<button class="btn-edit" onclick="editPS('${p.id}');event.stopPropagation()">Bearb.</button>` : ''}
-        ${canManage ? `<button class="btn-del"  onclick="deletePS('${p.id}','${esc(p.name)}');event.stopPropagation()">Löschen</button>` : ''}
+        <button class="btn-eval" onclick="tnOpenKasseDirect('${t.id}');event.stopPropagation()">Kasse</button>
+        <button class="btn-eval" onclick="tnOpenStandDirect('${t.id}');event.stopPropagation()">Stand</button>
       </td>`;
-    tr.onclick = () => editPS(p.id);
+    tr.onclick = () => tnSelectTeilnehmer(t.id);
     tbody.appendChild(tr);
   }
 }
 
-function editPS(id) {
-  location.href = '/preisschiessen-bearbeiten?id=' + id;
+async function tnSelectTeilnehmer(id) {
+  tnSelectedId = id;
+  tnRenderList();
+  document.getElementById('tn-detail-card').style.display = 'block';
+  await tnRefreshDetail();
+  document.getElementById('tn-detail-card').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
-function openPage(id, page) {
-  localStorage.setItem('ps_current_id', id);
-  location.href = '/' + page;
+function tnCloseDetail() {
+  tnSelectedId = null;
+  document.getElementById('tn-detail-card').style.display = 'none';
+  tnRenderList();
 }
 
-async function deletePS(id, name) {
-  if (!confirm(`Preisschießen "${name}" wirklich löschen?\nAlle Teilnehmer, Käufe und Buchungen werden ebenfalls gelöscht.`)) return;
+async function tnRefreshDetail() {
+  const [t, einheiten] = await Promise.all([
+    api(`/preisschiessen/${currentPS.id}/teilnehmer/${tnSelectedId}`),
+    api(`/preisschiessen/${currentPS.id}/teilnehmer/${tnSelectedId}/scheiben-einheiten`),
+  ]);
+  document.getElementById('tn-d-name').textContent = t.shooter_name;
+  document.getElementById('tn-d-class').textContent = t.class_name || 'keine Klasse zugeordnet';
+  document.getElementById('tn-d-nr').textContent = '#' + t.teilnehmer_nr;
+  const saldoEl = document.getElementById('tn-d-saldo');
+  saldoEl.textContent = eur(t.guthaben);
+  saldoEl.classList.toggle('neg', t.guthaben < 0);
+
+  const tbody = document.getElementById('tn-einheiten-tbody');
+  tbody.innerHTML = (einheiten && einheiten.length) ? einheiten.map(e => `
+      <tr>
+        <td>#${e.serial_no}</td>
+        <td>${esc(e.scheibe_name)}</td>
+        <td><span class="badge badge-${e.status}">${TN_STATUS_LABEL[e.status]||e.status}</span></td>
+        <td style="font-size:.8rem">${e.shot_count}/${e.required_shots}</td>
+        <td style="font-size:.82rem">${e.lane_no ? `Stand ${e.lane_no}` : '–'}</td>
+      </tr>`).join('') : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Scheiben gekauft</td></tr>';
+}
+
+function tnGotoKasse() {
+  if (!tnSelectedId) return;
+  const id = tnSelectedId;
+  document.querySelector('#app > .tabs > .tab-btn:nth-child(2)').click(); // Kasse-Tab
+  kaOpenTeilnehmer(id);
+}
+
+function tnOpenKasseDirect(tid) {
+  document.querySelector('#app > .tabs > .tab-btn:nth-child(2)').click(); // Kasse-Tab
+  kaOpenTeilnehmer(tid);
+}
+
+function tnGotoStand() {
+  if (!tnSelectedId) return;
+  const id = tnSelectedId;
+  document.querySelector('#app > .tabs > .tab-btn:nth-child(4)').click(); // Stand-Tab
+  stOpenTeilnehmer(id);
+}
+
+function tnOpenStandDirect(tid) {
+  document.querySelector('#app > .tabs > .tab-btn:nth-child(4)').click(); // Stand-Tab
+  stOpenTeilnehmer(tid);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Stand (Standbelegung) - eigener Tab auf gleicher Ebene wie Teilnehmer,
+// je Teilnehmer direkt über den "Stand"-Button (Teilnehmer-Liste bzw.
+// -Detail) oder über die Suche hier erreichbar.
+// ══════════════════════════════════════════════════════════════════════
+let stCurrentTeilnehmerId = null;
+let stSearchTimer = null;
+let stFreeLanes = [];
+
+function stSearchTeilnehmer() {
+  clearTimeout(stSearchTimer);
+  const q = document.getElementById('st-q').value.trim();
+  const results = document.getElementById('st-results');
+  if (!q) { results.style.display = 'none'; return; }
+  stSearchTimer = setTimeout(async () => {
+    const list = await api(`/preisschiessen/${currentPS.id}/teilnehmer?q=` + encodeURIComponent(q)) || [];
+    results.style.display = list.length ? 'block' : 'none';
+    results.innerHTML = list.map(t => `
+      <div class="search-result-item" onclick="stOpenTeilnehmer('${t.id}')">
+        <span><span class="nr">#${t.teilnehmer_nr}</span>${esc(t.shooter_name)}</span>
+        <span class="club">${esc(t.class_name || '')}</span>
+      </div>`).join('');
+  }, 250);
+}
+
+async function stOpenTeilnehmer(id) {
+  stCurrentTeilnehmerId = id;
+  document.getElementById('st-search-card').style.display = 'none';
+  document.getElementById('st-detail-card').style.display = 'block';
+  await stRefreshDetail();
+}
+
+function stCloseDetail() {
+  stCurrentTeilnehmerId = null;
+  document.getElementById('st-search-card').style.display = 'block';
+  document.getElementById('st-detail-card').style.display = 'none';
+  document.getElementById('st-q').value = '';
+  document.getElementById('st-results').style.display = 'none';
+}
+
+async function stRefreshDetail() {
+  const [t, einheiten, lanes, pendingList] = await Promise.all([
+    api(`/preisschiessen/${currentPS.id}/teilnehmer/${stCurrentTeilnehmerId}`),
+    api(`/preisschiessen/${currentPS.id}/teilnehmer/${stCurrentTeilnehmerId}/scheiben-einheiten`),
+    api('/lanes'),
+    api('/preisschiessen/pending-lanes'),
+  ]);
+  document.getElementById('st-d-name').textContent = t.shooter_name;
+  document.getElementById('st-d-class').textContent = t.class_name || 'keine Klasse zugeordnet';
+  document.getElementById('st-d-nr').textContent = '#' + t.teilnehmer_nr;
+
+  const myPending = (pendingList || []).find(p => p.teilnehmer_id === stCurrentTeilnehmerId);
+  const otherPendingLanes = new Set((pendingList || [])
+    .filter(p => p.teilnehmer_id !== stCurrentTeilnehmerId).map(p => p.lane_no));
+  const activeEinheit = (einheiten || []).find(e => e.lane_no && e.status !== 'beendet');
+
+  const infoEl = document.getElementById('st-pending-info');
+  if (myPending) {
+    infoEl.textContent = `Wartet an Stand ${myPending.lane_no} auf Scheibenauswahl durch den Schützen.`;
+    infoEl.style.display = 'block';
+  } else if (activeEinheit) {
+    infoEl.textContent = `Schießt aktuell an Stand ${activeEinheit.lane_no} (${activeEinheit.scheibe_name}).`;
+    infoEl.style.display = 'block';
+  } else {
+    infoEl.style.display = 'none';
+  }
+  document.getElementById('st-clear-btn').style.display = myPending ? 'inline-block' : 'none';
+
+  // Freie Stände: aktiv, keine laufende Session, nicht bereits für einen
+  // ANDEREN Teilnehmer wartend zugewiesen.
+  stFreeLanes = (lanes || [])
+    .filter(l => l.active && !l.session_id && !otherPendingLanes.has(l.lane_no))
+    .map(l => l.lane_no).sort((a,b) => a-b);
+
+  const laneSel = document.getElementById('st-lane-sel');
+  laneSel.innerHTML = stFreeLanes.length
+    ? stFreeLanes.map(no => `<option value="${no}"${myPending && myPending.lane_no===no ? ' selected':''}>Stand ${no}</option>`).join('')
+    : '<option value="">– keine frei –</option>';
+
+  document.getElementById('st-assign-btn').disabled = !stFreeLanes.length;
+
+  const tbody = document.getElementById('st-tbody');
+  tbody.innerHTML = (einheiten && einheiten.length) ? einheiten.map(e => `
+      <tr>
+        <td>#${e.serial_no}</td>
+        <td>${esc(e.scheibe_name)}</td>
+        <td><span class="badge badge-${e.status}">${TN_STATUS_LABEL[e.status]||e.status}</span></td>
+        <td style="font-size:.82rem">${e.lane_no ? `Stand ${e.lane_no}` : '–'}</td>
+      </tr>`).join('') : '<tr><td colspan="4" style="color:var(--dim);text-align:center">Keine Scheiben gekauft</td></tr>';
+}
+
+async function stAssign() {
+  const laneNo = parseInt(document.getElementById('st-lane-sel').value, 10);
+  if (!laneNo) return;
   try {
-    await api(`/preisschiessen/${id}`, {method:'DELETE'});
-    await load();
-  } catch(err) { alert('Fehler: '+err.message); }
+    await api(`/preisschiessen/${currentPS.id}/teilnehmer/${stCurrentTeilnehmerId}/stand`,
+      jsonOpts('POST', {lane_no: laneNo}));
+    await stRefreshDetail();
+    await tnLoadTeilnehmerList();
+    await stLoadLaneOverview();
+    showMsg('st-msg', `Stand ${laneNo} zugewiesen. Der Schütze wählt die Scheibe am Stand-PC.`, 'ok');
+  } catch(err) { showMsg('st-msg', 'Fehler: '+err.message, 'err'); }
 }
 
-load();
+async function stClearPending() {
+  try {
+    await api(`/preisschiessen/${currentPS.id}/teilnehmer/${stCurrentTeilnehmerId}/stand`, {method:'DELETE'});
+    await stRefreshDetail();
+    await tnLoadTeilnehmerList();
+    await stLoadLaneOverview();
+    showMsg('st-msg', 'Zuweisung aufgehoben.', 'ok');
+  } catch(err) { showMsg('st-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+// ── Übersicht aller Stände (kompakt, analog Standsteuerung) ────────────────
+async function stLoadLaneOverview() {
+  if (!currentPS) return;
+  const lanes = await api(`/preisschiessen/${currentPS.id}/lanes-overview`) || [];
+  const tbody = document.getElementById('st-overview-tbody');
+  tbody.innerHTML = lanes.map(l => {
+    let teilnehmerCell = '<span style="color:var(--dim)">– frei –</span>';
+    let scheibeCell = '–';
+    let schuesseCell = '–';
+    let actionCell = '';
+    if (l.shooter_name) {
+      teilnehmerCell = `#${l.teilnehmer_nr} ${esc(l.shooter_name)}`;
+      if (l.pending) {
+        scheibeCell = '<span style="color:var(--dim)">wartet auf Scheibenwahl</span>';
+      } else {
+        scheibeCell = esc(l.scheibe_name || '–');
+        schuesseCell = l.required_shots ? `${l.shot_count}/${l.required_shots}` : String(l.shot_count);
+      }
+      actionCell = `<button class="btn-cancel" style="padding:4px 10px" onclick="stFreeLaneFromOverview(${l.lane_no})">Freigeben</button>`;
+    }
+    return `<tr><td>Stand ${l.lane_no}</td><td>${teilnehmerCell}</td><td>${scheibeCell}</td><td>${schuesseCell}</td><td>${actionCell}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Stände</td></tr>';
+}
+
+async function stFreeLaneFromOverview(laneNo) {
+  try {
+    await api(`/lanes/${laneNo}/preisschiessen/freigeben`, {method:'POST'});
+    await stLoadLaneOverview();
+    if (stCurrentTeilnehmerId) await stRefreshDetail();
+    await tnLoadTeilnehmerList();
+  } catch(err) { alert('Fehler: ' + err.message); }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Verwaltung (Grunddaten, Scheiben, Sets)
+// ══════════════════════════════════════════════════════════════════════
+let vwDisciplines = [], vwShooterClasses = [];
+let vwScheiben = [], vwSets = [];
+let vwCanManage = false;
+let vwMetaLoaded = false;
+
+const VW_COLOR_PRESETS = ['#000000','#ffffff','#8b0000','#8a6d00','#0d47a1','#43a047','#fb8c00','#8e24aa'];
+
+function updateManageVisibility() {
+  vwCanManage = !!window.SCHIESSSTAND_ROLE?.can_manage_preisschiessen;
+  for (const id of ['vw-pf-save-btn', 'vw-scf-save-btn', 'vw-stf-save-btn']) {
+    document.getElementById(id).style.display = vwCanManage ? '' : 'none';
+  }
+  vwRenderScheiben();
+  vwRenderSets();
+}
+window.addEventListener('schiessstand-role-ready', updateManageVisibility);
+
+function switchVerwaltungSubtab(name, btn) {
+  const scope = document.getElementById('maintab-verwaltung');
+  scope.querySelectorAll(':scope > .tabs > .tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('verwaltung-sub-scheiben').classList.remove('active');
+  document.getElementById('verwaltung-sub-sets').classList.remove('active');
+  btn.classList.add('active');
+  document.getElementById('verwaltung-sub-'+name).classList.add('active');
+}
+
+async function vwLoadMetaOnce() {
+  if (vwMetaLoaded) return;
+  vwMetaLoaded = true;
+  vwDisciplines = await api('/disciplines') || [];
+  vwShooterClasses = await api('/shooter-classes') || [];
+  const sel = document.getElementById('vw-scf-disc');
+  sel.innerHTML = '<option value="">– wählen –</option>';
+  for (const d of vwDisciplines) sel.innerHTML += `<option value="${d.id}">${esc(d.name)}</option>`;
+}
+
+async function vwLoadForCurrentPS() {
+  if (!currentPS) return;
+  await vwLoadMetaOnce();
+  vwFillForm(currentPS);
+  await vwLoadSets();
+  await vwLoadScheiben();
+  vwClearScheibeForm();
+  vwClearSetForm();
+}
+
+function vwFillForm(p) {
+  document.getElementById('vw-pf-name').value   = p.name;
+  document.getElementById('vw-pf-start').value  = p.starts_on ? p.starts_on.slice(0,10) : '';
+  document.getElementById('vw-pf-end').value    = p.ends_on   ? p.ends_on.slice(0,10)   : '';
+  document.getElementById('vw-pf-type').value   = p.shooting_type;
+  document.getElementById('vw-pf-maxneg').value = p.max_negative_guthaben ?? 0;
+  document.getElementById('vw-pf-active').checked = p.active;
+  document.getElementById('vw-pf-sets-standpc').checked = !!p.sets_at_standpc;
+}
+
+async function vwSavePS(e) {
+  e.preventDefault();
+  const body = {
+    name: document.getElementById('vw-pf-name').value.trim(),
+    starts_on: document.getElementById('vw-pf-start').value,
+    ends_on: document.getElementById('vw-pf-end').value,
+    shooting_type: parseInt(document.getElementById('vw-pf-type').value, 10),
+    max_negative_guthaben: parseFloat(document.getElementById('vw-pf-maxneg').value) || 0,
+    active: document.getElementById('vw-pf-active').checked,
+    sets_at_standpc: document.getElementById('vw-pf-sets-standpc').checked,
+  };
+  try {
+    await api(`/preisschiessen/${currentPS.id}`, jsonOpts('PUT', body));
+    currentPS = await api(`/preisschiessen/${currentPS.id}`);
+    const idx = psList.findIndex(p => p.id === currentPS.id);
+    if (idx !== -1) psList[idx] = currentPS;
+    document.getElementById('ps-select').options[document.getElementById('ps-select').selectedIndex].textContent = currentPS.name;
+    showMsg('vw-pf-msg', 'Gespeichert.', 'ok');
+  } catch(err) { showMsg('vw-pf-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+// Ordnet allen Teilnehmern dieses Preisschießens anhand des aktuellen
+// Geschlechts/Geburtsdatums des Schützen die passende Klasse neu zu - z.B.
+// nachdem bei einem Schützen nachträglich das Geburtsdatum ergänzt wurde,
+// das bei der Anmeldung noch fehlte. Referenzjahr/Schießart kommen serverseitig
+// vom Preisschießen selbst (Ende des Preisschießens, sonst aktuelles Jahr).
+async function vwRecalcClasses() {
+  if (!currentPS) return;
+  try {
+    const res = await api(`/preisschiessen/${currentPS.id}/teilnehmer/recalculate-classes`, {method:'POST'});
+    const skippedTotal = (res.skipped_no_data || 0) + (res.skipped_no_match || 0);
+    let msg = `Klasse neu berechnet: ${res.updated} aktualisiert, ${skippedTotal} übersprungen`;
+    if (skippedTotal > 0) {
+      msg += ` (${res.skipped_no_data} ohne Geschlecht/Geburtsdatum, ${res.skipped_no_match} ohne passende Klasse)`;
+    }
+    showMsg('vw-pf-msg', msg + '.', 'ok');
+    await tnLoadTeilnehmerList();
+  } catch(err) { showMsg('vw-pf-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+function vwSetColorFields(hex) {
+  const val = (hex || '#000000').toLowerCase();
+  document.getElementById('vw-scf-color').value = val;
+  document.getElementById('vw-scf-color-preset').value = VW_COLOR_PRESETS.includes(val) ? val : 'custom';
+}
+function vwApplyColorPreset() {
+  const val = document.getElementById('vw-scf-color-preset').value;
+  if (val === 'custom') return;
+  document.getElementById('vw-scf-color').value = val;
+}
+function vwOnColorInputChange() {
+  const val = document.getElementById('vw-scf-color').value.toLowerCase();
+  document.getElementById('vw-scf-color-preset').value = VW_COLOR_PRESETS.includes(val) ? val : 'custom';
+}
+
+function vwClassChecklistHTML(checkedIDs) {
+  const relevant = vwShooterClasses.filter(c => c.type === currentPS.shooting_type);
+  if (!relevant.length) return '<span class="hint">Keine Sportklassen für diese Schießart hinterlegt.</span>';
+  return relevant.map(c => `
+    <label class="check-row">
+      <input type="checkbox" data-class-id="${c.id}" ${checkedIDs.includes(c.id)?'checked':''}>
+      <span>${esc(c.name)}${c.short_name ? ' ('+esc(c.short_name)+')' : ''}</span>
+    </label>`).join('');
+}
+
+function vwReadCheckedIDs(containerID, attr) {
+  return [...document.querySelectorAll(`#${containerID} input[${attr}]:checked`)]
+    .map(el => el.getAttribute(attr));
+}
+
+function vwRefreshOpenSetItemsChecklist() {
+  const current = vwReadItems();
+  document.getElementById('vw-stf-items').innerHTML = vwItemsChecklistHTML(current);
+}
+function vwRefreshOpenScheibeRequiresChecklist() {
+  const current = vwReadCheckedIDs('vw-scf-requires', 'data-set-id');
+  document.getElementById('vw-scf-requires').innerHTML = vwSetsChecklistHTML(current);
+}
+
+// ── Scheiben ─────────────────────────────────────────────────────────────
+async function vwLoadScheiben() {
+  vwScheiben = await api(`/preisschiessen/${currentPS.id}/scheiben`) || [];
+  vwRenderScheiben();
+}
+
+function vwRenderScheiben() {
+  const tbody = document.getElementById('vw-sc-tbody');
+  tbody.innerHTML = '';
+  if (!vwScheiben.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);text-align:center">Keine Scheiben</td></tr>';
+    return;
+  }
+  for (const sc of vwScheiben) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${sc.target_color ? `<span class="color-dot" style="background:${esc(sc.target_color)}"></span>` : ''}${esc(sc.name)}</td>
+      <td style="font-size:.8rem">${esc(sc.discipline_name)}</td>
+      <td style="font-size:.8rem">${sc.price.toFixed(2)} €</td>
+      <td><span class="badge ${sc.standalone_erlaubt?'badge-yes':'badge-no'}">${sc.standalone_erlaubt?'Ja':'Nur im Set'}</span></td>
+      <td style="font-size:.8rem">${sc.max_pro_teilnehmer ?? '–'}</td>
+      <td><span class="badge ${sc.active?'badge-yes':'badge-no'}">${sc.active?'Aktiv':'Inaktiv'}</span></td>
+      <td class="row-actions">
+        ${vwCanManage ? `<button class="btn-edit" onclick="vwEditScheibe('${sc.id}')">Bearb.</button>` : ''}
+        ${vwCanManage ? `<button class="btn-del" onclick="vwDeleteScheibe('${sc.id}','${esc(sc.name)}')">Löschen</button>` : ''}
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function vwClearScheibeForm() {
+  document.getElementById('vw-sc-form').reset();
+  document.getElementById('vw-scf-id').value = '';
+  document.getElementById('vw-scf-title').textContent = 'anlegen';
+  document.getElementById('vw-scf-standalone').checked = true;
+  document.getElementById('vw-scf-active').checked = true;
+  vwSetColorFields('#000000');
+  document.getElementById('vw-scf-classes').innerHTML = vwClassChecklistHTML([]);
+  document.getElementById('vw-scf-requires').innerHTML = vwSetsChecklistHTML([]);
+}
+
+function vwEditScheibe(id) {
+  const sc = vwScheiben.find(x => x.id === id);
+  if (!sc) return;
+  document.getElementById('vw-scf-id').value = sc.id;
+  document.getElementById('vw-scf-title').textContent = 'bearbeiten';
+  document.getElementById('vw-scf-name').value = sc.name;
+  document.getElementById('vw-scf-disc').value = sc.discipline_id;
+  document.getElementById('vw-scf-price').value = sc.price;
+  vwSetColorFields(sc.target_color);
+  document.getElementById('vw-scf-standalone').checked = sc.standalone_erlaubt;
+  document.getElementById('vw-scf-active').checked = sc.active;
+  document.getElementById('vw-scf-maxpro').value = sc.max_pro_teilnehmer ?? '';
+  document.getElementById('vw-scf-classes').innerHTML = vwClassChecklistHTML(sc.class_ids || []);
+  document.getElementById('vw-scf-requires').innerHTML = vwSetsChecklistHTML(sc.required_set_ids || []);
+  window.scrollTo({top: document.getElementById('vw-scf-title').offsetTop, behavior:'smooth'});
+}
+
+function vwSetsChecklistHTML(checkedIDs) {
+  if (!vwSets.length) return '<span class="hint">Noch keine Sets angelegt.</span>';
+  return vwSets.map(s => `
+    <label class="check-row">
+      <input type="checkbox" data-set-id="${s.id}" ${checkedIDs.includes(s.id)?'checked':''}>
+      <span>${esc(s.name)}</span>
+    </label>`).join('');
+}
+
+async function vwSaveScheibe(e) {
+  e.preventDefault();
+  const id = document.getElementById('vw-scf-id').value;
+  const body = {
+    name: document.getElementById('vw-scf-name').value.trim(),
+    discipline_id: document.getElementById('vw-scf-disc').value,
+    price: parseFloat(document.getElementById('vw-scf-price').value) || 0,
+    target_color: document.getElementById('vw-scf-color').value.trim(),
+    standalone_erlaubt: document.getElementById('vw-scf-standalone').checked,
+    active: document.getElementById('vw-scf-active').checked,
+    max_pro_teilnehmer: document.getElementById('vw-scf-maxpro').value === '' ? null : parseInt(document.getElementById('vw-scf-maxpro').value, 10),
+    sort_order: 0,
+  };
+  try {
+    let scID = id;
+    if (id) {
+      await api(`/preisschiessen/${currentPS.id}/scheiben/${id}`, jsonOpts('PUT', body));
+    } else {
+      const res = await api(`/preisschiessen/${currentPS.id}/scheiben`, jsonOpts('POST', body));
+      scID = res.id;
+    }
+    const classIDs = vwReadCheckedIDs('vw-scf-classes', 'data-class-id');
+    const setIDs = vwReadCheckedIDs('vw-scf-requires', 'data-set-id');
+    await api(`/preisschiessen/${currentPS.id}/scheiben/${scID}/classes`, jsonOpts('PUT', {class_ids: classIDs}));
+    await api(`/preisschiessen/${currentPS.id}/scheiben/${scID}/requires`, jsonOpts('PUT', {set_ids: setIDs}));
+    await vwLoadScheiben();
+    vwRefreshOpenSetItemsChecklist();
+    vwClearScheibeForm();
+    showMsg('vw-scf-msg', 'Gespeichert.', 'ok');
+  } catch(err) { showMsg('vw-scf-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function vwDeleteScheibe(id, name) {
+  if (!confirm(`Scheibe "${name}" wirklich löschen?`)) return;
+  try {
+    await api(`/preisschiessen/${currentPS.id}/scheiben/${id}`, {method:'DELETE'});
+    await vwLoadScheiben();
+    vwRefreshOpenSetItemsChecklist();
+  } catch(err) { alert('Fehler: '+err.message+'\n(Bereits verkaufte Scheiben können nicht gelöscht werden.)'); }
+}
+
+// ── Sets ─────────────────────────────────────────────────────────────────
+async function vwLoadSets() {
+  vwSets = await api(`/preisschiessen/${currentPS.id}/sets`) || [];
+  vwRenderSets();
+}
+
+function vwRenderSets() {
+  const tbody = document.getElementById('vw-st-tbody');
+  tbody.innerHTML = '';
+  if (!vwSets.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--dim);text-align:center">Keine Sets</td></tr>';
+    return;
+  }
+  for (const s of vwSets) {
+    const inhalt = (s.items||[]).map(it => `${it.quantity}× ${esc(it.scheibe_name)}`).join(', ') || '–';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(s.name)}</td>
+      <td style="font-size:.8rem">${s.price.toFixed(2)} €</td>
+      <td style="font-size:.78rem;color:var(--dim)">${inhalt}</td>
+      <td style="font-size:.8rem">${s.max_pro_teilnehmer ?? '–'}</td>
+      <td><span class="badge ${s.active?'badge-yes':'badge-no'}">${s.active?'Aktiv':'Inaktiv'}</span></td>
+      <td class="row-actions">
+        ${vwCanManage ? `<button class="btn-edit" onclick="vwEditSet('${s.id}')">Bearb.</button>` : ''}
+        ${vwCanManage ? `<button class="btn-del" onclick="vwDeleteSet('${s.id}','${esc(s.name)}')">Löschen</button>` : ''}
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function vwItemsChecklistHTML(checkedItems) {
+  if (!vwScheiben.length) return '<span class="hint">Noch keine Scheiben angelegt.</span>';
+  const qtyByID = {};
+  for (const it of checkedItems) qtyByID[it.scheibe_id] = it.quantity;
+  return vwScheiben.map(sc => `
+    <div class="item-row">
+      <input type="checkbox" data-item-scheibe-id="${sc.id}" ${qtyByID[sc.id]?'checked':''}>
+      <span class="name">${esc(sc.name)}</span>
+      <input type="number" class="qty" min="1" value="${qtyByID[sc.id]||1}" data-item-qty-for="${sc.id}">
+    </div>`).join('');
+}
+
+function vwReadItems() {
+  const items = [];
+  document.querySelectorAll('#vw-stf-items input[data-item-scheibe-id]:checked').forEach(cb => {
+    const scID = cb.getAttribute('data-item-scheibe-id');
+    const qtyEl = document.querySelector(`#vw-stf-items input[data-item-qty-for="${scID}"]`);
+    items.push({scheibe_id: scID, quantity: parseInt(qtyEl.value, 10) || 1});
+  });
+  return items;
+}
+
+function vwClearSetForm() {
+  document.getElementById('vw-st-form').reset();
+  document.getElementById('vw-stf-id').value = '';
+  document.getElementById('vw-stf-title').textContent = 'anlegen';
+  document.getElementById('vw-stf-active').checked = true;
+  document.getElementById('vw-stf-items').innerHTML = vwItemsChecklistHTML([]);
+  document.getElementById('vw-stf-classes').innerHTML = vwClassChecklistHTML([]);
+}
+
+function vwEditSet(id) {
+  const s = vwSets.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('vw-stf-id').value = s.id;
+  document.getElementById('vw-stf-title').textContent = 'bearbeiten';
+  document.getElementById('vw-stf-name').value = s.name;
+  document.getElementById('vw-stf-price').value = s.price;
+  document.getElementById('vw-stf-active').checked = s.active;
+  document.getElementById('vw-stf-maxpro').value = s.max_pro_teilnehmer ?? '';
+  document.getElementById('vw-stf-items').innerHTML = vwItemsChecklistHTML(s.items || []);
+  document.getElementById('vw-stf-classes').innerHTML = vwClassChecklistHTML(s.class_ids || []);
+  window.scrollTo({top: document.getElementById('vw-stf-title').offsetTop, behavior:'smooth'});
+}
+
+async function vwSaveSet(e) {
+  e.preventDefault();
+  const id = document.getElementById('vw-stf-id').value;
+  const body = {
+    name: document.getElementById('vw-stf-name').value.trim(),
+    price: parseFloat(document.getElementById('vw-stf-price').value) || 0,
+    active: document.getElementById('vw-stf-active').checked,
+    max_pro_teilnehmer: document.getElementById('vw-stf-maxpro').value === '' ? null : parseInt(document.getElementById('vw-stf-maxpro').value, 10),
+    sort_order: 0,
+  };
+  try {
+    let setID = id;
+    if (id) {
+      await api(`/preisschiessen/${currentPS.id}/sets/${id}`, jsonOpts('PUT', body));
+    } else {
+      const res = await api(`/preisschiessen/${currentPS.id}/sets`, jsonOpts('POST', body));
+      setID = res.id;
+    }
+    await api(`/preisschiessen/${currentPS.id}/sets/${setID}/items`, jsonOpts('PUT', {items: vwReadItems()}));
+    const classIDs = vwReadCheckedIDs('vw-stf-classes', 'data-class-id');
+    await api(`/preisschiessen/${currentPS.id}/sets/${setID}/classes`, jsonOpts('PUT', {class_ids: classIDs}));
+    await vwLoadSets();
+    await vwLoadScheiben(); // Scheiben-"Erfordert Set"-Liste kann sich geändert haben
+    vwRefreshOpenScheibeRequiresChecklist();
+    vwClearSetForm();
+    showMsg('vw-stf-msg', 'Gespeichert.', 'ok');
+  } catch(err) { showMsg('vw-stf-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function vwDeleteSet(id, name) {
+  if (!confirm(`Set "${name}" wirklich löschen?`)) return;
+  try {
+    await api(`/preisschiessen/${currentPS.id}/sets/${id}`, {method:'DELETE'});
+    await vwLoadSets();
+    vwRefreshOpenScheibeRequiresChecklist();
+  } catch(err) { alert('Fehler: '+err.message+'\n(Bereits verkaufte Sets können nicht gelöscht werden.)'); }
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────
+(async function init() {
+  const initialTab = new URLSearchParams(location.search).get('tab');
+  if (initialTab) {
+    const idx = {anmeldung:1, kasse:2, teilnehmer:3, stand:4, verwaltung:5}[initialTab];
+    if (idx) document.querySelector(`#app > .tabs > .tab-btn:nth-child(${idx})`).click();
+  }
+  await loadPS();
+  const pendingTid = localStorage.getItem('ps_kasse_open_teilnehmer_id');
+  if (pendingTid) {
+    localStorage.removeItem('ps_kasse_open_teilnehmer_id');
+    if (currentPS) {
+      document.querySelector('#app > .tabs > .tab-btn:nth-child(2)').click();
+      await kaOpenTeilnehmer(pendingTid);
+    }
+  }
+})();
 </script>
 <script src="/role.js"></script>
 </body>

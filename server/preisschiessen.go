@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -38,7 +39,13 @@ type Preisschiessen struct {
 	ShootingType        int     `json:"shooting_type"`
 	MaxNegativeGuthaben float64 `json:"max_negative_guthaben"`
 	Active              bool    `json:"active"`
-	TeilnehmerCount     int     `json:"teilnehmer_count"`
+	// SetsAtStandpc: sollen Sets am Stand-PC zum Nachbuchen angeboten werden?
+	// Default false (sonst wird die Auswahl dort unübersichtlich) - an der
+	// Kasse im Büro sind Sets davon unabhängig immer erwerbbar (siehe
+	// Store.GetLanePreisschiessenInfo, das dies filtert; Store.ListAngebot
+	// selbst bleibt für die Kasse unverändert).
+	SetsAtStandpc   bool `json:"sets_at_standpc"`
+	TeilnehmerCount int  `json:"teilnehmer_count"`
 }
 
 type PSScheibe struct {
@@ -96,6 +103,7 @@ type PSKaufScheibeEinheit struct {
 	KaufID        string  `json:"kauf_id"`
 	ScheibeID     string  `json:"scheibe_id"`
 	ScheibeName   string  `json:"scheibe_name"`
+	TargetColor   string  `json:"target_color"`
 	SerialNo      int     `json:"serial_no"`
 	SessionID     *string `json:"session_id"`
 	LaneNo        *int    `json:"lane_no"`
@@ -125,6 +133,51 @@ type CartItem struct {
 	SetID     string `json:"set_id"`
 }
 
+// PSScheibeTyp ist eine wählbare Scheiben-ART (nicht die einzelne
+// nummerierte Einheit) - für das Stand-PC-Menü, in dem der Schütze nur den
+// Namen wählt.
+type PSScheibeTyp struct {
+	ScheibeID string `json:"scheibe_id"`
+	Name      string `json:"name"`
+	// Gekauft/Beendet zaehlen ALLE Einheiten dieses Scheiben-TYPS des
+	// Teilnehmers (nicht nur die noch waehlbaren) - fuers Stand-PC-Menue,
+	// damit der Schuetze auf einen Blick sieht, wie viele er schon hat.
+	// "begonnen" zaehlt zu Gekauft dazu (noch nicht abgeschlossen).
+	Gekauft int `json:"gekauft"`
+	Beendet int `json:"beendet"`
+}
+
+// PSLaneInfo ist die Preisschießen-Sicht eines Stands, wie sie der Stand-PC
+// pollt (GET /api/lanes/{no}/preisschiessen): welcher Teilnehmer wartet
+// bzw. schießt dort gerade, und was er wählen/nachkaufen kann.
+type PSLaneInfo struct {
+	PreisschiessenID     string         `json:"preisschiessen_id,omitempty"`
+	PreisschiessenName   string         `json:"preisschiessen_name"`
+	TeilnehmerID         string         `json:"teilnehmer_id"`
+	TeilnehmerNr         int            `json:"teilnehmer_nr"`
+	ShooterName          string         `json:"shooter_name"`
+	Guthaben             float64        `json:"guthaben"`
+	Pending              bool           `json:"pending"`
+	CurrentScheibeName   string         `json:"current_scheibe_name,omitempty"`
+	CurrentTargetColor   string         `json:"current_target_color,omitempty"`
+	CurrentShotCount     int            `json:"current_shot_count,omitempty"`
+	CurrentRequiredShots int            `json:"current_required_shots,omitempty"`
+	ScheibenTypen        []PSScheibeTyp `json:"scheiben_typen"`
+	Angebot              struct {
+		Scheiben []PSScheibe `json:"scheiben"`
+		Sets     []PSSet     `json:"sets"`
+	} `json:"angebot"`
+}
+
+// PSPendingLane ist eine Zeile aus ps_lane_pending, angereichert für die
+// Büro-Übersicht (welcher Stand wartet auf welchen Teilnehmer).
+type PSPendingLane struct {
+	LaneNo       int    `json:"lane_no"`
+	TeilnehmerID string `json:"teilnehmer_id"`
+	TeilnehmerNr int    `json:"teilnehmer_nr"`
+	ShooterName  string `json:"shooter_name"`
+}
+
 type PSAuswertungTag struct {
 	Datum       string  `json:"datum"`
 	Aufladung   float64 `json:"aufladung"`
@@ -152,7 +205,7 @@ type PSAuswertung struct {
 func (s *Store) ListPreisschiessen(ctx context.Context) ([]Preisschiessen, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT p.id, p.name, COALESCE(p.starts_on::text,''), COALESCE(p.ends_on::text,''),
-		       p.shooting_type, p.max_negative_guthaben, p.active,
+		       p.shooting_type, p.max_negative_guthaben, p.active, p.sets_at_standpc,
 		       (SELECT COUNT(*) FROM ps_teilnehmer t WHERE t.preisschiessen_id = p.id)
 		FROM preisschiessen p
 		ORDER BY p.starts_on DESC NULLS LAST, p.name`)
@@ -164,7 +217,7 @@ func (s *Store) ListPreisschiessen(ctx context.Context) ([]Preisschiessen, error
 	for rows.Next() {
 		var p Preisschiessen
 		if err := rows.Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn,
-			&p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.TeilnehmerCount); err != nil {
+			&p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc, &p.TeilnehmerCount); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -176,9 +229,9 @@ func (s *Store) GetPreisschiessen(ctx context.Context, id string) (Preisschiesse
 	var p Preisschiessen
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, name, COALESCE(starts_on::text,''), COALESCE(ends_on::text,''),
-		       shooting_type, max_negative_guthaben, active
+		       shooting_type, max_negative_guthaben, active, sets_at_standpc
 		FROM preisschiessen WHERE id=$1`, id,
-	).Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn, &p.ShootingType, &p.MaxNegativeGuthaben, &p.Active)
+	).Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn, &p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, &httpError{code: 404, msg: "Preisschießen nicht gefunden"}
 	}
@@ -190,9 +243,9 @@ func (s *Store) CreatePreisschiessen(ctx context.Context, p Preisschiessen) (str
 	endsOn, _ := time.Parse("2006-01-02", p.EndsOn)
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO preisschiessen (name, starts_on, ends_on, shooting_type, max_negative_guthaben)
-		VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-		p.Name, nullTime(startsOn), nullTime(endsOn), p.ShootingType, p.MaxNegativeGuthaben,
+		INSERT INTO preisschiessen (name, starts_on, ends_on, shooting_type, max_negative_guthaben, sets_at_standpc)
+		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+		p.Name, nullTime(startsOn), nullTime(endsOn), p.ShootingType, p.MaxNegativeGuthaben, p.SetsAtStandpc,
 	).Scan(&id)
 	return id, err
 }
@@ -203,10 +256,10 @@ func (s *Store) UpdatePreisschiessen(ctx context.Context, p Preisschiessen) erro
 	_, err := s.pool.Exec(ctx, `
 		UPDATE preisschiessen SET
 		  name = $1, starts_on = $2, ends_on = $3, shooting_type = $4,
-		  max_negative_guthaben = $5, active = $6, updated_at = now()
-		WHERE id = $7`,
+		  max_negative_guthaben = $5, active = $6, sets_at_standpc = $7, updated_at = now()
+		WHERE id = $8`,
 		p.Name, nullTime(startsOn), nullTime(endsOn), p.ShootingType,
-		p.MaxNegativeGuthaben, p.Active, p.ID,
+		p.MaxNegativeGuthaben, p.Active, p.SetsAtStandpc, p.ID,
 	)
 	return err
 }
@@ -646,8 +699,9 @@ func (s *Store) GetTeilnehmer(ctx context.Context, id string) (PSTeilnehmer, err
 // Teilnehmers (aus nicht zurückgegebenen Käufen) mit berechnetem Status.
 func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID string) ([]PSKaufScheibeEinheit, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT ks.id, ks.kauf_id, ks.scheibe_id, sc.name, ks.serial_no, ks.session_id::text,
-		       l.lane_no,
+		SELECT ks.id, ks.kauf_id, ks.scheibe_id, sc.name, COALESCE(sc.target_color,''),
+		       ks.serial_no, ks.session_id::text,
+		       l.lane_no, COALESCE(se.status::text, ''),
 		       (SELECT COUNT(*) FROM shots sh WHERE sh.session_id = ks.session_id AND sh.status <> 'rejected'),
 		       COALESCE(sr.shot_count, 0), d.match_shot_count
 		FROM ps_kauf_scheiben ks
@@ -667,8 +721,9 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 	for rows.Next() {
 		var x PSKaufScheibeEinheit
 		var anyShots, matchShots, required int
-		if err := rows.Scan(&x.ID, &x.KaufID, &x.ScheibeID, &x.ScheibeName, &x.SerialNo, &x.SessionID,
-			&x.LaneNo, &anyShots, &matchShots, &required); err != nil {
+		var sessionStatus string
+		if err := rows.Scan(&x.ID, &x.KaufID, &x.ScheibeID, &x.ScheibeName, &x.TargetColor, &x.SerialNo, &x.SessionID,
+			&x.LaneNo, &sessionStatus, &anyShots, &matchShots, &required); err != nil {
 			return nil, err
 		}
 		x.ShotCount = matchShots
@@ -678,6 +733,12 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 			x.Status = "begonnen"
 		}
 		if required > 0 && matchShots >= required {
+			x.Status = "beendet"
+		}
+		// "Scheibe abschließen" (Store.ScheibeAbschliessenAtLane) markiert die
+		// Session als 'aborted' - zaehlt unabhaengig von der Schusszahl als
+		// beendet (bewusster vorzeitiger Abschluss durch Schütze/Aufsicht).
+		if sessionStatus == "aborted" {
 			x.Status = "beendet"
 		}
 		out = append(out, x)
@@ -773,6 +834,94 @@ func (s *Store) CreateTeilnehmer(ctx context.Context, preisschiessenID, shooterI
 	return s.GetTeilnehmer(ctx, id)
 }
 
+// RecalcTeilnehmerClasses berechnet für alle Teilnehmer eines Preisschießens
+// die Klasse neu - z.B. nachdem bei einem Schützen nachträglich das
+// Geburtsdatum gepflegt wurde, das bei der Anmeldung (CreateTeilnehmer) noch
+// fehlte und die Klasse deshalb leer blieb. Referenzjahr und Schießart wie
+// bei CreateTeilnehmer (Ende des Preisschießens, sonst aktuelles Jahr).
+// Analog zu Store.RecalculateSportsClasses (Stammdaten/Mitglieder), aber je
+// Preisschießen anhand von ps_teilnehmer.class_id statt shooters.sports_class.
+func (s *Store) RecalcTeilnehmerClasses(ctx context.Context, preisschiessenID string) (RecalculateResult, error) {
+	var res RecalculateResult
+
+	var endsOn *time.Time
+	var shootingType int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT ends_on, shooting_type FROM preisschiessen WHERE id=$1`, preisschiessenID,
+	).Scan(&endsOn, &shootingType); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return res, &httpError{code: 404, msg: "Preisschießen nicht gefunden"}
+		}
+		return res, err
+	}
+	refYear := time.Now().Year()
+	if endsOn != nil {
+		refYear = endsOn.Year()
+	}
+
+	type teilnehmerRow struct {
+		id, shooterID string
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, shooter_id::text FROM ps_teilnehmer WHERE preisschiessen_id=$1`, preisschiessenID)
+	if err != nil {
+		return res, err
+	}
+	var list []teilnehmerRow
+	for rows.Next() {
+		var t teilnehmerRow
+		if err := rows.Scan(&t.id, &t.shooterID); err != nil {
+			rows.Close()
+			return res, err
+		}
+		list = append(list, t)
+	}
+	if err := rows.Err(); err != nil {
+		return res, err
+	}
+	rows.Close()
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback(ctx)
+
+	for _, t := range list {
+		var gender string
+		var byear *int
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE(gender,''), EXTRACT(YEAR FROM birth_date)::int FROM shooters WHERE id=$1`,
+			t.shooterID,
+		).Scan(&gender, &byear); err != nil {
+			return res, err
+		}
+		if (gender != "M" && gender != "W") || byear == nil {
+			res.SkippedNoData++
+			continue
+		}
+		classIDPtr, err := s.computeShooterClass(ctx, tx, t.shooterID, refYear, shootingType)
+		if err != nil {
+			return res, err
+		}
+		if classIDPtr == nil {
+			res.SkippedNoMatch++
+			continue
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE ps_teilnehmer SET class_id=$1 WHERE id=$2`, *classIDPtr, t.id,
+		); err != nil {
+			return res, err
+		}
+		res.Updated++
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
 // ListAngebot liefert die für einen Teilnehmer aktuell kaufbaren Scheiben
 // und Sets: aktiv, Klassen-Restriktion beachtet (keine Zeile = offen für
 // alle), bei Scheiben zusätzlich standalone_erlaubt und Set-Gating
@@ -790,10 +939,19 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 		return nil, nil, err
 	}
 
+	// Set-Voraussetzung (ps_scheibe_requires_set) wird hier bewusst NICHT
+	// mehr rausgefiltert: seit dem 2-stufigen Warenkorb kann das
+	// vorausgesetzte Set noch unbezahlt im Warenkorb liegen (also noch kein
+	// ps_kaeufe-Eintrag existieren) - das Frontend entscheidet anhand von
+	// required_set_ids zusammen mit dem eigenen Warenkorb, ob die Scheibe
+	// gerade auswählbar ist. Serverseitig hart durchgesetzt wird die
+	// Voraussetzung weiterhin beim tatsächlichen Buchen (Store.purchaseItem),
+	// dort innerhalb derselben Transaktion wie ein evtl. mitgekauftes Set.
 	scheibenRows, err := s.pool.Query(ctx, `
 		SELECT sc.id, sc.preisschiessen_id, sc.name, sc.discipline_id, d.name, sc.price,
 		       COALESCE(sc.target_color,''), sc.standalone_erlaubt, sc.active, sc.sort_order,
-		       sc.max_pro_teilnehmer
+		       sc.max_pro_teilnehmer,
+		       COALESCE((SELECT array_agg(required_set_id::text) FROM ps_scheibe_requires_set WHERE scheibe_id = sc.id), '{}')
 		FROM ps_scheiben sc
 		JOIN disciplines d ON d.id = sc.discipline_id
 		WHERE sc.preisschiessen_id = $1
@@ -801,15 +959,6 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 		  AND (
 		        NOT EXISTS (SELECT 1 FROM ps_scheibe_classes psc WHERE psc.scheibe_id = sc.id)
 		        OR EXISTS (SELECT 1 FROM ps_scheibe_classes psc WHERE psc.scheibe_id = sc.id AND psc.class_id = $2)
-		      )
-		  AND (
-		        NOT EXISTS (SELECT 1 FROM ps_scheibe_requires_set r WHERE r.scheibe_id = sc.id)
-		        OR EXISTS (
-		             SELECT 1 FROM ps_scheibe_requires_set r
-		             JOIN ps_kaeufe k ON k.set_id = r.required_set_id
-		                              AND k.teilnehmer_id = $3 AND k.returned_at IS NULL
-		             WHERE r.scheibe_id = sc.id
-		           )
 		      )
 		  AND (
 		        sc.max_pro_teilnehmer IS NULL
@@ -825,7 +974,8 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 	for scheibenRows.Next() {
 		var x PSScheibe
 		if err := scheibenRows.Scan(&x.ID, &x.PreisschiessenID, &x.Name, &x.DisciplineID, &x.DisciplineName,
-			&x.Price, &x.TargetColor, &x.StandaloneErlaubt, &x.Active, &x.SortOrder, &x.MaxProTeilnehmer); err != nil {
+			&x.Price, &x.TargetColor, &x.StandaloneErlaubt, &x.Active, &x.SortOrder, &x.MaxProTeilnehmer,
+			&x.RequiredSetIDs); err != nil {
 			scheibenRows.Close()
 			return nil, nil, err
 		}
@@ -1035,11 +1185,30 @@ func (s *Store) purchaseItem(ctx context.Context, tx pgx.Tx, teilnehmerID, preis
 // derselben Transaktion) und schreibt je Position eine 'kauf'-Buchung ins
 // Guthaben-Ledger. Gibt die entstandenen Kauf-IDs und die Gesamtsumme
 // zurück; der Guthaben-Check (reicht es, darf es ins Minus) obliegt dem
-// jeweiligen Aufrufer (BuchWarenkorb bzw. Bezahlen).
+// Aufrufer (Store.Bezahlen).
 func (s *Store) purchaseItems(ctx context.Context, tx pgx.Tx, teilnehmerID, preisschiessenID string, items []CartItem) ([]string, float64, error) {
+	// Sets zuerst buchen, dann Scheiben (stabil, sonst bleibt jeweils die
+	// Reihenfolge erhalten): eine Scheibe, deren Set-Voraussetzung im selben
+	// Warenkorb liegt, aber (weil zuerst in den Warenkorb gelegt) vor dem
+	// Set im items-Array steht, würde sonst faelschlich als nicht verfügbar
+	// abgelehnt - purchaseItem prüft die Voraussetzung per Datenbankabfrage
+	// innerhalb dieser Transaktion, sieht also nur bereits zuvor in
+	// DERSELBEN Schleife gebuchte Sets.
+	ordered := make([]CartItem, 0, len(items))
+	for _, item := range items {
+		if item.Typ == "set" {
+			ordered = append(ordered, item)
+		}
+	}
+	for _, item := range items {
+		if item.Typ != "set" {
+			ordered = append(ordered, item)
+		}
+	}
+
 	var kaufIDs []string
 	var total float64
-	for _, item := range items {
+	for _, item := range ordered {
 		kaufID, preis, err := s.purchaseItem(ctx, tx, teilnehmerID, preisschiessenID, item)
 		if err != nil {
 			return nil, 0, err
@@ -1053,47 +1222,6 @@ func (s *Store) purchaseItems(ctx context.Context, tx pgx.Tx, teilnehmerID, prei
 		total += preis
 	}
 	return kaufIDs, total, nil
-}
-
-// BuchWarenkorb ist die schnelle Variante des Bezahlens: bucht den ganzen
-// Warenkorb auf einmal direkt gegen das vorhandene Guthaben - aber nur,
-// wenn dieses den Gesamtpreis bereits ohne weitere Bareinzahlung deckt
-// (strikt, kein Minus erlaubt). Reicht das Guthaben nicht, muss stattdessen
-// Store.Bezahlen (mit Bareinzahlung) verwendet werden.
-func (s *Store) BuchWarenkorb(ctx context.Context, teilnehmerID string, items []CartItem) ([]string, error) {
-	if len(items) == 0 {
-		return nil, &httpError{code: 400, msg: "Warenkorb ist leer"}
-	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	var preisschiessenID string
-	var guthaben float64
-	if err := tx.QueryRow(ctx, `
-		SELECT t.preisschiessen_id, COALESCE(g.guthaben,0)
-		FROM ps_teilnehmer t
-		LEFT JOIN v_ps_guthaben g ON g.teilnehmer_id = t.id
-		WHERE t.id = $1`, teilnehmerID,
-	).Scan(&preisschiessenID, &guthaben); err != nil {
-		return nil, err
-	}
-
-	kaufIDs, total, err := s.purchaseItems(ctx, tx, teilnehmerID, preisschiessenID, items)
-	if err != nil {
-		return nil, err
-	}
-	if guthaben-total < 0 {
-		return nil, &httpError{code: 400, msg: fmt.Sprintf(
-			"Guthaben reicht nicht aus (%.2f € benötigt, %.2f € vorhanden)", total, guthaben)}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return kaufIDs, nil
 }
 
 // Ruckgabe storniert einen Kauf vollständig (nur ganze Sets bzw. einzeln
@@ -1148,31 +1276,130 @@ func (s *Store) Ruckgabe(ctx context.Context, kaufID string) error {
 	return tx.Commit(ctx)
 }
 
-// AssignPreisschiessenLane weist eine gekaufte Scheiben-Einheit einem Stand
-// zu. Nutzt die bestehende Standbelegung (Store.AssignLane) wieder - legt
-// also eine ganz normale Session an, die am Stand-PC sofort erscheint; hier
-// wird nur zusätzlich die entstandene Session mit der Scheiben-Einheit
-// verknüpft, damit ListKaufScheibenEinheiten den Beschossen-Status ableiten
-// kann. Eine bereits zugewiesene Einheit kann nicht erneut zugewiesen werden
-// (Standwechsel läuft weiterhin über die bestehende Standaktion-Seite).
-func (s *Store) AssignPreisschiessenLane(ctx context.Context, kaufScheibeID string, laneNo int) (string, error) {
-	var existingSession *string
-	var scheibeID, shooterID string
-	if err := s.pool.QueryRow(ctx, `
-		SELECT ks.session_id::text, ks.scheibe_id, sh.id
-		FROM ps_kauf_scheiben ks
-		JOIN ps_kaeufe k ON k.id = ks.kauf_id
-		JOIN ps_teilnehmer t ON t.id = k.teilnehmer_id
-		JOIN shooters sh ON sh.id = t.shooter_id
-		WHERE ks.id = $1`, kaufScheibeID,
-	).Scan(&existingSession, &scheibeID, &shooterID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", &httpError{code: 404, msg: "Scheiben-Einheit nicht gefunden"}
+// findAssignableEinheit wählt für einen Teilnehmer + Scheiben-Typ die
+// konkrete Scheiben-Einheit, die einem Stand zugewiesen werden soll: eine
+// bereits begonnene Einheit (Session mit Schüssen, aber noch nicht
+// abgeschlossen) hat immer Vorrang, damit ein Schütze eine unterbrochene
+// Scheibe fortsetzt statt eine neue zu beginnen. Gibt es keine begonnene,
+// wird die erste noch nicht begonnene gekaufte Einheit gewählt (aufsteigend
+// nach Seriennummer, siehe ListKaufScheibenEinheiten).
+func (s *Store) findAssignableEinheit(ctx context.Context, teilnehmerID, scheibeID string) (PSKaufScheibeEinheit, error) {
+	alle, err := s.ListKaufScheibenEinheiten(ctx, teilnehmerID)
+	if err != nil {
+		return PSKaufScheibeEinheit{}, err
+	}
+	var begonnen, gekauft *PSKaufScheibeEinheit
+	for i := range alle {
+		if alle[i].ScheibeID != scheibeID {
+			continue
 		}
+		switch alle[i].Status {
+		case "begonnen":
+			if begonnen == nil {
+				begonnen = &alle[i]
+			}
+		case "gekauft":
+			if gekauft == nil {
+				gekauft = &alle[i]
+			}
+		}
+	}
+	if begonnen != nil {
+		return *begonnen, nil
+	}
+	if gekauft != nil {
+		return *gekauft, nil
+	}
+	return PSKaufScheibeEinheit{}, &httpError{code: 400,
+		msg: "Keine passende Scheibe verfügbar (alle bereits abgeschlossen oder keine gekauft)"}
+}
+
+// AssignTeilnehmerLane weist einen Teilnehmer einem Stand zu: die Aufsicht
+// wählt nur den Scheiben-TYP, nicht die einzelne (nummerierte) Einheit -
+// diese wird über findAssignableEinheit automatisch bestimmt. Hat die
+// gewählte Einheit bereits eine Session (weil begonnen, oder zuvor einem
+// Stand zugewiesen aber noch nicht beschossen), wird diese Session an den
+// neuen Stand umgehängt (wie ein Standwechsel); sonst wird ganz normal über
+// Store.AssignLane eine neue Session angelegt.
+func (s *Store) AssignTeilnehmerLane(ctx context.Context, teilnehmerID, scheibeID string, laneNo int) (string, error) {
+	einheit, err := s.findAssignableEinheit(ctx, teilnehmerID, scheibeID)
+	if err != nil {
 		return "", err
 	}
-	if existingSession != nil {
-		return "", &httpError{code: 400, msg: "Bereits einem Stand zugewiesen"}
+
+	if einheit.SessionID != nil {
+		var status string
+		err := s.pool.QueryRow(ctx,
+			`SELECT status::text FROM sessions WHERE id=$1`, *einheit.SessionID,
+		).Scan(&status)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+		active := err == nil &&
+			(status == "assigned" || status == "sighting" || status == "match" || status == "paused")
+		// "begonnen" heisst: es wurden bereits echte Schuesse abgegeben (siehe
+		// ListKaufScheibenEinheiten) - auch wenn die Session zwischenzeitlich
+		// per "Stand freigeben" auf 'finished' gesetzt wurde. Beim erneuten
+		// Waehlen derselben Scheibe muss diese Session reaktiviert statt
+		// verworfen werden, sonst gehen die bisherigen Schuesse aus Sicht des
+		// Schuetzen "verloren" (neue leere Session, alte Einheit faellt auf
+		// "gekauft" zurueck).
+		resumable := !active && einheit.Status == "begonnen"
+
+		if active || resumable {
+			if resumable {
+				if _, err := s.pool.Exec(ctx,
+					`UPDATE sessions SET status='assigned', finished_at=NULL WHERE id=$1`,
+					*einheit.SessionID,
+				); err != nil {
+					return "", err
+				}
+			}
+			var laneID string
+			if err := s.pool.QueryRow(ctx,
+				`SELECT id FROM lanes WHERE lane_no=$1 AND active`, laneNo,
+			).Scan(&laneID); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return "", fmt.Errorf("Stand %d: nicht gefunden", laneNo)
+				}
+				return "", err
+			}
+			var busy int
+			if err := s.pool.QueryRow(ctx, `
+				SELECT COUNT(*) FROM sessions
+				WHERE lane_id=$1 AND status IN ('assigned','sighting','match','paused') AND id <> $2`,
+				laneID, *einheit.SessionID,
+			).Scan(&busy); err != nil {
+				return "", err
+			}
+			if busy > 0 {
+				return "", ErrLaneBusy
+			}
+			if err := s.TransferSession(ctx, *einheit.SessionID, laneNo); err != nil {
+				return "", err
+			}
+			return *einheit.SessionID, nil
+		}
+
+		// Verknuepfte Session existiert nicht mehr oder ist nicht mehr aktiv
+		// und hat keine echten Schuesse (z.B. annulliert/beendet, ohne dass
+		// ein Schuss fiel - die Scheibe zeigt dann weiterhin Status
+		// "gekauft"): veraltete Verknuepfung loesen und wie eine noch nie
+		// zugewiesene Scheibe behandeln (unten wird eine frische Session
+		// angelegt).
+		if _, err := s.pool.Exec(ctx,
+			`UPDATE ps_kauf_scheiben SET session_id=NULL WHERE id=$1`, einheit.ID,
+		); err != nil {
+			return "", err
+		}
+	}
+
+	var shooterID string
+	if err := s.pool.QueryRow(ctx, `
+		SELECT sh.id FROM ps_teilnehmer t JOIN shooters sh ON sh.id = t.shooter_id WHERE t.id=$1`,
+		teilnehmerID,
+	).Scan(&shooterID); err != nil {
+		return "", err
 	}
 
 	var disciplineID string
@@ -1188,11 +1415,490 @@ func (s *Store) AssignPreisschiessenLane(ctx context.Context, kaufScheibeID stri
 	}
 
 	if _, err := s.pool.Exec(ctx,
-		`UPDATE ps_kauf_scheiben SET session_id=$1 WHERE id=$2`, sessionID, kaufScheibeID,
+		`UPDATE ps_kauf_scheiben SET session_id=$1 WHERE id=$2`, sessionID, einheit.ID,
+	); err != nil {
+		return "", err
+	}
+	// Starterlisten-Name fuer den gs26-Export (siehe gs26/backend/copy_*_pg.py) -
+	// grenzt Sessions dieses Preisschiessens von anderen Veranstaltungen ab,
+	// analog zu Meytons Starterliste/STARTERLISTEN.
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE sessions SET list_name = (
+			SELECT p.name FROM ps_teilnehmer t
+			JOIN preisschiessen p ON p.id = t.preisschiessen_id
+			WHERE t.id = $2
+		) WHERE id = $1`, sessionID, teilnehmerID,
 	); err != nil {
 		return "", err
 	}
 	return sessionID, nil
+}
+
+// ----------------------------------------------------------------------------
+// Standzuweisung ohne Scheibenauswahl (ps_lane_pending): die Aufsicht weist
+// nur den Stand zu, die Scheibenauswahl trifft der Schütze selbst am
+// Stand-PC (siehe ChooseScheibeAtLane weiter unten).
+// ----------------------------------------------------------------------------
+
+// AssignTeilnehmerLanePending weist einen Teilnehmer einem Stand zu, ohne
+// eine Scheibe festzulegen - das übernimmt der Schütze am Stand-PC.
+func (s *Store) AssignTeilnehmerLanePending(ctx context.Context, teilnehmerID string, laneNo int) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var laneID string
+	if err := tx.QueryRow(ctx,
+		`SELECT id FROM lanes WHERE lane_no=$1 AND active FOR UPDATE`,
+		laneNo).Scan(&laneID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("Stand %d: nicht gefunden", laneNo)
+		}
+		return err
+	}
+
+	var busy int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sessions
+		WHERE lane_id=$1 AND status IN ('assigned','sighting','match','paused')`,
+		laneID).Scan(&busy); err != nil {
+		return err
+	}
+	if busy > 0 {
+		return ErrLaneBusy
+	}
+
+	var existingTid *string
+	if err := tx.QueryRow(ctx,
+		`SELECT teilnehmer_id::text FROM ps_lane_pending WHERE lane_id=$1 FOR UPDATE`,
+		laneID).Scan(&existingTid); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if existingTid != nil && *existingTid != teilnehmerID {
+		return ErrLaneBusy
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM ps_lane_pending WHERE teilnehmer_id=$1 AND lane_id<>$2`,
+		teilnehmerID, laneID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ps_lane_pending (lane_id, teilnehmer_id) VALUES ($1,$2)
+		ON CONFLICT (lane_id) DO UPDATE SET teilnehmer_id = EXCLUDED.teilnehmer_id, created_at = now()`,
+		laneID, teilnehmerID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// ClearTeilnehmerLanePending hebt eine Standzuweisung wieder auf (bevor der
+// Schütze eine Scheibe gewählt hat).
+func (s *Store) ClearTeilnehmerLanePending(ctx context.Context, teilnehmerID string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM ps_lane_pending WHERE teilnehmer_id=$1`, teilnehmerID)
+	return err
+}
+
+// ListPendingLanes liefert alle wartenden Standzuweisungen (für die
+// Büro-Übersicht, damit belegte Stände nicht doppelt vergeben werden).
+func (s *Store) ListPendingLanes(ctx context.Context) ([]PSPendingLane, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT l.lane_no, lp.teilnehmer_id, t.teilnehmer_nr,
+		       sh.last_name || ', ' || sh.first_name
+		FROM ps_lane_pending lp
+		JOIN lanes l ON l.id = lp.lane_id
+		JOIN ps_teilnehmer t ON t.id = lp.teilnehmer_id
+		JOIN shooters sh ON sh.id = t.shooter_id
+		ORDER BY l.lane_no`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PSPendingLane
+	for rows.Next() {
+		var p PSPendingLane
+		if err := rows.Scan(&p.LaneNo, &p.TeilnehmerID, &p.TeilnehmerNr, &p.ShooterName); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// psLaneState beschreibt, was an einem Stand aus Preisschießen-Sicht gerade
+// passiert: wartend (ps_lane_pending, noch nie eine Scheibe gewählt) oder
+// aktiv schießend - und im aktiven Fall, ob die gerade geschossene Scheibe
+// bereits abgeschlossen ("beendet") ist, also eine neue Auswahl ansteht.
+type psLaneState struct {
+	TeilnehmerID    string
+	PendingRow      bool   // ps_lane_pending-Zeile vorhanden
+	ActiveSessionID string // "" wenn keine aktive Session
+	CurrentBeendet  bool   // aktive Session vorhanden UND ihre Scheibe ist "beendet"
+}
+
+// ownedSetIDs liefert die Set-IDs, die ein Teilnehmer aktuell besitzt
+// (gekauft, nicht zurückgegeben).
+func (s *Store) ownedSetIDs(ctx context.Context, teilnehmerID string) (map[string]bool, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT set_id::text FROM ps_kaeufe
+		WHERE teilnehmer_id=$1 AND typ='set' AND returned_at IS NULL`, teilnehmerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	owned := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		owned[id] = true
+	}
+	return owned, rows.Err()
+}
+
+// laneState ermittelt, welcher Preisschießen-Teilnehmer aktuell mit einem
+// Stand verbunden ist und ob eine (erneute) Scheibenauswahl ansteht.
+// TeilnehmerID=="" heißt: kein Preisschießen-Kontext an diesem Stand
+// (z.B. normaler Wettkampf-Stand).
+func (s *Store) laneState(ctx context.Context, laneNo int) (psLaneState, error) {
+	var st psLaneState
+
+	err := s.pool.QueryRow(ctx, `
+		SELECT lp.teilnehmer_id::text FROM ps_lane_pending lp
+		JOIN lanes l ON l.id = lp.lane_id
+		WHERE l.lane_no = $1`, laneNo).Scan(&st.TeilnehmerID)
+	if err == nil {
+		st.PendingRow = true
+		return st, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return st, err
+	}
+
+	var sessionID string
+	err = s.pool.QueryRow(ctx, `
+		SELECT k.teilnehmer_id::text, se.id::text
+		FROM sessions se
+		JOIN lanes l ON l.id = se.lane_id
+		JOIN ps_kauf_scheiben ks ON ks.session_id = se.id
+		JOIN ps_kaeufe k ON k.id = ks.kauf_id
+		WHERE l.lane_no = $1 AND se.status IN ('assigned','sighting','match','paused')
+		ORDER BY se.started_at DESC NULLS LAST LIMIT 1`, laneNo).Scan(&st.TeilnehmerID, &sessionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return st, nil
+	}
+	if err != nil {
+		return st, err
+	}
+	st.ActiveSessionID = sessionID
+
+	einheiten, err := s.ListKaufScheibenEinheiten(ctx, st.TeilnehmerID)
+	if err != nil {
+		return st, err
+	}
+	for _, e := range einheiten {
+		if e.SessionID != nil && *e.SessionID == sessionID {
+			st.CurrentBeendet = e.Status == "beendet"
+			break
+		}
+	}
+	return st, nil
+}
+
+// GetLanePreisschiessenInfo liefert die für den Stand-PC relevante
+// Preisschießen-Sicht eines Stands (nil wenn kein Preisschießen-Kontext).
+// "Pending" (Auswahl-Menü zeigen) gilt sowohl für die initiale Zuweisung
+// als auch, wenn die aktuell geschossene Scheibe bereits abgeschlossen ist.
+func (s *Store) GetLanePreisschiessenInfo(ctx context.Context, laneNo int) (*PSLaneInfo, error) {
+	st, err := s.laneState(ctx, laneNo)
+	if err != nil {
+		return nil, err
+	}
+	if st.TeilnehmerID == "" {
+		return nil, nil
+	}
+
+	t, err := s.GetTeilnehmer(ctx, st.TeilnehmerID)
+	if err != nil {
+		return nil, err
+	}
+	ps, err := s.GetPreisschiessen(ctx, t.PreisschiessenID)
+	if err != nil {
+		return nil, err
+	}
+	einheiten, err := s.ListKaufScheibenEinheiten(ctx, st.TeilnehmerID)
+	if err != nil {
+		return nil, err
+	}
+	scheiben, sets, err := s.ListAngebot(ctx, st.TeilnehmerID)
+	if err != nil {
+		return nil, err
+	}
+	// Sets sind am Stand-PC nur anzubieten, wenn das Preisschießen das
+	// erlaubt (Default aus, siehe Migration 030) - sonst nur an der Kasse
+	// im Büro (dort bleibt Store.ListAngebot ungefiltert nutzbar).
+	if !ps.SetsAtStandpc {
+		sets = nil
+	}
+	// Am Stand-PC gibt es (anders als im Büro-Warenkorb) keine Möglichkeit,
+	// ein vorausgesetztes Set im selben Vorgang mitzubuchen - jede Buchung
+	// hier ist ein isolierter, sofortiger Kauf. Scheiben mit Set-Voraussetzung
+	// dürfen deshalb nur angeboten werden, wenn das Set bereits tatsächlich
+	// gekauft (und nicht zurückgegeben) ist - ListAngebot filtert das bewusst
+	// nicht (siehe Kommentar dort), das holt der Stand-PC hier nach.
+	if len(scheiben) > 0 {
+		owned, err := s.ownedSetIDs(ctx, st.TeilnehmerID)
+		if err != nil {
+			return nil, err
+		}
+		bookable := scheiben[:0]
+		for _, sc := range scheiben {
+			if len(sc.RequiredSetIDs) == 0 {
+				bookable = append(bookable, sc)
+				continue
+			}
+			for _, reqID := range sc.RequiredSetIDs {
+				if owned[reqID] {
+					bookable = append(bookable, sc)
+					break
+				}
+			}
+		}
+		scheiben = bookable
+	}
+
+	needsChoice := st.PendingRow || st.CurrentBeendet
+	info := &PSLaneInfo{
+		PreisschiessenID:   t.PreisschiessenID,
+		PreisschiessenName: ps.Name,
+		TeilnehmerID:       t.ID,
+		TeilnehmerNr:       t.TeilnehmerNr,
+		ShooterName:        t.ShooterName,
+		Guthaben:           t.Guthaben,
+		Pending:            needsChoice,
+	}
+	info.Angebot.Scheiben = scheiben
+	info.Angebot.Sets = sets
+
+	if needsChoice {
+		type counts struct{ gekauft, beendet int }
+		byScheibe := map[string]*counts{}
+		for _, e := range einheiten {
+			c := byScheibe[e.ScheibeID]
+			if c == nil {
+				c = &counts{}
+				byScheibe[e.ScheibeID] = c
+			}
+			if e.Status == "beendet" {
+				c.beendet++
+			} else {
+				c.gekauft++ // "begonnen" zaehlt zu "gekauft" dazu
+			}
+		}
+		seen := map[string]bool{}
+		for _, e := range einheiten {
+			if e.Status == "beendet" || seen[e.ScheibeID] {
+				continue
+			}
+			seen[e.ScheibeID] = true
+			c := byScheibe[e.ScheibeID]
+			info.ScheibenTypen = append(info.ScheibenTypen, PSScheibeTyp{
+				ScheibeID: e.ScheibeID, Name: e.ScheibeName,
+				Gekauft: c.gekauft, Beendet: c.beendet,
+			})
+		}
+	} else {
+		// Ueber die tatsaechlich AKTIVE Session matchen (st.ActiveSessionID),
+		// NICHT ueber "irgendeine Einheit, deren (ggf. laengst beendete)
+		// Session zufaellig mal an diesem Stand lief": ein Teilnehmer schiesst
+		// typischerweise immer am selben Stand, daher haben oft MEHRERE seiner
+		// bereits abgeschlossenen Einheiten session.lane_id == dieser Stand -
+		// ein reiner Lane-Abgleich haette hier faelschlich die aelteste
+		// (kleinste serial_no) davon statt der aktuell geschossenen geliefert.
+		for _, e := range einheiten {
+			if e.SessionID != nil && *e.SessionID == st.ActiveSessionID {
+				info.CurrentScheibeName = e.ScheibeName
+				info.CurrentTargetColor = e.TargetColor
+				info.CurrentShotCount = e.ShotCount
+				info.CurrentRequiredShots = e.RequiredShots
+				break
+			}
+		}
+	}
+	return info, nil
+}
+
+// PSLaneOverviewRow ist eine Zeile der kompakten Standübersicht im Büro
+// (Preisschießen -> Stand, siehe ListPSLaneOverview): welcher Teilnehmer
+// gerade an diesem Stand ist, welche Scheibe er schießt und wie viele
+// Schüsse bereits abgegeben sind - leer, wenn der Stand frei ist oder von
+// einem Teilnehmer eines ANDEREN Preisschießens belegt ist.
+type PSLaneOverviewRow struct {
+	LaneNo        int    `json:"lane_no"`
+	TeilnehmerID  string `json:"teilnehmer_id,omitempty"`
+	TeilnehmerNr  int    `json:"teilnehmer_nr,omitempty"`
+	ShooterName   string `json:"shooter_name,omitempty"`
+	Pending       bool   `json:"pending"`
+	ScheibeName   string `json:"scheibe_name,omitempty"`
+	ShotCount     int    `json:"shot_count,omitempty"`
+	RequiredShots int    `json:"required_shots,omitempty"`
+}
+
+// ListPSLaneOverview liefert für alle aktiven Stände eine kompakte
+// Preisschießen-Sicht (Name/Scheibe/Schüsse) - fürs Büro, um auf einen Blick
+// zu sehen, wer wo steht, ohne jeden Teilnehmer einzeln aufzurufen.
+func (s *Store) ListPSLaneOverview(ctx context.Context, preisschiessenID string) ([]PSLaneOverviewRow, error) {
+	rows, err := s.pool.Query(ctx, `SELECT lane_no FROM lanes WHERE active ORDER BY lane_no`)
+	if err != nil {
+		return nil, err
+	}
+	var laneNos []int
+	for rows.Next() {
+		var no int
+		if err := rows.Scan(&no); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		laneNos = append(laneNos, no)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	out := make([]PSLaneOverviewRow, 0, len(laneNos))
+	for _, no := range laneNos {
+		info, err := s.GetLanePreisschiessenInfo(ctx, no)
+		if err != nil {
+			return nil, err
+		}
+		row := PSLaneOverviewRow{LaneNo: no}
+		if info != nil && info.PreisschiessenID == preisschiessenID {
+			row.TeilnehmerID = info.TeilnehmerID
+			row.TeilnehmerNr = info.TeilnehmerNr
+			row.ShooterName = info.ShooterName
+			row.Pending = info.Pending
+			row.ScheibeName = info.CurrentScheibeName
+			row.ShotCount = info.CurrentShotCount
+			row.RequiredShots = info.CurrentRequiredShots
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+// ChooseScheibeAtLane: der Schütze wählt am Stand-PC den Scheibennamen -
+// möglich im wartenden Zustand (initiale Zuweisung) und erneut, sobald die
+// zuletzt gewählte Scheibe abgeschlossen ("beendet") ist. Im zweiten Fall
+// wird die alte (fertig geschossene) Session zuerst abgeschlossen, damit
+// der Stand für die neue Session nicht als belegt gilt. Wiederverwendet die
+// bestehende Instanz-Auswahl/Sessionanlage aus AssignTeilnehmerLane.
+func (s *Store) ChooseScheibeAtLane(ctx context.Context, laneNo int, scheibeID string) (string, error) {
+	st, err := s.laneState(ctx, laneNo)
+	if err != nil {
+		return "", err
+	}
+	if st.TeilnehmerID == "" || (!st.PendingRow && !st.CurrentBeendet) {
+		return "", &httpError{code: 400, msg: "Kein Teilnehmer an diesem Stand zugewiesen"}
+	}
+
+	if st.ActiveSessionID != "" {
+		if err := s.SetSessionStatus(ctx, st.ActiveSessionID, "finished"); err != nil {
+			return "", err
+		}
+	}
+
+	sessionID, err := s.AssignTeilnehmerLane(ctx, st.TeilnehmerID, scheibeID, laneNo)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM ps_lane_pending WHERE teilnehmer_id=$1`, st.TeilnehmerID); err != nil {
+		return "", err
+	}
+	return sessionID, nil
+}
+
+// BuchenAtLane: der Schütze bucht am Stand-PC weitere Scheiben/Sets gegen
+// sein Guthaben (kein Bargeld - Bezahlen bleibt der Büro-Kasse vorbehalten).
+// Funktioniert im wartenden wie im aktiv schießenden Zustand.
+func (s *Store) BuchenAtLane(ctx context.Context, laneNo int, items []CartItem) ([]string, error) {
+	st, err := s.laneState(ctx, laneNo)
+	if err != nil {
+		return nil, err
+	}
+	if st.TeilnehmerID == "" {
+		return nil, &httpError{code: 400, msg: "Kein Teilnehmer an diesem Stand"}
+	}
+	for _, it := range items {
+		if it.Typ != "set" {
+			continue
+		}
+		t, err := s.GetTeilnehmer(ctx, st.TeilnehmerID)
+		if err != nil {
+			return nil, err
+		}
+		ps, err := s.GetPreisschiessen(ctx, t.PreisschiessenID)
+		if err != nil {
+			return nil, err
+		}
+		if !ps.SetsAtStandpc {
+			return nil, &httpError{code: 400, msg: "Sets können an diesem Stand nicht gebucht werden - bitte an der Kasse erwerben"}
+		}
+		break
+	}
+	kaufIDs, _, err := s.Bezahlen(ctx, st.TeilnehmerID, items, 0, false)
+	return kaufIDs, err
+}
+
+// FreeLane gibt einen Stand wieder frei: hebt eine wartende Zuweisung auf
+// bzw. schließt (falls die aktuelle Scheibe bereits abgeschlossen ist) die
+// zugehörige Session ab. Wird vom Schützen selbst am Stand-PC ausgelöst,
+// wenn keine weitere Scheibe mehr zur Verfügung steht.
+func (s *Store) FreeLane(ctx context.Context, laneNo int) error {
+	st, err := s.laneState(ctx, laneNo)
+	if err != nil {
+		return err
+	}
+	if st.TeilnehmerID == "" {
+		return nil
+	}
+	if st.ActiveSessionID != "" {
+		if err := s.SetSessionStatus(ctx, st.ActiveSessionID, "finished"); err != nil {
+			return err
+		}
+	}
+	_, err = s.pool.Exec(ctx, `DELETE FROM ps_lane_pending WHERE teilnehmer_id=$1`, st.TeilnehmerID)
+	return err
+}
+
+// ScheibeAbschliessenAtLane markiert die gerade geschossene Scheibe bewusst
+// als "beendet" ("Scheibe abschließen") - unabhängig von der tatsächlichen
+// Schusszahl, genau so, als wären alle Schüsse abgegeben worden. Die Session
+// bleibt (wie jede Session) mit allen bereits gespeicherten Schüssen
+// erhalten, nur ihr Status wechselt auf 'aborted' - ListKaufScheibenEinheiten
+// wertet das als "beendet". Der Stand ist danach frei für die Wahl der
+// nächsten Scheibe (siehe laneState/GetLanePreisschiessenInfo).
+func (s *Store) ScheibeAbschliessenAtLane(ctx context.Context, laneNo int) error {
+	st, err := s.laneState(ctx, laneNo)
+	if err != nil {
+		return err
+	}
+	if st.ActiveSessionID == "" {
+		return &httpError{code: 400, msg: "Keine aktive Scheibe an diesem Stand"}
+	}
+	if err := s.SetSessionStatus(ctx, st.ActiveSessionID, "aborted"); err != nil {
+		return err
+	}
+	// Die Session ist jetzt 'aborted' (nicht mehr "aktiv") und würde damit
+	// aus laneState/resolveLaneTeilnehmer herausfallen - der Teilnehmer muss
+	// aber am Stand bleiben, um die nächste Scheibe zu wählen. Dafür genau
+	// wie bei der Erstzuweisung wieder in den wartenden Zustand versetzen
+	// (Busy-Check dort greift nicht mehr, da die Session gerade beendet wurde).
+	return s.AssignTeilnehmerLanePending(ctx, st.TeilnehmerID, laneNo)
 }
 
 func (s *Store) Auszahlung(ctx context.Context, teilnehmerID string, betrag float64) error {
@@ -1588,6 +2294,14 @@ func (a *APIServer) getPSTeilnehmer(w http.ResponseWriter, r *http.Request) (any
 	return a.store.GetTeilnehmer(r.Context(), r.PathValue("tid"))
 }
 
+func (a *APIServer) recalcPSTeilnehmerClasses(w http.ResponseWriter, r *http.Request) (any, error) {
+	return a.store.RecalcTeilnehmerClasses(r.Context(), r.PathValue("id"))
+}
+
+func (a *APIServer) listPSLaneOverview(w http.ResponseWriter, r *http.Request) (any, error) {
+	return a.store.ListPSLaneOverview(r.Context(), r.PathValue("id"))
+}
+
 func (a *APIServer) listAngebot(w http.ResponseWriter, r *http.Request) (any, error) {
 	scheiben, sets, err := a.store.ListAngebot(r.Context(), r.PathValue("tid"))
 	if err != nil {
@@ -1604,18 +2318,97 @@ func (a *APIServer) listKaufScheibenEinheiten(w http.ResponseWriter, r *http.Req
 	return a.store.ListKaufScheibenEinheiten(r.Context(), r.PathValue("tid"))
 }
 
-func (a *APIServer) postAssignPreisschiessenLane(w http.ResponseWriter, r *http.Request) (any, error) {
+func (a *APIServer) postAssignTeilnehmerLanePending(w http.ResponseWriter, r *http.Request) (any, error) {
 	body, err := decodeBody[struct {
 		LaneNo int `json:"lane_no"`
 	}](r)
 	if err != nil || body.LaneNo < 1 {
 		return nil, errors.New("lane_no erforderlich")
 	}
-	sessionID, err := a.store.AssignPreisschiessenLane(r.Context(), r.PathValue("ksid"), body.LaneNo)
+	if err := a.store.AssignTeilnehmerLanePending(r.Context(), r.PathValue("tid"), body.LaneNo); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) deleteTeilnehmerLanePending(w http.ResponseWriter, r *http.Request) (any, error) {
+	if err := a.store.ClearTeilnehmerLanePending(r.Context(), r.PathValue("tid")); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) listPendingLanes(w http.ResponseWriter, r *http.Request) (any, error) {
+	return a.store.ListPendingLanes(r.Context())
+}
+
+func (a *APIServer) getLanePreisschiessenInfo(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	return a.store.GetLanePreisschiessenInfo(r.Context(), no)
+}
+
+func (a *APIServer) postChooseScheibeAtLane(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	body, err := decodeBody[struct {
+		ScheibeID string `json:"scheibe_id"`
+	}](r)
+	if err != nil || body.ScheibeID == "" {
+		return nil, errors.New("scheibe_id erforderlich")
+	}
+	sessionID, err := a.store.ChooseScheibeAtLane(r.Context(), no, body.ScheibeID)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]string{"session_id": sessionID}, nil
+}
+
+func (a *APIServer) postBuchenAtLane(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	body, err := decodeBody[struct {
+		Items []CartItem `json:"items"`
+	}](r)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCartItems(body.Items); err != nil {
+		return nil, err
+	}
+	kaufIDs, err := a.store.BuchenAtLane(r.Context(), no, body.Items)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"kauf_ids": kaufIDs}, nil
+}
+
+func (a *APIServer) postFreeLane(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	if err := a.store.FreeLane(r.Context(), no); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) postScheibeAbschliessenAtLane(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	if err := a.store.ScheibeAbschliessenAtLane(r.Context(), no); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
 }
 
 func (a *APIServer) buchAufladung(w http.ResponseWriter, r *http.Request) (any, error) {
@@ -1651,24 +2444,6 @@ func validateCartItems(items []CartItem) error {
 		}
 	}
 	return nil
-}
-
-func (a *APIServer) postBuchWarenkorb(w http.ResponseWriter, r *http.Request) (any, error) {
-	body, err := decodeBody[struct {
-		Items []CartItem `json:"items"`
-	}](r)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateCartItems(body.Items); err != nil {
-		return nil, err
-	}
-	kaufIDs, err := a.store.BuchWarenkorb(r.Context(), r.PathValue("tid"), body.Items)
-	if err != nil {
-		return nil, err
-	}
-	w.WriteHeader(http.StatusCreated)
-	return map[string]any{"kauf_ids": kaufIDs}, nil
 }
 
 func (a *APIServer) postAuszahlung(w http.ResponseWriter, r *http.Request) (any, error) {

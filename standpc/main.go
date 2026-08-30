@@ -86,6 +86,8 @@ type Config struct {
 	DisciplinesFile string `json:"disciplines_file"`
 	// Scheiben-Geometrie (leer = targets.json im Arbeitsverzeichnis)
 	TargetsFile string `json:"targets_file"`
+	// Schriftgroessen der Anzeige, vom Server gepusht (leer = font_sizes.json im Arbeitsverzeichnis)
+	FontSizesFile string `json:"font_sizes_file"`
 
 	// Hybrid: Luft-TOA-Feinmessung (Firmware: SET HYBRID=1)
 	Hybrid HybridConfig `json:"hybrid"`
@@ -112,6 +114,37 @@ type DisciplineDef struct {
 	ScoringShots   int    `json:"scoring_shots"`    // Wertungsschuesse
 	ShotsPerSeries int    `json:"shots_per_series"` // Schuesse je Serie
 	DecimalScoring bool   `json:"decimal_scoring"`  // Zehntelwertung aktiv
+}
+
+// FontSizes: konfigurierbare Schriftgroessen der Anzeige (px), vom Server
+// unter Einstellungen gepflegt und per Push verteilt (siehe web.go
+// handlePutFontSizes). Persistiert in font_sizes.json, damit die zuletzt
+// gepushten Werte einen Neustart ohne Serververbindung ueberleben.
+type FontSizes struct {
+	Name       int `json:"name"`
+	Scheibe    int `json:"scheibe"`
+	Status     int `json:"status"`
+	Menu       int `json:"menu"`
+	MenuPS     int `json:"menu_ps"`
+	Ergebnisse int `json:"ergebnisse"`
+}
+
+// defaultFontSizes: heutige, bisher hart codierte Werte aus web/index.html -
+// Fallback wenn font_sizes.json fehlt (erster Start, nie gepusht).
+var defaultFontSizes = FontSizes{
+	Name: 16, Scheibe: 13, Status: 11, Menu: 14, MenuPS: 14, Ergebnisse: 13,
+}
+
+func loadFontSizes(path string) (*FontSizes, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var f FontSizes
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("font_sizes.json parsen: %w", err)
+	}
+	return &f, nil
 }
 
 // DisciplinesConfig: Inhalt der disciplines.json
@@ -290,6 +323,7 @@ type Shot struct {
 	Rejected  bool   `json:"rejected"`
 	RejectMsg string `json:"reject_msg,omitempty"`
 	Overcount bool   `json:"overcount,omitempty"` // Schuss nach Disziplinabschluss
+	SeriesNo  *int   `json:"series_no,omitempty"` // nil bei nicht zaehlenden Schuessen (Reject/pos_invalid)
 }
 
 // ----------------------------------------------------------------------------
@@ -350,6 +384,18 @@ func main() {
 		targets = builtinTargets
 	}
 
+	// --- Schriftgroessen laden (zuletzt vom Server gepushter Stand) ---
+	fontFile := cfg.FontSizesFile
+	if fontFile == "" {
+		fontFile = "font_sizes.json"
+	}
+	fontSizes, err := loadFontSizes(fontFile)
+	if err != nil {
+		log.Printf("Schriftgroessen: %v – verwende Standardwerte", err)
+		fs := defaultFontSizes
+		fontSizes = &fs
+	}
+
 	// Scorer-Map: je Scheibe einen eigenen Scorer
 	scorers := make(map[int]*Scorer)
 	for key, tg := range targets {
@@ -378,7 +424,7 @@ func main() {
 		log.Fatalf("FATAL: Keine Scheibendefinition verfuegbar")
 	}
 
-	web := NewWebServer(cfg, dc.Disciplines, targets)
+	web := NewWebServer(cfg, dc.Disciplines, targets, *fontSizes, fontFile)
 
 	// Session + Kalibrierung vom zentralen Server (oder statisch/lokal)
 	sessions := NewSessionManager(cfg, web, dc.Disciplines)
@@ -390,11 +436,14 @@ func main() {
 		log.Printf("Startdisziplin: %s", def.Name)
 	}
 
+	// --- Shot-Pipeline: verarbeitet RawShots zu Shots ---
+	// rawCh wird VOR web.Run() gesetzt, damit POST /dev/shot (Entwicklermodus)
+	// von Anfang an sicher hineinsenden kann (kein Nil-Channel-Race).
+	rawCh := make(chan RawShot, 32)
+	web.devShotCh = rawCh
+
 	go web.Run(ctx)
 	go sessions.Run(ctx)
-
-	// --- Shot-Pipeline: verarbeitet RawShots zu Shots ---
-	rawCh := make(chan RawShot, 32)
 
 	go func() {
 		for raw := range rawCh {
@@ -416,10 +465,31 @@ func main() {
 			// Reject-Telegramme (und shot-Telegramme mit pos_valid=0) zaehlen NICHT
 			// als Probe-/Wertungsschuss, bekommen aber trotzdem eine shot_no und
 			// werden mit status='rejected' in Log/DB gespeichert.
-			sid, no, mode, overcount := sessions.NextShot(!shot.Rejected)
+			//
+			// Preisschiessen-Sonderfall: waehrend das Auswahlmenue offen ist (noch
+			// keine Scheibe gewaehlt, siehe PreisschiessenAwaitingChoice) kann ein
+			// Schuss keiner Scheibe zugeordnet werden - er wird NICHT gezaehlt und
+			// NICHT in die DB geschrieben (nur lokal als ungueltig protokolliert),
+			// der Schuetze bekommt eine Warnmeldung. Bei anderen Wettkaempfen gibt
+			// es keine Scheibenauswahl (immer eine fest zugewiesene Session), der
+			// Fall tritt dort nicht auf.
+			var sid string
+			var no int
+			var mode string
+			var overcount bool
+			var seriesNo *int
+			if !shot.Rejected && sessions.PreisschiessenAwaitingChoice() {
+				shot.Rejected = true
+				shot.RejectMsg = "Preisschießen: keine Scheibe gewählt - Schuss ungültig"
+				mode = sessions.CurrentMode()
+				sessions.WarnPreisschiessenNoScheibe()
+			} else {
+				sid, no, mode, overcount, seriesNo = sessions.NextShot(!shot.Rejected)
+			}
 			shot.Mode = mode
 			shot.SessionID = sid
 			shot.Overcount = overcount
+			shot.SeriesNo = seriesNo
 			if overcount {
 				shot.Ring = 0
 				shot.Decimal = 0.0

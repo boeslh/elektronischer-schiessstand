@@ -170,8 +170,8 @@
     <div class="row">
       <button onclick="setStatus('sighting')">Probe</button>
       <button onclick="setStatus('match')">Wertung</button>
-      <button class="warn" onclick="setStatus('finished')">Beenden</button>
-      <button class="err" onclick="setStatus('aborted')">Abbrechen</button>
+      <button class="warn" onclick="setStatus('finished')" title="Session beenden, Stand wird frei. Bereits geschossene Schüsse bleiben gespeichert.">Stand freigeben</button>
+      <button class="err" onclick="setStatus('aborted')" title="Scheibe abschließen: gilt als beendet, so als wären alle Schüsse abgegeben worden.">Scheibe abschließen</button>
     </div>
     <table>
       <thead><tr><th>#</th><th>Art</th><th>Ring</th><th>Zehntel</th><th>x/y mm</th>

@@ -25,14 +25,15 @@ import (
 
 // RecoverState hält alle Felder, die nach einem Neustart benötigt werden.
 type RecoverState struct {
-	SessionID     string    `json:"session_id"`
-	Shooter       string    `json:"shooter"`
-	RawDiscipline string    `json:"raw_discipline"`
-	Mode          string    `json:"mode"`
-	ShotNo        int       `json:"shot_no"`
-	ProbeCount    int       `json:"probe_count"`
-	WertungCount  int       `json:"wertung_count"`
-	SavedAt       time.Time `json:"saved_at"`
+	SessionID         string    `json:"session_id"`
+	Shooter           string    `json:"shooter"`
+	RawDiscipline     string    `json:"raw_discipline"`
+	Mode              string    `json:"mode"`
+	ShotNo            int       `json:"shot_no"`
+	ProbeCount        int       `json:"probe_count"`
+	WertungCount      int       `json:"wertung_count"`
+	WertungShotsFired int       `json:"wertung_shots_fired"`
+	SavedAt           time.Time `json:"saved_at"`
 }
 
 func recoverStatePath(dir string, laneNo int) string {

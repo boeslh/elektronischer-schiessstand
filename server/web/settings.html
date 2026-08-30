@@ -107,6 +107,51 @@
     </div>
   </div>
 
+  <div class="section">
+    <h2>Entwicklermodus</h2>
+    <div class="field" style="margin-bottom:0">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="s-devmode" onchange="toggleDevMode()" style="width:16px;height:16px">
+        Schüsse per Mausklick auf allen Stand-PCs erlauben
+      </label>
+      <div class="desc">
+        Nur zu Testzwecken: ist der Modus aktiv, kann am Stand-PC direkt auf
+        die Zielscheibe geklickt werden, um einen Schuss an dieser Position
+        auszulösen – ohne echte Sensor-Hardware. Gilt sofort für alle Stände.
+      </div>
+      <div id="msg-devmode" class="msg" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Schriftgrößen (Stand-PC)</h2>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px">
+      Gilt für die Anzeige an jedem Stand-PC, getrennt nach Bereich. Bei
+      "Ergebnisse" betrifft der Wert die Einzelschuss-Zeilen; Gesamt, Serien
+      und der große Einzelschuss-Wert ganz oben bleiben automatisch im
+      gleichen Abstand größer wie bisher.
+    </p>
+    <div class="field" style="display:grid;grid-template-columns:1fr 90px;gap:10px 16px;align-items:center;margin-bottom:8px">
+      <label for="fs-name" style="margin:0">Name</label>
+      <input type="number" id="fs-name" min="6" max="72">
+      <label for="fs-scheibe" style="margin:0">Scheibe/Disziplin</label>
+      <input type="number" id="fs-scheibe" min="6" max="72">
+      <label for="fs-status" style="margin:0">Status (Probe/Wertung)</label>
+      <input type="number" id="fs-status" min="6" max="72">
+      <label for="fs-menu" style="margin:0">Menü</label>
+      <input type="number" id="fs-menu" min="6" max="72">
+      <label for="fs-menu-ps" style="margin:0">Menü – Preisschießen</label>
+      <input type="number" id="fs-menu-ps" min="6" max="72">
+      <label for="fs-ergebnisse" style="margin:0">Ergebnisse (Einzelschüsse)</label>
+      <input type="number" id="fs-ergebnisse" min="6" max="72">
+    </div>
+    <div class="actions">
+      <button class="btn-save" onclick="saveFontSizes()">Speichern</button>
+      <button class="btn-save" onclick="pushFontSizes()">An alle Stände senden</button>
+      <div id="msg-fontsizes" class="msg"></div>
+    </div>
+  </div>
+
   <div class="actions">
     <button class="btn-save" onclick="save()">Speichern</button>
     <button class="btn-reset" onclick="resetDefaults()">Zurücksetzen</button>
@@ -155,6 +200,97 @@ function showMsg(text, type) {
 
 load();
 loadLaneURLs();
+loadDevMode();
+loadFontSizes();
+
+async function loadFontSizes() {
+  try {
+    const f = await fetch('/api/settings/font-sizes').then(r => r.json());
+    document.getElementById('fs-name').value       = f.name;
+    document.getElementById('fs-scheibe').value    = f.scheibe;
+    document.getElementById('fs-status').value     = f.status;
+    document.getElementById('fs-menu').value       = f.menu;
+    document.getElementById('fs-menu-ps').value    = f.menu_ps;
+    document.getElementById('fs-ergebnisse').value = f.ergebnisse;
+  } catch(e) {
+    showMsgEl('msg-fontsizes', 'Fehler beim Laden.', 'err');
+  }
+}
+
+function readFontSizes() {
+  return {
+    name:       parseInt(document.getElementById('fs-name').value),
+    scheibe:    parseInt(document.getElementById('fs-scheibe').value),
+    status:     parseInt(document.getElementById('fs-status').value),
+    menu:       parseInt(document.getElementById('fs-menu').value),
+    menu_ps:    parseInt(document.getElementById('fs-menu-ps').value),
+    ergebnisse: parseInt(document.getElementById('fs-ergebnisse').value),
+  };
+}
+
+async function saveFontSizes() {
+  const f = readFontSizes();
+  if (Object.values(f).some(v => isNaN(v) || v < 6 || v > 72)) {
+    showMsgEl('msg-fontsizes', 'Werte müssen zwischen 6 und 72 liegen.', 'err');
+    return;
+  }
+  try {
+    const r = await fetch('/api/settings/font-sizes', {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(f),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showMsgEl('msg-fontsizes', 'Gespeichert.', 'ok');
+  } catch(e) {
+    showMsgEl('msg-fontsizes', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function pushFontSizes() {
+  await saveFontSizes();
+  try {
+    const results = await fetch('/api/settings/font-sizes/push', {method:'POST'}).then(r => r.json());
+    const ok = (results||[]).filter(r => r.ok).length;
+    const failed = (results||[]).filter(r => !r.ok);
+    if (!results || !results.length) {
+      showMsgEl('msg-fontsizes', 'Keine Stände mit StandPC-URL konfiguriert.', 'err');
+    } else if (failed.length === 0) {
+      showMsgEl('msg-fontsizes', `An ${ok} Stand${ok !== 1 ? 'e' : ''} gesendet.`, 'ok');
+    } else {
+      showMsgEl('msg-fontsizes',
+        `${ok} erfolgreich, nicht erreichbar: ${failed.map(f => 'Stand '+f.lane_no).join(', ')}.`, 'err');
+    }
+  } catch(e) {
+    showMsgEl('msg-fontsizes', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function loadDevMode() {
+  try {
+    const s = await fetch('/api/settings/standpc-dev-mode').then(r => r.json());
+    document.getElementById('s-devmode').checked = !!s.enabled;
+  } catch(e) {
+    showMsgEl('msg-devmode', 'Fehler beim Laden.', 'err');
+  }
+}
+
+async function toggleDevMode() {
+  const cb = document.getElementById('s-devmode');
+  const enabled = cb.checked;
+  try {
+    const r = await fetch('/api/settings/standpc-dev-mode', {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({enabled}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showMsgEl('msg-devmode', enabled ? 'Entwicklermodus aktiviert.' : 'Entwicklermodus deaktiviert.', 'ok');
+  } catch(e) {
+    cb.checked = !enabled;
+    showMsgEl('msg-devmode', 'Fehler: ' + e.message, 'err');
+  }
+}
 
 async function loadLaneURLs() {
   const wrap = document.getElementById('lane-url-list');
