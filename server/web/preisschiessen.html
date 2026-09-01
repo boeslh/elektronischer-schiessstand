@@ -11,23 +11,28 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
-header{border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-header a{color:var(--dim);text-decoration:none;font-size:13px}
+header{border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;
+       justify-content:space-between;gap:10px;flex-wrap:nowrap}
+header .header-left{display:flex;align-items:center;gap:10px;min-width:0;flex-shrink:1;overflow:hidden}
+header .header-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+header a{color:var(--dim);text-decoration:none;font-size:13px;white-space:nowrap;flex-shrink:0}
 header a:hover{color:var(--text)}
-header h1{font-size:19px;font-weight:700}
-header select{background:#0e1218;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 10px;font-size:.83rem;margin-left:auto}
+header h1{font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header select{background:#0e1218;border:1px solid var(--line);border-radius:6px;color:var(--text);
+              padding:6px 10px;font-size:.83rem;max-width:220px;white-space:nowrap;overflow:hidden;
+              text-overflow:ellipsis}
 header .btn-liste{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);font-size:.8rem;padding:6px 12px;cursor:pointer;white-space:nowrap}
 header .btn-liste:hover{border-color:var(--text);color:var(--text)}
-main{flex:1;padding:20px;max-width:1100px;margin:0 auto;width:100%}
+main{flex:1;padding:16px;max-width:1100px;margin:0 auto;width:100%}
 
-.tabs{display:flex;gap:2px;margin-bottom:14px}
+.tabs{display:flex;gap:2px;margin-bottom:10px}
 .tab-btn{background:#1a2230;border:1px solid var(--line);color:var(--dim);padding:8px 16px;
          cursor:pointer;font-size:.83rem;border-radius:6px 6px 0 0}
 .tab-btn.active{color:var(--acc);border-bottom-color:var(--panel);background:var(--panel)}
 .tab-content{display:none}
 .tab-content.active{display:block}
 
-.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px;margin-bottom:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:14px;margin-bottom:12px}
 .card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
 
 label{display:block;font-size:.78rem;color:var(--dim);margin-bottom:4px;margin-top:10px}
@@ -90,6 +95,9 @@ tr.total td{font-weight:700;border-top:2px solid var(--line);border-bottom:none}
 tr.tn-row{cursor:pointer}
 tr.tn-row:hover td{background:#1e2530}
 tr.tn-row.active td{background:#1a2a2a}
+tr.gw-row{cursor:pointer}
+tr.gw-row:hover td{background:#1e2530}
+tr.gw-row.active td{background:#1a2a2a}
 
 .badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
 .badge-open{background:#1a2a3a;color:#64b5f6}
@@ -127,10 +135,14 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
 <body>
 
 <header>
-  <a href="/">← Startseite</a>
-  <h1>Preisschießen</h1>
-  <select id="ps-select" onchange="onPSChange()"></select>
-  <button type="button" class="btn-liste" onclick="location.href='/preisschiessen-liste'" title="Alle Preisschießen anzeigen, anlegen, löschen">📋 Liste</button>
+  <div class="header-left">
+    <a href="/">← Startseite</a>
+    <h1>Preisschießen</h1>
+  </div>
+  <div class="header-right">
+    <select id="ps-select" onchange="onPSChange()"></select>
+    <button type="button" class="btn-liste" onclick="location.href='/preisschiessen-liste'" title="Alle Preisschießen anzeigen, anlegen, löschen">📋 Liste</button>
+  </div>
 </header>
 
 <main>
@@ -143,7 +155,9 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
       <button class="tab-btn active" onclick="switchMainTab('anmeldung', this)">Anmeldung</button>
       <button class="tab-btn" onclick="switchMainTab('kasse', this)">Kasse</button>
       <button class="tab-btn" onclick="switchMainTab('teilnehmer', this)">Teilnehmer</button>
-      <button class="tab-btn" onclick="switchMainTab('stand', this)">Stand</button>
+      <button class="tab-btn" id="navtab-stand" onclick="switchMainTab('stand', this)">Stand</button>
+      <button class="tab-btn" onclick="switchMainTab('auswertung', this)">Auswertung</button>
+      <button class="tab-btn" onclick="switchMainTab('gewinne', this)">Gewinne</button>
       <button class="tab-btn" onclick="switchMainTab('verwaltung', this)">Verwaltung</button>
     </div>
 
@@ -245,6 +259,7 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
           </table>
 
           <div class="form-actions">
+            <button type="button" class="btn-save" onclick="kaGoToStand()">Zum Stand zuweisen →</button>
             <button type="button" class="btn-cancel" onclick="kaCloseTeilnehmer()">Anderer Teilnehmer</button>
           </div>
         </div>
@@ -394,6 +409,194 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
       </div>
     </div>
 
+    <!-- ══════════════════════════ Auswertung ══════════════════════════ -->
+    <!-- Meister/Punkt/Adler-Wertungen dieses Preisschiessens (Phase 1 der
+         gs26-Ablösung, siehe gs26/backend/gen_SerienP.py etc.). Berechnung
+         läuft periodisch im Hintergrund (server/preisschiessen_wertungen.go),
+         diese Seite zeigt nur den Status und den vorberechneten Cache an -
+         die eigentliche Anzeigetafel läuft als eigener Prozess (preisanzeige/). -->
+    <div id="maintab-auswertung" class="tab-content">
+      <div class="card">
+        <h2>Status</h2>
+        <div id="aw-status-text" class="hint">Lade Status…</div>
+        <div class="form-row2" style="margin-top:10px;max-width:420px">
+          <div>
+            <label for="aw-interval">Berechnungsintervall</label>
+            <select id="aw-interval" onchange="awSaveInterval()">
+              <option value="">Aus (nur manuell)</option>
+              <option value="300">5 Minuten</option>
+              <option value="600">10 Minuten</option>
+              <option value="900">15 Minuten</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button type="button" class="btn-save" id="aw-recompute-btn" onclick="awRecompute()" style="display:none">Jetzt neu berechnen</button>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:8px">Die Berechnung kann bei großen Preisschießen mehrere Minuten
+          dauern und läuft deshalb automatisch im Hintergrund, nicht bei jedem Seitenaufruf.</p>
+      </div>
+
+      <div class="split">
+        <div class="card">
+          <h2>Wertungen</h2>
+          <table>
+            <thead><tr><th>Kurzname</th><th>Typ</th><th>Scheiben</th><th>Wertung</th><th>Sichtbar</th><th></th></tr></thead>
+            <tbody id="aw-wt-tbody"></tbody>
+          </table>
+        </div>
+        <div class="card form-card">
+          <h2>Wertung <span id="aw-wtf-title">anlegen</span></h2>
+          <form id="aw-wt-form" onsubmit="awSaveWertung(event)">
+            <input type="hidden" id="aw-wtf-id">
+            <label for="aw-wtf-key">Disziplin-Key *</label>
+            <input type="text" id="aw-wtf-key" required placeholder="z.B. AM-LG-Meister">
+            <label for="aw-wtf-short">Kurzname *</label>
+            <input type="text" id="aw-wtf-short" required placeholder="z.B. LG Meister">
+            <label for="aw-wtf-long">Langname</label>
+            <input type="text" id="aw-wtf-long">
+            <label for="aw-wtf-typ">Typ</label>
+            <select id="aw-wtf-typ" onchange="awUpdateTypFields()">
+              <option value="meister">Meister (Ringe)</option>
+              <option value="punkt">Punkt (Teiler)</option>
+              <option value="adler">Adler (Mischung)</option>
+            </select>
+
+            <div id="aw-wtf-mp-fields">
+              <label for="aw-wtf-feld">Wertungsfeld</label>
+              <select id="aw-wtf-feld">
+                <option value="ring">Ganzring</option>
+                <option value="ring_decimal">Zehntel</option>
+                <option value="teiler">Teiler</option>
+              </select>
+              <label>Scheiben (mit Faktor je Scheibe)</label>
+              <p class="hint" style="margin-top:-2px;margin-bottom:6px">Faktor normiert unterschiedliche
+                Zielgrößen/Kaliber (z.B. LG vs. LP in einer kombinierten Wertung) - Standard 1.</p>
+              <div class="checklist" id="aw-wtf-scheiben"></div>
+              <label>Nur für Schützenklassen (leer = alle)</label>
+              <div class="checklist" id="aw-wtf-classes"></div>
+              <label for="aw-wtf-anzsumme">Anzahl beste Werte (Summenwertung)</label>
+              <input type="number" id="aw-wtf-anzsumme" min="1" max="10" value="1">
+              <p class="hint" style="margin-top:4px">1 = Einzelwertung (nur die beste Scheibe/der beste
+                Schuss zählt). Größer als 1 = Summenwertung (die besten N Scheiben/Schüsse werden addiert).</p>
+            </div>
+
+            <div id="aw-wtf-adler-fields" style="display:none">
+              <label for="aw-wtf-adler-teiler">Teiler-Wertung</label>
+              <select id="aw-wtf-adler-teiler"></select>
+              <label for="aw-wtf-adler-meister">Meister-Wertung</label>
+              <select id="aw-wtf-adler-meister"></select>
+            </div>
+
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="aw-wtf-visible" checked>
+              <span>Sichtbar</span>
+            </label>
+
+            <div class="form-actions">
+              <button type="submit" class="btn-save" id="aw-wtf-save-btn" style="display:none">Speichern</button>
+              <button type="button" class="btn-cancel" onclick="awClearWertungForm()">Abbrechen</button>
+            </div>
+            <div id="aw-wtf-msg" class="msg"></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Ergebnisvorschau</h2>
+        <label for="aw-preview-sel">Wertung</label>
+        <select id="aw-preview-sel" onchange="awLoadPreview()"></select>
+        <p class="hint">Bei Gleichstand in der Summe entscheidet die nächstbeste Scheibe/der nächstbeste
+          Schuss (hier die besten 5 zur Kontrolle), bei komplettem Gleichstand die kleinere Teilnehmernummer.</p>
+        <table style="margin-top:10px">
+          <thead><tr id="aw-preview-thead-row">
+            <th>Platz</th><th>Nr.</th><th>Name</th><th>Verein</th><th>Klasse</th>
+            <th id="aw-preview-summe-th">Summe</th><th colspan="5" id="aw-preview-werte-th">Beste 5</th>
+          </tr></thead>
+          <tbody id="aw-preview-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Vereins-Wertungen</h2>
+        <p class="hint">Teilnehmende Vereine und Punkte-Zeiträume werden im Tab "Verwaltung" →
+          "Vereine" konfiguriert. Der Gastgeber-Verein (falls gesetzt) belegt hier immer den
+          letzten Platz.</p>
+        <div id="vw-auswertung-vereine-hint" class="hint" style="display:none">Noch keine Vereine
+          für die Vereins-Auswertung ausgewählt.</div>
+        <div id="vw-auswertung-vereine-tables" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+          <div>
+            <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Anzahl</h3>
+            <table><thead><tr><th>Platz</th><th>Verein</th><th>Anzahl</th></tr></thead>
+              <tbody id="aw-vn-anzahl-tbody"></tbody></table>
+          </div>
+          <div>
+            <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Prozent</h3>
+            <table><thead><tr><th>Platz</th><th>Verein</th><th>Prozent</th></tr></thead>
+              <tbody id="aw-vn-prozent-tbody"></tbody></table>
+          </div>
+          <div>
+            <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Punkte</h3>
+            <table><thead><tr><th>Platz</th><th>Verein</th><th>Punkte</th></tr></thead>
+              <tbody id="aw-vn-punkte-tbody"></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Anzeige-Konfiguration</h2>
+        <p class="hint">Legt fest, welche Wertungen der eigenständige Anzeige-Prozess (preisanzeige)
+          zeigt und wie schnell er umschaltet.</p>
+        <label>Angezeigte Wertungen</label>
+        <div class="checklist" id="aw-ac-wertungen"></div>
+        <div class="form-row2" style="margin-top:10px">
+          <div><label for="aw-ac-reload">Reload (Sekunden)</label><input type="number" id="aw-ac-reload" min="1" value="5"></div>
+          <div><label for="aw-ac-font">Titel-Schriftgröße (px)</label><input type="number" id="aw-ac-font" min="10" value="20"></div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-save" id="aw-ac-save-btn" onclick="awSaveAnzeigeConfig()" style="display:none">Speichern</button>
+        </div>
+        <div id="aw-ac-msg" class="msg"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════ Gewinne ══════════════════════════ -->
+    <!-- Geldbeträge/Sachpreise je Auswertungsliste (Teilnehmer-Wertung ODER
+         eine der drei festen Vereins-Auswertungen) und Platz, siehe
+         server/preisschiessen_gewinne.go. -->
+    <div id="maintab-gewinne" class="tab-content">
+      <div class="split">
+        <div class="card">
+          <h2>Auswertungslisten</h2>
+          <p class="hint">Teilnehmer-Wertungen (Tab "Auswertung") und die drei Vereins-Auswertungen
+            (Tab "Auswertung" → Vereins-Wertungen). Zahl rechts = Anzahl konfigurierter Plätze.</p>
+          <table>
+            <thead><tr><th>Liste</th><th style="text-align:right">Plätze</th></tr></thead>
+            <tbody id="gw-listen-tbody"></tbody>
+          </table>
+        </div>
+        <div class="card form-card">
+          <h2>Gewinne: <span id="gw-liste-title">– Liste wählen –</span></h2>
+          <p class="hint" id="gw-liste-hint">Links eine Auswertungsliste auswählen.</p>
+          <div class="toolbar" id="gw-copy-row" style="display:none;gap:8px;align-items:flex-end;margin-bottom:10px">
+            <label style="font-size:12px;color:var(--dim)">Gewinne kopieren von
+              <select id="gw-copy-source" style="display:block;margin-top:4px;min-width:220px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px 10px"></select>
+            </label>
+            <button type="button" class="btn-edit" style="padding:6px 12px" onclick="gwCopyFromSource()">Kopieren</button>
+          </div>
+          <table id="gw-zeilen-table" style="display:none">
+            <thead><tr><th>Platz</th><th>Betrag (€)</th><th>Sachpreis</th><th></th></tr></thead>
+            <tbody id="gw-zeilen-tbody"></tbody>
+          </table>
+          <div class="form-actions" id="gw-zeilen-actions" style="display:none">
+            <button type="button" class="btn-edit" style="padding:6px 12px" onclick="gwAddRow()">+ Platz</button>
+            <button type="button" class="btn-save" id="gw-save-btn" onclick="gwSave()" style="display:none">Speichern</button>
+          </div>
+          <div id="gw-msg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ══════════════════════════ Verwaltung ══════════════════════════ -->
     <div id="maintab-verwaltung" class="tab-content">
       <div class="card">
@@ -443,6 +646,7 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
       <div class="tabs">
         <button class="tab-btn active" onclick="switchVerwaltungSubtab('scheiben', this)">Scheiben</button>
         <button class="tab-btn" onclick="switchVerwaltungSubtab('sets', this)">Sets</button>
+        <button class="tab-btn" onclick="switchVerwaltungSubtab('vereine', this)">Vereine</button>
       </div>
 
       <!-- ══ Scheiben ══ -->
@@ -544,6 +748,39 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
           </div>
         </div>
       </div>
+
+      <!-- ══ Vereine (Vereins-Auswertung) ══ -->
+      <div id="verwaltung-sub-vereine" class="tab-content">
+        <div class="split">
+          <div class="card">
+            <h2>Teilnehmende Vereine</h2>
+            <p class="hint">Nur ausgewählte Vereine erscheinen in den Vereins-Auswertungen (Tab
+              "Auswertung"). Ein Verein kann als Gastgeber markiert werden - dieser belegt dort
+              unabhängig von seinen Werten immer den letzten Platz.</p>
+            <div class="checklist" id="vw-vn-clubs" style="max-height:320px"></div>
+            <div class="form-actions">
+              <button type="button" class="btn-save" id="vw-vn-save-btn" onclick="vwSaveVereinTeilnahme()" style="display:none">Speichern</button>
+            </div>
+            <div id="vw-vn-msg" class="msg"></div>
+          </div>
+          <div class="card">
+            <h2>Punkte-Zeiträume</h2>
+            <p class="hint">Für die Auswertung "Teilnehmer Punkte": jedem Teilnehmer werden anhand
+              des Datums seines ersten Schusses in diesem Preisschießen (erste Scheibe begonnen
+              oder beendet) die Punkte des passenden Zeitraums gutgeschrieben, je Verein aufsummiert.
+              Höchstens 5 Zeiträume, Datum außerhalb aller Zeiträume zählt 0 Punkte.</p>
+            <table>
+              <thead><tr><th>Von</th><th>Bis</th><th>Punkte</th><th></th></tr></thead>
+              <tbody id="vw-vz-tbody"></tbody>
+            </table>
+            <div class="form-actions">
+              <button type="button" class="btn-edit" style="padding:6px 12px" id="vw-vz-add-btn" onclick="vwAddZeitraumRow()">+ Zeitraum</button>
+              <button type="button" class="btn-save" id="vw-vz-save-btn" onclick="vwSaveVereinZeitraeume()" style="display:none">Speichern</button>
+            </div>
+            <div id="vw-vz-msg" class="msg"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </main>
@@ -609,7 +846,10 @@ async function reloadAllTabs() {
     kaLoadAuswertung(),
     vwLoadForCurrentPS(),
     stLoadLaneOverview(),
+    awLoadForCurrentPS(),
   ]);
+  // erst nach awLoadForCurrentPS (braucht awWertungen für die Listen-Auswahl)
+  await gwLoadForCurrentPS();
 }
 
 function switchMainTab(name, btn) {
@@ -769,6 +1009,18 @@ function kaCloseTeilnehmer() {
   kaCloseBezahlen();
   kaCart = [];
   kaRenderCart();
+}
+
+// Normaler Ablauf nach der Kasse: der Teilnehmer bekommt einen Stand
+// zugewiesen - Direktsprung in den Stand-Tab mit bereits ausgewähltem
+// Teilnehmer, statt ihn dort erneut suchen zu müssen. Der Kasse-Tab bleibt
+// im Hintergrund unverändert (kein kaCloseTeilnehmer()), falls man zurück-
+// wechselt, um den nächsten Einkauf desselben Teilnehmers fortzusetzen.
+function kaGoToStand() {
+  if (!kaCurrentTeilnehmer) return;
+  const id = kaCurrentTeilnehmer.id;
+  switchMainTab('stand', document.getElementById('navtab-stand'));
+  stOpenTeilnehmer(id);
 }
 
 async function kaRefreshTeilnehmer() {
@@ -1257,6 +1509,492 @@ async function stFreeLaneFromOverview(laneNo) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// Auswertung (Meister/Punkt/Adler-Wertungen je Preisschiessen)
+// ══════════════════════════════════════════════════════════════════════
+let awWertungen = [];
+let awCanManage = false;
+let awStatusTimer = null;
+
+const AW_TYP_LABEL = {meister:'Meister', punkt:'Punkt', adler:'Adler'};
+const AW_FELD_LABEL = {ring:'Ganzring', ring_decimal:'Zehntel', teiler:'Teiler'};
+
+function updateAwManageVisibility() {
+  awCanManage = !!window.SCHIESSSTAND_ROLE?.can_manage_preisschiessen;
+  for (const id of ['aw-wtf-save-btn', 'aw-recompute-btn', 'aw-ac-save-btn']) {
+    document.getElementById(id).style.display = awCanManage ? '' : 'none';
+  }
+  document.getElementById('aw-interval').disabled = !awCanManage;
+  awRenderWertungen();
+}
+window.addEventListener('schiessstand-role-ready', updateAwManageVisibility);
+
+let awScheiben = [];
+
+async function awLoadForCurrentPS() {
+  if (!currentPS) return;
+  await vwLoadMetaOnce(); // stellt vwShooterClasses fuer die Klassen-Checkliste sicher
+  await awLoadScheiben();
+  await awLoadWertungen();
+  await awLoadStatus();
+  await awLoadAnzeigeConfig();
+  await awLoadVereinsAuswertung();
+  awClearWertungForm();
+}
+
+// ── Vereins-Wertungen (Anzahl/Prozent/Punkte) ────────────────────────────
+async function awLoadVereinsAuswertung() {
+  if (!currentPS) return;
+  const rows = await api(`/preisschiessen/${currentPS.id}/vereine/auswertung`) || [];
+  const hint = document.getElementById('vw-auswertung-vereine-hint');
+  const tables = document.getElementById('vw-auswertung-vereine-tables');
+  if (!rows.length) {
+    hint.style.display = 'block';
+    tables.style.display = 'none';
+    return;
+  }
+  hint.style.display = 'none';
+  tables.style.display = 'grid';
+
+  const renderTable = (tbodyId, platzKey, valueFn) => {
+    const sorted = [...rows].sort((a, b) => a[platzKey] - b[platzKey]);
+    document.getElementById(tbodyId).innerHTML = sorted.map(r => `
+      <tr${r.gastgeber ? ' style="opacity:.7"' : ''}>
+        <td>${r[platzKey]}</td>
+        <td>${esc(r.club_name)}${r.gastgeber ? ' <span class="hint">(Gastgeber)</span>' : ''}</td>
+        <td>${valueFn(r)}</td>
+      </tr>`).join('');
+  };
+  renderTable('aw-vn-anzahl-tbody', 'platz_anzahl', r => r.anzahl);
+  renderTable('aw-vn-prozent-tbody', 'platz_prozent', r => r.prozent == null ? '–' : r.prozent.toFixed(1)+' %');
+  renderTable('aw-vn-punkte-tbody', 'platz_punkte', r => r.punkte.toFixed(2));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Gewinne (Geldbeträge/Sachpreise je Auswertungsliste und Platz)
+// ══════════════════════════════════════════════════════════════════════
+const GW_VEREIN_LABELS = {
+  anzahl:  'Vereine – Teilnehmer Anzahl',
+  prozent: 'Vereine – Teilnehmer Prozent',
+  punkte:  'Vereine – Teilnehmer Punkte',
+};
+
+let gwGewinne = [];
+let gwSelectedKey = null; // "wertung:<id>" oder "verein:<typ>"
+let gwRows = [];          // Arbeitskopie der Platz-Zeilen der ausgewählten Liste
+
+async function gwLoadForCurrentPS() {
+  if (!currentPS) return;
+  gwGewinne = await api(`/preisschiessen/${currentPS.id}/gewinne`) || [];
+  gwSelectedKey = null;
+  gwRenderListen();
+  gwRenderZeilenPanel();
+}
+
+function gwListItems() {
+  const items = (awWertungen || []).map(w => ({key: `wertung:${w.id}`, label: w.short_desc}));
+  for (const typ of Object.keys(GW_VEREIN_LABELS)) items.push({key: `verein:${typ}`, label: GW_VEREIN_LABELS[typ]});
+  return items;
+}
+
+function gwCountForKey(key) {
+  const [kind, id] = key.split(':');
+  return gwGewinne.filter(g => kind === 'wertung' ? g.wertung_id === id : g.verein_typ === id).length;
+}
+
+function gwRenderListen() {
+  const tbody = document.getElementById('gw-listen-tbody');
+  const items = gwListItems();
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="2" class="hint">Keine Auswertungslisten vorhanden - erst im Tab "Auswertung" eine Wertung anlegen.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map(it => `
+    <tr class="gw-row${gwSelectedKey === it.key ? ' active' : ''}" onclick="gwSelectListe('${it.key}')">
+      <td>${esc(it.label)}</td>
+      <td style="text-align:right">${gwCountForKey(it.key)}</td>
+    </tr>`).join('');
+}
+
+function gwSelectListe(key) {
+  gwSelectedKey = key;
+  const item = gwListItems().find(it => it.key === key);
+  document.getElementById('gw-liste-title').textContent = item ? item.label : '';
+  const [kind, id] = key.split(':');
+  gwRows = gwGewinne
+    .filter(g => kind === 'wertung' ? g.wertung_id === id : g.verein_typ === id)
+    .slice().sort((a, b) => a.platz - b.platz)
+    .map(g => ({platz: g.platz, betrag: g.betrag, sachpreis: g.sachpreis}));
+  if (!gwRows.length) gwRows.push({platz: 1, betrag: null, sachpreis: null});
+  gwRenderListen();
+  gwRenderZeilenPanel();
+}
+
+function gwRenderZeilenPanel() {
+  const hasSel = !!gwSelectedKey;
+  document.getElementById('gw-liste-hint').style.display = hasSel ? 'none' : 'block';
+  document.getElementById('gw-copy-row').style.display = hasSel ? 'flex' : 'none';
+  document.getElementById('gw-zeilen-table').style.display = hasSel ? '' : 'none';
+  document.getElementById('gw-zeilen-actions').style.display = hasSel ? 'flex' : 'none';
+  if (hasSel) {
+    gwRenderRows();
+    gwRenderCopySourceSelect();
+  }
+}
+
+// Kopiert die Platz/Betrag/Sachpreis-Zeilen einer anderen Auswertungsliste in
+// die Arbeitskopie der aktuell ausgewählten Liste - wird erst mit dem
+// nachfolgenden "Speichern" tatsächlich übernommen, damit vorher noch geprüft/
+// angepasst werden kann.
+function gwRenderCopySourceSelect() {
+  const sel = document.getElementById('gw-copy-source');
+  const items = gwListItems().filter(it => it.key !== gwSelectedKey);
+  sel.innerHTML = items.length
+    ? items.map(it => `<option value="${it.key}">${esc(it.label)}</option>`).join('')
+    : '<option value="">– keine andere Liste vorhanden –</option>';
+}
+
+function gwCopyFromSource() {
+  const sourceKey = document.getElementById('gw-copy-source').value;
+  if (!sourceKey) return;
+  const [kind, id] = sourceKey.split(':');
+  const sourceRows = gwGewinne
+    .filter(g => kind === 'wertung' ? g.wertung_id === id : g.verein_typ === id)
+    .slice().sort((a, b) => a.platz - b.platz)
+    .map(g => ({platz: g.platz, betrag: g.betrag, sachpreis: g.sachpreis}));
+  const sourceItem = gwListItems().find(it => it.key === sourceKey);
+  if (!sourceRows.length) {
+    showMsg('gw-msg', `"${sourceItem ? sourceItem.label : ''}" hat noch keine Gewinne zum Kopieren.`, 'err');
+    return;
+  }
+  const hasContent = gwRows.some(r => r.betrag != null || r.sachpreis);
+  if (hasContent && !confirm(
+    `Die aktuelle Platz-Liste wird durch die Kopie von "${sourceItem.label}" ersetzt ` +
+    `(erst mit "Speichern" endgültig übernommen). Fortfahren?`
+  )) return;
+  gwRows = sourceRows.map(r => ({...r}));
+  gwRenderRows();
+  showMsg('gw-msg', `Von "${sourceItem.label}" kopiert - bitte prüfen und Speichern klicken.`, 'ok');
+}
+
+function gwRenderRows() {
+  document.getElementById('gw-zeilen-tbody').innerHTML = gwRows.map((z, i) => `
+    <tr>
+      <td><input type="number" min="1" value="${z.platz}" style="width:60px"
+                 onchange="gwRows[${i}].platz=parseInt(this.value,10)||1"></td>
+      <td><input type="number" step="0.01" value="${z.betrag ?? ''}" style="width:90px" placeholder="–"
+                 onchange="gwRows[${i}].betrag=this.value===''?null:parseFloat(this.value)"></td>
+      <td><input type="text" value="${esc(z.sachpreis ?? '')}" placeholder="z.B. Pokal"
+                 onchange="gwRows[${i}].sachpreis=this.value||null"></td>
+      <td><button type="button" class="btn-del" onclick="gwRemoveRow(${i})">✕</button></td>
+    </tr>`).join('');
+}
+
+function gwAddRow() {
+  const nextPlatz = gwRows.length ? Math.max(...gwRows.map(r => r.platz)) + 1 : 1;
+  gwRows.push({platz: nextPlatz, betrag: null, sachpreis: null});
+  gwRenderRows();
+}
+function gwRemoveRow(i) {
+  gwRows.splice(i, 1);
+  gwRenderRows();
+}
+
+async function gwSave() {
+  if (!gwSelectedKey) return;
+  const key = gwSelectedKey;
+  const [kind, id] = key.split(':');
+  if (!gwRows.length) { showMsg('gw-msg', 'Mindestens ein Platz nötig (oder Zeilen entfernen und Liste ignorieren).', 'err'); return; }
+  const body = {
+    wertung_id: kind === 'wertung' ? id : '',
+    verein_typ: kind === 'verein' ? id : '',
+    zeilen: gwRows,
+  };
+  try {
+    await api(`/preisschiessen/${currentPS.id}/gewinne`, jsonOpts('PUT', body));
+    await gwLoadForCurrentPS();
+    gwSelectListe(key);
+    showMsg('gw-msg', 'Gespeichert.', 'ok');
+  } catch(err) { showMsg('gw-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function awLoadScheiben() {
+  awScheiben = await api(`/preisschiessen/${currentPS.id}/scheiben`) || [];
+}
+
+async function awLoadWertungen() {
+  awWertungen = await api(`/preisschiessen/${currentPS.id}/wertungen`) || [];
+  awRenderWertungen();
+  awFillPreviewSelect();
+  awFillAdlerSelects();
+}
+
+function awRenderWertungen() {
+  const tbody = document.getElementById('aw-wt-tbody');
+  tbody.innerHTML = '';
+  if (!awWertungen.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--dim);text-align:center">Keine Wertungen</td></tr>';
+    return;
+  }
+  for (const wt of awWertungen) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(wt.short_desc)}</td>
+      <td style="font-size:.8rem">${AW_TYP_LABEL[wt.typ] || esc(wt.typ)}</td>
+      <td style="font-size:.8rem">${esc((wt.scheiben||[]).map(s => s.faktor !== 1 ? `${s.scheibe_name} (×${s.faktor})` : s.scheibe_name).join(', '))}</td>
+      <td style="font-size:.8rem">${AW_FELD_LABEL[wt.wertungsfeld] || ''}</td>
+      <td><span class="badge ${wt.visible?'badge-yes':'badge-no'}">${wt.visible?'Ja':'Nein'}</span></td>
+      <td class="row-actions">
+        ${awCanManage ? `<button class="btn-edit" onclick="awEditWertung('${wt.id}')">Bearb.</button>` : ''}
+        ${awCanManage ? `<button class="btn-del" onclick="awDeleteWertung('${wt.id}','${esc(wt.short_desc)}')">Löschen</button>` : ''}
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function awUpdateTypFields() {
+  const typ = document.getElementById('aw-wtf-typ').value;
+  document.getElementById('aw-wtf-mp-fields').style.display = typ === 'adler' ? 'none' : '';
+  document.getElementById('aw-wtf-adler-fields').style.display = typ === 'adler' ? '' : 'none';
+}
+
+function awFillAdlerSelects() {
+  const opts = '<option value="">– wählen –</option>' +
+    awWertungen.filter(w => w.typ !== 'adler')
+      .map(w => `<option value="${w.id}">${esc(w.short_desc)} (${AW_TYP_LABEL[w.typ]})</option>`).join('');
+  document.getElementById('aw-wtf-adler-teiler').innerHTML = opts;
+  document.getElementById('aw-wtf-adler-meister').innerHTML = opts;
+}
+
+function awClassChecklistHTML(checkedIDs) {
+  if (!vwShooterClasses.length) return '<span class="hint">Keine Klassen vorhanden.</span>';
+  return vwShooterClasses.map(c => `
+    <label class="check-row">
+      <input type="checkbox" data-class-id="${c.id}" ${checkedIDs.includes(c.id)?'checked':''}>
+      <span>${esc(c.name)}</span>
+    </label>`).join('');
+}
+
+// selected: Array von {scheibe_id, faktor} - Faktor-Feld ist nur aktiv,
+// wenn die zugehörige Scheibe angehakt ist.
+function awScheibenChecklistHTML(selected) {
+  if (!awScheiben.length) return '<span class="hint">Noch keine Scheiben in diesem Preisschießen angelegt.</span>';
+  const bySelId = new Map((selected || []).map(s => [s.scheibe_id, s.faktor]));
+  return awScheiben.map(sc => {
+    const checked = bySelId.has(sc.id);
+    const faktor = checked ? bySelId.get(sc.id) : 1;
+    return `
+    <label class="check-row" style="justify-content:space-between">
+      <span style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" data-scheibe-id="${sc.id}" ${checked?'checked':''}
+               onchange="awToggleScheibeFaktor(this)">
+        <span>${esc(sc.name)}</span>
+      </span>
+      <input type="number" step="0.0001" value="${faktor}" data-faktor-for="${sc.id}"
+             style="width:80px" ${checked?'':'disabled'}>
+    </label>`;
+  }).join('');
+}
+
+function awToggleScheibeFaktor(checkbox) {
+  const faktorInput = checkbox.closest('.check-row').querySelector('[data-faktor-for]');
+  faktorInput.disabled = !checkbox.checked;
+}
+
+function awReadCheckedScheiben() {
+  return Array.from(document.querySelectorAll('#aw-wtf-scheiben input[type=checkbox]:checked'))
+    .map(cb => {
+      const id = cb.getAttribute('data-scheibe-id');
+      const faktorInput = document.querySelector(`#aw-wtf-scheiben [data-faktor-for="${id}"]`);
+      return {scheibe_id: id, faktor: parseFloat(faktorInput.value) || 1};
+    });
+}
+
+function awClearWertungForm() {
+  document.getElementById('aw-wt-form').reset();
+  document.getElementById('aw-wtf-id').value = '';
+  document.getElementById('aw-wtf-title').textContent = 'anlegen';
+  document.getElementById('aw-wtf-anzsumme').value = 1;
+  document.getElementById('aw-wtf-visible').checked = true;
+  document.getElementById('aw-wtf-scheiben').innerHTML = awScheibenChecklistHTML([]);
+  document.getElementById('aw-wtf-classes').innerHTML = awClassChecklistHTML([]);
+  awUpdateTypFields();
+}
+
+function awEditWertung(id) {
+  const wt = awWertungen.find(x => x.id === id);
+  if (!wt) return;
+  document.getElementById('aw-wtf-id').value = wt.id;
+  document.getElementById('aw-wtf-title').textContent = 'bearbeiten';
+  document.getElementById('aw-wtf-key').value = wt.disziplin_key;
+  document.getElementById('aw-wtf-short').value = wt.short_desc;
+  document.getElementById('aw-wtf-long').value = wt.long_desc || '';
+  document.getElementById('aw-wtf-typ').value = wt.typ;
+  document.getElementById('aw-wtf-feld').value = wt.wertungsfeld || 'ring';
+  document.getElementById('aw-wtf-scheiben').innerHTML = awScheibenChecklistHTML(wt.scheiben || []);
+  document.getElementById('aw-wtf-anzsumme').value = wt.anz_summe;
+  document.getElementById('aw-wtf-classes').innerHTML = awClassChecklistHTML(wt.klassen_ids || []);
+  awFillAdlerSelects();
+  document.getElementById('aw-wtf-adler-teiler').value = wt.adler_teiler_id || '';
+  document.getElementById('aw-wtf-adler-meister').value = wt.adler_meister_id || '';
+  document.getElementById('aw-wtf-visible').checked = wt.visible;
+  awUpdateTypFields();
+  window.scrollTo({top: document.getElementById('aw-wtf-title').offsetTop, behavior:'smooth'});
+}
+
+async function awSaveWertung(e) {
+  e.preventDefault();
+  const id = document.getElementById('aw-wtf-id').value;
+  const typ = document.getElementById('aw-wtf-typ').value;
+  const body = {
+    disziplin_key: document.getElementById('aw-wtf-key').value.trim(),
+    typ,
+    short_desc: document.getElementById('aw-wtf-short').value.trim(),
+    long_desc: document.getElementById('aw-wtf-long').value.trim(),
+    wertungsfeld: typ === 'adler' ? '' : document.getElementById('aw-wtf-feld').value,
+    scheiben: typ === 'adler' ? [] : awReadCheckedScheiben(),
+    klassen_ids: awReadCheckedClassIDs(),
+    anz_summe: parseInt(document.getElementById('aw-wtf-anzsumme').value, 10) || 1,
+    adler_teiler_id: typ === 'adler' ? (document.getElementById('aw-wtf-adler-teiler').value || null) : null,
+    adler_meister_id: typ === 'adler' ? (document.getElementById('aw-wtf-adler-meister').value || null) : null,
+    sort_order: 0,
+    visible: document.getElementById('aw-wtf-visible').checked,
+  };
+  try {
+    if (id) {
+      await api(`/preisschiessen/${currentPS.id}/wertungen/${id}`, jsonOpts('PUT', body));
+    } else {
+      await api(`/preisschiessen/${currentPS.id}/wertungen`, jsonOpts('POST', body));
+    }
+    await awLoadWertungen();
+    awClearWertungForm();
+    showMsg('aw-wtf-msg', 'Gespeichert.', 'ok');
+  } catch(err) { showMsg('aw-wtf-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function awDeleteWertung(id, name) {
+  if (!confirm(`Wertung "${name}" wirklich löschen?`)) return;
+  try {
+    await api(`/preisschiessen/${currentPS.id}/wertungen/${id}`, {method:'DELETE'});
+    await awLoadWertungen();
+  } catch(err) { alert('Fehler: '+err.message); }
+}
+
+function awReadCheckedClassIDs() {
+  return Array.from(document.querySelectorAll('#aw-wtf-classes input[type=checkbox]:checked'))
+    .map(cb => cb.getAttribute('data-class-id'));
+}
+
+// ── Status/Neuberechnung ─────────────────────────────────────────────────
+async function awLoadStatus() {
+  if (!currentPS) return;
+  clearTimeout(awStatusTimer);
+  const st = await api(`/preisschiessen/${currentPS.id}/auswertung-status`);
+  document.getElementById('aw-interval').value = st.interval_seconds ? String(st.interval_seconds) : '';
+  const btn = document.getElementById('aw-recompute-btn');
+  const text = document.getElementById('aw-status-text');
+  if (st.status === 'running') {
+    text.innerHTML = 'Berechnung läuft…';
+    btn.disabled = true;
+    awStatusTimer = setTimeout(awLoadStatus, 3000);
+    return;
+  }
+  btn.disabled = false;
+  const parts = [];
+  parts.push(st.last_finished_at
+    ? `Letzte Berechnung: ${new Date(st.last_finished_at).toLocaleString('de-DE')}`
+    : 'Noch nicht berechnet.');
+  if (st.last_duration_ms) parts.push(`Dauer: ${(st.last_duration_ms/1000).toFixed(1)} s`);
+  if (st.status === 'error') parts.push(`<span style="color:var(--err)">Fehler: ${esc(st.last_error||'')}</span>`);
+  parts.push(st.interval_seconds
+    ? `Automatische Berechnung: alle ${st.interval_seconds/60} Min.`
+    : 'Automatische Berechnung: aus (nur manuell)');
+  text.innerHTML = parts.join(' · ');
+}
+
+async function awRecompute() {
+  if (!currentPS) return;
+  try {
+    await api(`/preisschiessen/${currentPS.id}/auswertung-recompute`, jsonOpts('POST', {}));
+    await awLoadStatus();
+  } catch(err) { alert('Fehler: '+err.message); }
+}
+
+async function awSaveInterval() {
+  if (!currentPS || !awCanManage) return;
+  const raw = document.getElementById('aw-interval').value;
+  const seconds = raw === '' ? null : parseInt(raw, 10);
+  try {
+    await api(`/preisschiessen/${currentPS.id}/auswertung-settings`, jsonOpts('PUT', {interval_seconds: seconds}));
+  } catch(err) { alert('Fehler: '+err.message); }
+}
+
+// ── Ergebnisvorschau ─────────────────────────────────────────────────────
+function awFillPreviewSelect() {
+  const sel = document.getElementById('aw-preview-sel');
+  const prev = sel.value;
+  sel.innerHTML = awWertungen.map(w => `<option value="${w.id}">${esc(w.short_desc)}</option>`).join('');
+  if (awWertungen.some(w => w.id === prev)) sel.value = prev;
+  awLoadPreview();
+}
+
+async function awLoadPreview() {
+  const sel = document.getElementById('aw-preview-sel');
+  const tbody = document.getElementById('aw-preview-tbody');
+  const wt = awWertungen.find(w => w.id === sel.value);
+  document.getElementById('aw-preview-werte-th').textContent = 'Beste 5';
+  // Summe-Spalte nur bei echten Summenwertungen (anz_summe > 1) - bei
+  // anz_summe=1 wäre sie nur eine Dopplung des ohnehin ersten Einzelwerts.
+  const showSumme = !!wt && wt.anz_summe > 1;
+  document.getElementById('aw-preview-summe-th').style.display = showSumme ? '' : 'none';
+  if (!sel.value) { tbody.innerHTML = ''; return; }
+  const rows = await api(`/preisschiessen/${currentPS.id}/wertungen/${sel.value}/ergebnis`) || [];
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="color:var(--dim);text-align:center">Noch keine Ergebnisse (Berechnung ausstehend)</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const beste5 = (r.werte || []).slice(0, 5)
+      .map(v => `<td style="font-size:.8rem;text-align:right">${v.toFixed(1)}</td>`).join('');
+    const summeCell = showSumme ? `<td>${(r.summe||0).toFixed(2)}</td>` : '';
+    return `
+    <tr><td>${r.platz}.</td><td style="font-size:.8rem">${r.start_nr}</td>
+    <td>${esc(r.nachname)}, ${esc(r.vorname)}</td>
+    <td style="font-size:.8rem">${esc(r.verein)}</td><td style="font-size:.8rem">${esc(r.klasse)}</td>
+    ${summeCell}
+    ${beste5}</tr>`;
+  }).join('');
+}
+
+// ── Anzeige-Konfiguration ────────────────────────────────────────────────
+async function awLoadAnzeigeConfig() {
+  const cfg = await api(`/preisschiessen/${currentPS.id}/anzeige-config`);
+  document.getElementById('aw-ac-reload').value = cfg.reload_seconds;
+  document.getElementById('aw-ac-font').value = cfg.title_font_size;
+  const ids = cfg.wertung_ids || [];
+  document.getElementById('aw-ac-wertungen').innerHTML = awWertungen.length
+    ? awWertungen.map(w => `
+        <label class="check-row">
+          <input type="checkbox" data-wertung-id="${w.id}" ${ids.includes(w.id)?'checked':''}>
+          <span>${esc(w.short_desc)}</span>
+        </label>`).join('')
+    : '<span class="hint">Noch keine Wertungen angelegt.</span>';
+}
+
+async function awSaveAnzeigeConfig() {
+  const wertungIDs = Array.from(document.querySelectorAll('#aw-ac-wertungen input[type=checkbox]:checked'))
+    .map(cb => cb.getAttribute('data-wertung-id'));
+  const body = {
+    reload_seconds: parseInt(document.getElementById('aw-ac-reload').value, 10) || 5,
+    title_font_size: parseInt(document.getElementById('aw-ac-font').value, 10) || 20,
+    wertung_ids: wertungIDs,
+  };
+  try {
+    await api(`/preisschiessen/${currentPS.id}/anzeige-config`, jsonOpts('PUT', body));
+    showMsg('aw-ac-msg', 'Gespeichert.', 'ok');
+  } catch(err) { showMsg('aw-ac-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Verwaltung (Grunddaten, Scheiben, Sets)
 // ══════════════════════════════════════════════════════════════════════
 let vwDisciplines = [], vwShooterClasses = [];
@@ -1268,9 +2006,10 @@ const VW_COLOR_PRESETS = ['#000000','#ffffff','#8b0000','#8a6d00','#0d47a1','#43
 
 function updateManageVisibility() {
   vwCanManage = !!window.SCHIESSSTAND_ROLE?.can_manage_preisschiessen;
-  for (const id of ['vw-pf-save-btn', 'vw-scf-save-btn', 'vw-stf-save-btn']) {
+  for (const id of ['vw-pf-save-btn', 'vw-scf-save-btn', 'vw-stf-save-btn', 'vw-vn-save-btn', 'vw-vz-save-btn', 'gw-save-btn']) {
     document.getElementById(id).style.display = vwCanManage ? '' : 'none';
   }
+  document.getElementById('vw-vz-add-btn').style.display = vwCanManage ? '' : 'none';
   vwRenderScheiben();
   vwRenderSets();
 }
@@ -1281,6 +2020,7 @@ function switchVerwaltungSubtab(name, btn) {
   scope.querySelectorAll(':scope > .tabs > .tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('verwaltung-sub-scheiben').classList.remove('active');
   document.getElementById('verwaltung-sub-sets').classList.remove('active');
+  document.getElementById('verwaltung-sub-vereine').classList.remove('active');
   btn.classList.add('active');
   document.getElementById('verwaltung-sub-'+name).classList.add('active');
 }
@@ -1290,6 +2030,7 @@ async function vwLoadMetaOnce() {
   vwMetaLoaded = true;
   vwDisciplines = await api('/disciplines') || [];
   vwShooterClasses = await api('/shooter-classes') || [];
+  vwClubs = await api('/clubs') || [];
   const sel = document.getElementById('vw-scf-disc');
   sel.innerHTML = '<option value="">– wählen –</option>';
   for (const d of vwDisciplines) sel.innerHTML += `<option value="${d.id}">${esc(d.name)}</option>`;
@@ -1303,6 +2044,105 @@ async function vwLoadForCurrentPS() {
   await vwLoadScheiben();
   vwClearScheibeForm();
   vwClearSetForm();
+  await vwLoadVereinTeilnahme();
+  await vwLoadVereinZeitraeume();
+}
+
+// ── Vereine: teilnehmende Vereine + Gastgeber ───────────────────────────
+let vwClubs = [];
+let vwVereinTeilnahme = [];
+
+async function vwLoadVereinTeilnahme() {
+  vwVereinTeilnahme = await api(`/preisschiessen/${currentPS.id}/vereine/teilnahme`) || [];
+  vwRenderVereinClubs();
+}
+
+function vwRenderVereinClubs() {
+  const checkedIDs = vwVereinTeilnahme.map(v => v.club_id);
+  const gastgeberID = (vwVereinTeilnahme.find(v => v.gastgeber) || {}).club_id || '';
+  const sorted = [...vwClubs].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  document.getElementById('vw-vn-clubs').innerHTML = sorted.map(c => `
+    <label class="check-row">
+      <input type="checkbox" data-club-id="${c.id}" ${checkedIDs.includes(c.id) ? 'checked' : ''}
+             onchange="vwOnClubCheckChange('${c.id}')">
+      <span style="flex:1">${esc(c.name)}</span>
+      <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dim);cursor:pointer">
+        <input type="radio" name="vw-vn-gastgeber" value="${c.id}" ${gastgeberID === c.id ? 'checked' : ''}
+               onchange="vwOnGastgeberChange('${c.id}')">
+        Gastgeber
+      </label>
+    </label>`).join('');
+}
+
+function vwOnClubCheckChange(clubID) {
+  const cb = document.querySelector(`#vw-vn-clubs input[type=checkbox][data-club-id="${clubID}"]`);
+  if (!cb.checked) {
+    const radio = document.querySelector(`#vw-vn-clubs input[type=radio][value="${clubID}"]`);
+    if (radio) radio.checked = false;
+  }
+}
+function vwOnGastgeberChange(clubID) {
+  const cb = document.querySelector(`#vw-vn-clubs input[type=checkbox][data-club-id="${clubID}"]`);
+  if (cb) cb.checked = true;
+}
+
+async function vwSaveVereinTeilnahme() {
+  const clubIDs = [...document.querySelectorAll('#vw-vn-clubs input[type=checkbox]:checked')]
+    .map(el => el.getAttribute('data-club-id'));
+  const gastgeberEl = document.querySelector('#vw-vn-clubs input[type=radio]:checked');
+  const gastgeberClubID = gastgeberEl ? gastgeberEl.value : '';
+  try {
+    await api(`/preisschiessen/${currentPS.id}/vereine/teilnahme`,
+      jsonOpts('PUT', {club_ids: clubIDs, gastgeber_club_id: gastgeberClubID}));
+    await vwLoadVereinTeilnahme();
+    await awLoadVereinsAuswertung();
+    showMsg('vw-vn-msg', 'Gespeichert.', 'ok');
+  } catch(err) { showMsg('vw-vn-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+// ── Vereine: Punkte-Zeiträume ────────────────────────────────────────────
+let vwZeitraeume = [];
+
+async function vwLoadVereinZeitraeume() {
+  vwZeitraeume = await api(`/preisschiessen/${currentPS.id}/vereine/zeitraeume`) || [];
+  vwRenderZeitraeumeRows();
+}
+
+function vwRenderZeitraeumeRows() {
+  const tbody = document.getElementById('vw-vz-tbody');
+  tbody.innerHTML = vwZeitraeume.length
+    ? vwZeitraeume.map((z, i) => `
+        <tr>
+          <td><input type="date" value="${z.von||''}" onchange="vwZeitraeume[${i}].von=this.value"></td>
+          <td><input type="date" value="${z.bis||''}" onchange="vwZeitraeume[${i}].bis=this.value"></td>
+          <td><input type="number" step="0.01" value="${z.punkte||0}" style="width:80px"
+                     onchange="vwZeitraeume[${i}].punkte=parseFloat(this.value)||0"></td>
+          <td><button type="button" class="btn-del" onclick="vwRemoveZeitraumRow(${i})">✕</button></td>
+        </tr>`).join('')
+    : '<tr><td colspan="4" class="hint">Keine Zeiträume definiert - alle Teilnehmer erhalten 0 Punkte.</td></tr>';
+  document.getElementById('vw-vz-add-btn').disabled = vwZeitraeume.length >= 5;
+}
+
+function vwAddZeitraumRow() {
+  if (vwZeitraeume.length >= 5) return;
+  vwZeitraeume.push({von: '', bis: '', punkte: 0});
+  vwRenderZeitraeumeRows();
+}
+function vwRemoveZeitraumRow(i) {
+  vwZeitraeume.splice(i, 1);
+  vwRenderZeitraeumeRows();
+}
+
+async function vwSaveVereinZeitraeume() {
+  for (const z of vwZeitraeume) {
+    if (!z.von || !z.bis) { showMsg('vw-vz-msg', 'Bitte bei allen Zeiträumen Von/Bis angeben.', 'err'); return; }
+  }
+  try {
+    await api(`/preisschiessen/${currentPS.id}/vereine/zeitraeume`, jsonOpts('PUT', {zeitraeume: vwZeitraeume}));
+    await vwLoadVereinZeitraeume();
+    await awLoadVereinsAuswertung();
+    showMsg('vw-vz-msg', 'Gespeichert.', 'ok');
+  } catch(err) { showMsg('vw-vz-msg', 'Fehler: '+err.message, 'err'); }
 }
 
 function vwFillForm(p) {

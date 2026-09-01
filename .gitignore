@@ -4,6 +4,7 @@
 
 !/server/
 !/standpc/
+!/preisanzeige/
 !/README.md
 !/datenmodell.sql
 !/install-services.sh
@@ -27,6 +28,10 @@
 /standpc/firmware/Config1.txt
 /standpc/firmware/Config2.txt
 /standpc/firmware/Config3.txt
+
+# ---- preisanzeige/ ----
+/preisanzeige/preisanzeige
+/preisanzeige/config.json
 
 # Go-Build-Artefakte allgemein
 *.test

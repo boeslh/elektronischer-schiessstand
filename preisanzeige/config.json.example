@@ -1,0 +1,5 @@
+{
+  "_kommentar": "Kopieren nach config.json und anpassen. postgres_dsn zeigt auf dieselbe DB wie der Hauptserver (server/). Ein laufender Prozess bedient alle Preisschießen der DB gleichzeitig - Auswahl über den Pfad (/ps/<id>/...), Startseite '/' listet sie zur Auswahl auf.",
+  "postgres_dsn": "postgres://schiessstand:CHANGEME@127.0.0.1/schiessstand",
+  "listen_addr": ":8091"
+}

@@ -113,6 +113,16 @@ func (a *APIServer) Run(ctx context.Context) error {
 		serveHTML(webSub, "import-export.html")(w, r)
 	})
 
+	mux.HandleFunc("GET /entwicklung", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := a.requireAdmin(w, r); err != nil {
+			writeAccessDeniedPage(w, err)
+			return
+		}
+		serveHTML(webSub, "entwicklung.html")(w, r)
+	})
+	mux.HandleFunc("POST /api/admin/testdaten/generate", a.h(a.generateTestdatenHandler))
+	mux.HandleFunc("POST /api/admin/testdaten/cleanup", a.h(a.cleanupTestdatenHandler))
+
 	mux.HandleFunc("GET /api/lanes", a.h(a.listLanes))
 	mux.HandleFunc("POST /api/lanes/init", a.h(a.initLanes))
 	mux.HandleFunc("GET /api/lanes/{no}/session", a.h(a.laneSession))
@@ -193,6 +203,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/preisschiessen/{id}", a.h(a.getPreisschiessen))
 	mux.HandleFunc("PUT /api/preisschiessen/{id}", a.h(a.updatePreisschiessen))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}", a.h(a.deletePreisschiessen))
+	mux.HandleFunc("POST /api/preisschiessen/{id}/clone", a.h(a.clonePreisschiessen))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/scheiben", a.h(a.listScheiben))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/scheiben", a.h(a.createScheibe))
 	mux.HandleFunc("PUT /api/preisschiessen/{id}/scheiben/{sid}", a.h(a.updateScheibe))
@@ -221,6 +232,35 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/preisschiessen/pending-lanes", a.h(a.listPendingLanes))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/lanes-overview", a.h(a.listPSLaneOverview))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/auswertung", a.h(a.psAuswertung))
+
+	// Preisschiessen-Auswertung (Meister/Punkt/Adler-Wertungen, siehe
+	// preisschiessen_wertungen.go) - eigener Tab "Auswertung" auf der
+	// Preisschiessen-Seite, nicht zu verwechseln mit der Kasse-Auswertung
+	// oben oder der globalen Auswertung-Kachel (auswertung.html).
+	mux.HandleFunc("GET /api/preisschiessen/{id}/wertungen", a.h(a.listWertungen))
+	mux.HandleFunc("POST /api/preisschiessen/{id}/wertungen", a.h(a.createWertung))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/wertungen/{wid}", a.h(a.updateWertung))
+	mux.HandleFunc("DELETE /api/preisschiessen/{id}/wertungen/{wid}", a.h(a.deleteWertung))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/wertungen/{wid}/ergebnis", a.h(a.getWertungErgebnis))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/auswertung-status", a.h(a.getAuswertungStatus))
+	mux.HandleFunc("POST /api/preisschiessen/{id}/auswertung-recompute", a.h(a.postRecomputeAuswertung))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/auswertung-settings", a.h(a.putAuswertungSettings))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/anzeige-config", a.h(a.getAnzeigeConfig))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/anzeige-config", a.h(a.putAnzeigeConfig))
+
+	// Vereins-Auswertungen (Anzahl/Prozent/Punkte je Verein, siehe
+	// preisschiessen_vereine.go) - eigener Bereich, unabhängig von den
+	// Teilnehmer-Wertungen oben.
+	mux.HandleFunc("GET /api/preisschiessen/{id}/vereine/teilnahme", a.h(a.listVereinTeilnahme))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/vereine/teilnahme", a.h(a.setVereinTeilnahme))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/vereine/zeitraeume", a.h(a.listVereinZeitraeume))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/vereine/zeitraeume", a.h(a.setVereinZeitraeume))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/vereine/auswertung", a.h(a.getVereinsAuswertung))
+
+	// Gewinne (Geldbeträge/Sachpreise) je Auswertungsliste und Platz, siehe
+	// preisschiessen_gewinne.go.
+	mux.HandleFunc("GET /api/preisschiessen/{id}/gewinne", a.h(a.listGewinne))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/gewinne", a.h(a.setGewinne))
 
 	mux.HandleFunc("GET /api/targets", a.h(a.listTargets))
 	mux.HandleFunc("GET /api/disciplines", a.h(a.listDisciplines))

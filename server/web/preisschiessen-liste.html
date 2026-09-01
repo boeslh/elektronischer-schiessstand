@@ -110,6 +110,7 @@ function render() {
       <td><span class="badge ${p.active?'badge-active':'badge-inactive'}">${p.active?'Aktiv':'Inaktiv'}</span></td>
       <td class="row-actions">
         ${canManage ? `<button class="btn-edit" onclick="openPS('${p.id}','verwaltung');event.stopPropagation()">Verwalten</button>` : ''}
+        ${canManage ? `<button class="btn-edit" onclick="clonePS('${p.id}','${esc(p.name)}');event.stopPropagation()">Klonen</button>` : ''}
         ${canManage ? `<button class="btn-del"  onclick="deletePS('${p.id}','${esc(p.name)}');event.stopPropagation()">Löschen</button>` : ''}
       </td>`;
     tr.onclick = () => openPS(p.id);
@@ -120,6 +121,26 @@ function render() {
 function openPS(id, tab) {
   localStorage.setItem('ps_current_id', id);
   location.href = '/preisschiessen' + (tab ? '?tab=' + tab : '');
+}
+
+// Klont ein Preisschießen komplett (Scheiben, Sets, Wertungen inkl. Adler-
+// Verknüpfungen und Scheiben-Faktoren, Vereins-Auswertung-Konfiguration,
+// Gewinne, Anzeige-Konfiguration) unter neuem Namen - bewusst OHNE
+// Teilnehmer/Käufe/Buchungen/Ergebnisse, siehe server/preisschiessen_clone.go.
+async function clonePS(id, name) {
+  const suggested = name + ' (Kopie)';
+  const input = prompt(`Neuer Name für die Kopie von "${name}":`, suggested);
+  if (input === null) return;
+  const trimmed = input.trim();
+  if (!trimmed) return;
+  try {
+    const res = await api(`/preisschiessen/${id}/clone`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: trimmed}),
+    });
+    await load();
+    openPS(res.id, 'verwaltung');
+  } catch(err) { alert('Fehler: '+err.message); }
 }
 
 async function deletePS(id, name) {

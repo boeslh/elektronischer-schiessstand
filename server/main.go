@@ -24,7 +24,18 @@ import (
 	"log"
 	"os/signal"
 	"syscall"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// redactDSN blendet ein evtl. enthaltenes Passwort fuer die Log-Ausgabe aus.
+func redactDSN(dsn string) string {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return "DSN: ***"
+	}
+	return "Host " + cfg.ConnConfig.Host
+}
 
 func main() {
 	dsn := flag.String("dsn",
@@ -33,6 +44,10 @@ func main() {
 	listen := flag.String("listen", ":8090", "HTTP Listen-Adresse")
 	backupDir := flag.String("backup-dir", "../db-backups",
 		"Verzeichnis fuer DB-Backups (Import/Export-Kachel, admin-only)")
+	workerOnly := flag.Bool("worker-only", false,
+		"Nur Preisschiessen-Auswertung im Hintergrund berechnen, kein HTTP-Server/UI/Standverwaltung. "+
+			"Zum horizontalen Skalieren der Auswertungslast: beliebig viele Instanzen mit derselben -dsn "+
+			"auf verschiedenen Rechnern starten, siehe preisschiessen_wertungen.go.")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(),
@@ -45,8 +60,16 @@ func main() {
 	}
 	defer store.Close()
 
+	if *workerOnly {
+		log.Printf("Auswertung-Worker (keine UI/HTTP): %s", redactDSN(*dsn))
+		RunAuswertungScheduler(ctx, store.pool)
+		log.Printf("Beendet.")
+		return
+	}
+
 	live := NewLiveHub()
 	go live.RunListener(ctx, *dsn) // pg LISTEN shot_fired -> SSE
+	go RunAuswertungScheduler(ctx, store.pool)
 
 	srv := NewAPIServer(store, live, *listen, *dsn, *backupDir)
 	log.Printf("Server: http://localhost%s", *listen)
