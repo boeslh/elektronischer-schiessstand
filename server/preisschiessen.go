@@ -46,22 +46,28 @@ type Preisschiessen struct {
 	// selbst bleibt für die Kasse unverändert).
 	SetsAtStandpc   bool `json:"sets_at_standpc"`
 	TeilnehmerCount int  `json:"teilnehmer_count"`
+	// Aktuell: höchstens ein Preisschießen kann dies gesetzt haben (siehe
+	// migrations/046_preisschiessen_aktuell.sql) - der Display-Server löst
+	// /ps/aktuell/... darauf auf, siehe preisanzeige/site.go.
+	Aktuell bool `json:"aktuell"`
 }
 
 type PSScheibe struct {
-	ID                string   `json:"id"`
-	PreisschiessenID  string   `json:"preisschiessen_id"`
-	Name              string   `json:"name"`
-	DisciplineID      string   `json:"discipline_id"`
-	DisciplineName    string   `json:"discipline_name"`
-	Price             float64  `json:"price"`
-	TargetColor       string   `json:"target_color"`
-	StandaloneErlaubt bool     `json:"standalone_erlaubt"`
-	Active            bool     `json:"active"`
-	SortOrder         int      `json:"sort_order"`
-	MaxProTeilnehmer  *int     `json:"max_pro_teilnehmer"`
-	ClassIDs          []string `json:"class_ids"`
-	RequiredSetIDs    []string `json:"required_set_ids"`
+	ID                   string   `json:"id"`
+	PreisschiessenID     string   `json:"preisschiessen_id"`
+	Name                 string   `json:"name"`
+	DisciplineID         string   `json:"discipline_id"`
+	DisciplineName       string   `json:"discipline_name"`
+	Price                float64  `json:"price"`
+	TargetColor          string   `json:"target_color"`
+	StandaloneErlaubt    bool     `json:"standalone_erlaubt"`
+	Active               bool     `json:"active"`
+	SortOrder            int      `json:"sort_order"`
+	MaxProTeilnehmer     *int     `json:"max_pro_teilnehmer"`
+	MaxProTag            *int     `json:"max_pro_tag"`
+	AuswertungUnsichtbar bool     `json:"auswertung_unsichtbar"`
+	ClassIDs             []string `json:"class_ids"`
+	RequiredSetIDs       []string `json:"required_set_ids"`
 }
 
 type PSSetItem struct {
@@ -205,7 +211,7 @@ type PSAuswertung struct {
 func (s *Store) ListPreisschiessen(ctx context.Context) ([]Preisschiessen, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT p.id, p.name, COALESCE(p.starts_on::text,''), COALESCE(p.ends_on::text,''),
-		       p.shooting_type, p.max_negative_guthaben, p.active, p.sets_at_standpc,
+		       p.shooting_type, p.max_negative_guthaben, p.active, p.sets_at_standpc, p.aktuell,
 		       (SELECT COUNT(*) FROM ps_teilnehmer t WHERE t.preisschiessen_id = p.id)
 		FROM preisschiessen p
 		ORDER BY p.starts_on DESC NULLS LAST, p.name`)
@@ -217,7 +223,7 @@ func (s *Store) ListPreisschiessen(ctx context.Context) ([]Preisschiessen, error
 	for rows.Next() {
 		var p Preisschiessen
 		if err := rows.Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn,
-			&p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc, &p.TeilnehmerCount); err != nil {
+			&p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc, &p.Aktuell, &p.TeilnehmerCount); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -229,9 +235,9 @@ func (s *Store) GetPreisschiessen(ctx context.Context, id string) (Preisschiesse
 	var p Preisschiessen
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, name, COALESCE(starts_on::text,''), COALESCE(ends_on::text,''),
-		       shooting_type, max_negative_guthaben, active, sets_at_standpc
+		       shooting_type, max_negative_guthaben, active, sets_at_standpc, aktuell
 		FROM preisschiessen WHERE id=$1`, id,
-	).Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn, &p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc)
+	).Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn, &p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc, &p.Aktuell)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, &httpError{code: 404, msg: "Preisschießen nicht gefunden"}
 	}
@@ -250,18 +256,35 @@ func (s *Store) CreatePreisschiessen(ctx context.Context, p Preisschiessen) (str
 	return id, err
 }
 
+// UpdatePreisschiessen speichert die Grunddaten. Wird Aktuell gesetzt, wird
+// zuerst atomar (in derselben Transaktion) bei allen anderen Preisschießen
+// aktuell=false gesetzt - so bleibt der partielle Unique-Index aus
+// migrations/046_preisschiessen_aktuell.sql immer erfüllt, ohne dass der
+// Aufrufer sich darum kümmern muss.
 func (s *Store) UpdatePreisschiessen(ctx context.Context, p Preisschiessen) error {
 	startsOn, _ := time.Parse("2006-01-02", p.StartsOn)
 	endsOn, _ := time.Parse("2006-01-02", p.EndsOn)
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if p.Aktuell {
+		if _, err := tx.Exec(ctx, `UPDATE preisschiessen SET aktuell=false WHERE aktuell AND id<>$1`, p.ID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE preisschiessen SET
 		  name = $1, starts_on = $2, ends_on = $3, shooting_type = $4,
-		  max_negative_guthaben = $5, active = $6, sets_at_standpc = $7, updated_at = now()
-		WHERE id = $8`,
+		  max_negative_guthaben = $5, active = $6, sets_at_standpc = $7, aktuell = $8, updated_at = now()
+		WHERE id = $9`,
 		p.Name, nullTime(startsOn), nullTime(endsOn), p.ShootingType,
-		p.MaxNegativeGuthaben, p.Active, p.SetsAtStandpc, p.ID,
-	)
-	return err
+		p.MaxNegativeGuthaben, p.Active, p.SetsAtStandpc, p.Aktuell, p.ID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // DeletePreisschiessen entfernt ein Preisschießen mit allem Zubehör. Die
@@ -294,7 +317,7 @@ func (s *Store) ListScheiben(ctx context.Context, preisschiessenID string) ([]PS
 	rows, err := s.pool.Query(ctx, `
 		SELECT sc.id, sc.preisschiessen_id, sc.name, sc.discipline_id, d.name,
 		       sc.price, COALESCE(sc.target_color,''), sc.standalone_erlaubt,
-		       sc.active, sc.sort_order, sc.max_pro_teilnehmer,
+		       sc.active, sc.sort_order, sc.max_pro_teilnehmer, sc.max_pro_tag, sc.auswertung_unsichtbar,
 		       COALESCE((SELECT array_agg(class_id::text) FROM ps_scheibe_classes WHERE scheibe_id = sc.id), '{}'),
 		       COALESCE((SELECT array_agg(required_set_id::text) FROM ps_scheibe_requires_set WHERE scheibe_id = sc.id), '{}')
 		FROM ps_scheiben sc
@@ -310,7 +333,7 @@ func (s *Store) ListScheiben(ctx context.Context, preisschiessenID string) ([]PS
 		var x PSScheibe
 		if err := rows.Scan(&x.ID, &x.PreisschiessenID, &x.Name, &x.DisciplineID, &x.DisciplineName,
 			&x.Price, &x.TargetColor, &x.StandaloneErlaubt, &x.Active, &x.SortOrder, &x.MaxProTeilnehmer,
-			&x.ClassIDs, &x.RequiredSetIDs); err != nil {
+			&x.MaxProTag, &x.AuswertungUnsichtbar, &x.ClassIDs, &x.RequiredSetIDs); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -322,11 +345,12 @@ func (s *Store) CreateScheibe(ctx context.Context, x PSScheibe) (string, error) 
 	var id string
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO ps_scheiben
-		  (preisschiessen_id, name, discipline_id, price, target_color, standalone_erlaubt, active, sort_order, max_pro_teilnehmer)
-		VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9)
+		  (preisschiessen_id, name, discipline_id, price, target_color, standalone_erlaubt, active, sort_order,
+		   max_pro_teilnehmer, max_pro_tag, auswertung_unsichtbar)
+		VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,$10,$11)
 		RETURNING id`,
 		x.PreisschiessenID, x.Name, x.DisciplineID, x.Price, x.TargetColor,
-		x.StandaloneErlaubt, x.Active, x.SortOrder, x.MaxProTeilnehmer,
+		x.StandaloneErlaubt, x.Active, x.SortOrder, x.MaxProTeilnehmer, x.MaxProTag, x.AuswertungUnsichtbar,
 	).Scan(&id)
 	return id, err
 }
@@ -335,10 +359,12 @@ func (s *Store) UpdateScheibe(ctx context.Context, x PSScheibe) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE ps_scheiben SET
 		  name = $1, discipline_id = $2, price = $3, target_color = NULLIF($4,''),
-		  standalone_erlaubt = $5, active = $6, sort_order = $7, max_pro_teilnehmer = $8
-		WHERE id = $9`,
+		  standalone_erlaubt = $5, active = $6, sort_order = $7, max_pro_teilnehmer = $8,
+		  max_pro_tag = $9, auswertung_unsichtbar = $10
+		WHERE id = $11`,
 		x.Name, x.DisciplineID, x.Price, x.TargetColor,
-		x.StandaloneErlaubt, x.Active, x.SortOrder, x.MaxProTeilnehmer, x.ID,
+		x.StandaloneErlaubt, x.Active, x.SortOrder, x.MaxProTeilnehmer,
+		x.MaxProTag, x.AuswertungUnsichtbar, x.ID,
 	)
 	return err
 }
@@ -966,6 +992,14 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 		              AND k.typ = 'scheibe' AND k.scheibe_id = sc.id AND k.returned_at IS NULL)
 		            < sc.max_pro_teilnehmer
 		      )
+		  AND (
+		        sc.max_pro_tag IS NULL
+		        OR (SELECT COUNT(*) FROM ps_kaeufe k JOIN ps_kauf_scheiben ks ON ks.kauf_id = k.id
+		              WHERE k.teilnehmer_id = $3 AND ks.scheibe_id = sc.id AND k.returned_at IS NULL
+		                AND (k.purchased_at AT TIME ZONE 'Europe/Berlin')::date
+		                    = (now() AT TIME ZONE 'Europe/Berlin')::date)
+		            < sc.max_pro_tag
+		      )
 		ORDER BY sc.sort_order, sc.name`, preisschiessenID, classID, teilnehmerID)
 	if err != nil {
 		return nil, nil, err
@@ -1108,6 +1142,14 @@ func (s *Store) purchaseItem(ctx context.Context, tx pgx.Tx, teilnehmerID, preis
 			        OR (SELECT COUNT(*) FROM ps_kaeufe k WHERE k.teilnehmer_id = $2
 			              AND k.typ = 'scheibe' AND k.scheibe_id = sc.id AND k.returned_at IS NULL)
 			            < sc.max_pro_teilnehmer
+			      )
+			  AND (
+			        sc.max_pro_tag IS NULL
+			        OR (SELECT COUNT(*) FROM ps_kaeufe k JOIN ps_kauf_scheiben ks ON ks.kauf_id = k.id
+			              WHERE k.teilnehmer_id = $2 AND ks.scheibe_id = sc.id AND k.returned_at IS NULL
+			                AND (k.purchased_at AT TIME ZONE 'Europe/Berlin')::date
+			                    = (now() AT TIME ZONE 'Europe/Berlin')::date)
+			            < sc.max_pro_tag
 			      )`, item.ScheibeID, teilnehmerID).Scan(&preis)
 	} else {
 		err = tx.QueryRow(ctx, `

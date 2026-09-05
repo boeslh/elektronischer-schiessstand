@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -69,6 +70,19 @@ func fillCutoffForTargetName(name string) int {
 	return 0
 }
 
+// renderVerdeckt zeigt statt Trefferbild/Werten nur einen Hinweis - für
+// Disziplinen mit anzeige='verdeckt' (siehe disciplines.anzeige). Nutzt
+// bewusst das normale (helle) Seiten-Layout statt der dunklen Schussbild-
+// Vorlage, da es hier nichts Grafisches zu zeigen gibt.
+func (h *siteHandler) renderVerdeckt(w http.ResponseWriter, ctx context.Context, teilnehmerNr int, teilnehmerName, scheibeName string) {
+	body := fmt.Sprintf(`<h2 class="page-title">Schussbild – %s</h2>
+<p style="text-align:center;color:#333">Nr. %d – %s</p>
+<p style="text-align:center;margin-top:24px;color:#666">Diese Disziplin ist als "verdeckt" konfiguriert -
+Trefferbild und Werte werden hier nicht angezeigt.</p>`,
+		html.EscapeString(scheibeName), teilnehmerNr, html.EscapeString(teilnehmerName))
+	h.renderLayout(w, ctx, "Schussbild", "", body)
+}
+
 func (h *siteHandler) handleSchussbild(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	kaufScheibeID := r.PathValue("id")
@@ -80,11 +94,12 @@ func (h *siteHandler) handleSchussbild(w http.ResponseWriter, r *http.Request) {
 	var targetID string
 	var shotsPerSeries int
 	var decimalScoring bool
+	var anzeige string
 	var startedAt *time.Time
 	err := h.pool.QueryRow(ctx, `
 		SELECT sc.name, sh.last_name||' '||sh.first_name, t.teilnehmer_nr,
 		       ks.session_id::text, tg.inner_ten_d_mm, tg.id::text, tg.name,
-		       d.shots_per_series, d.decimal_scoring, se.started_at
+		       d.shots_per_series, d.decimal_scoring, se.started_at, d.anzeige
 		FROM ps_kauf_scheiben ks
 		JOIN ps_kaeufe k ON k.id = ks.kauf_id
 		JOIN ps_teilnehmer t ON t.id = k.teilnehmer_id
@@ -95,9 +110,14 @@ func (h *siteHandler) handleSchussbild(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN sessions se ON se.id = ks.session_id
 		WHERE ks.id=$1`, kaufScheibeID,
 	).Scan(&scheibeName, &teilnehmerName, &teilnehmerNr, &sessionID, &innerTenD, &targetID, &targetName,
-		&shotsPerSeries, &decimalScoring, &startedAt)
+		&shotsPerSeries, &decimalScoring, &startedAt, &anzeige)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	if anzeige == "verdeckt" {
+		h.renderVerdeckt(w, ctx, teilnehmerNr, teilnehmerName, scheibeName)
 		return
 	}
 
@@ -145,6 +165,14 @@ func (h *siteHandler) handleSchussbild(w http.ResponseWriter, r *http.Request) {
 				srows.Close()
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
+			}
+			// "teilverdeckt": Trefferbild (x_mm/y_mm) bleibt sichtbar, die
+			// Textwerte werden schon hier serverseitig entfernt statt dem
+			// Browser-JS die reinen Zahlen zu schicken und nur die Anzeige zu
+			// unterdruecken.
+			if anzeige == "teilverdeckt" {
+				s.Ring, s.Decimal, s.CenterDistance = nil, nil, nil
+				s.InnerTen = false
 			}
 			shots = append(shots, s)
 		}
@@ -347,15 +375,22 @@ function processShots(shots) {
 }
 
 function seriesSum(list) {
-  const rings   = list.reduce((a, s) => a + (s.status === 'valid' ? effRing(s) : 0), 0);
-  const decimal = list.reduce((a, s) => a + (s.status === 'valid' ? (effDecimal(s) || effRing(s)) : 0), 0);
+  const rings   = list.reduce((a, s) => a + (s.status === 'valid' ? (effRing(s) || 0) : 0), 0);
+  const decimal = list.reduce((a, s) => a + (s.status === 'valid' ? (effDecimal(s) || effRing(s) || 0) : 0), 0);
   return { rings, decimal };
 }
-function fmtSum(sum) { return decimalScoring ? sum.decimal.toFixed(1) : String(sum.rings); }
+// groupMasked: "teilverdeckt" liefert ring/decimal/center_distance bereits
+// als null vom Server (siehe handleSchussbild) - ist auch nur ein Schuss der
+// Gruppe maskiert, ist die ganze Summe irrefuehrend und wird ausgeblendet.
+function groupMasked(list) { return list.some(s => s.ring == null); }
+function fmtSum(sum, masked) {
+  if (masked) return '–';
+  return decimalScoring ? sum.decimal.toFixed(1) : String(sum.rings);
+}
 
 function renderSummary(scoring) {
   const sum = seriesSum(scoring);
-  document.getElementById('totVal').textContent = scoring.length ? fmtSum(sum) : '–';
+  document.getElementById('totVal').textContent = scoring.length ? fmtSum(sum, groupMasked(scoring)) : '–';
   const innerTens = scoring.filter(s => s.status === 'valid' && effInnerTen(s)).length;
   const parts = [];
   if (scoring.length) parts.push(scoring.length + ' Schuss' + (scoring.length === 1 ? '' : 'e'));
@@ -558,6 +593,7 @@ function selectScope(scope) {
 }
 
 function shotVal(s) {
+  if (s.ring == null) return '–';
   const dec = effDecimal(s);
   return decimalScoring && dec != null ? dec.toFixed(1) : String(effRing(s));
 }
@@ -566,7 +602,7 @@ function groupHTML(scope, label, list) {
   const active = scopeEquals(selection, scope);
   const sum = seriesSum(list);
   let out = '<div class="grp-head' + (active ? ' active' : '') + '" onclick=\'selectScope(' + JSON.stringify(scope) + ')\'>' +
-    '<span class="gn">' + label + '</span><span class="gv">' + fmtSum(sum) + '</span></div><table><tbody>';
+    '<span class="gn">' + label + '</span><span class="gv">' + fmtSum(sum, groupMasked(list)) + '</span></div><table><tbody>';
   for (const s of list) {
     const rowActive = selection && selection.type === 'shot' && selection.shotNo === s.shot_no;
     const cls = [rowActive ? 'active' : '', s.status !== 'valid' ? 'annulled' : '',

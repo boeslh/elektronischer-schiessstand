@@ -82,6 +82,26 @@ func registerSiteRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	mux.HandleFunc("GET /ps/{psid}/statistik", withPS(pool, (*siteHandler).handleStatistik))
 	mux.HandleFunc("GET /ps/{psid}/api/suche", withPS(pool, (*siteHandler).handleSuche))
 	mux.HandleFunc("GET /ps/{psid}/kiosk", withPS(pool, (*siteHandler).handleKiosk))
+	mux.HandleFunc("GET /ps/{psid}/kiosk2", withPS(pool, (*siteHandler).handleKiosk2))
+	mux.HandleFunc("GET /ps/{psid}/werbung/{sub}/{file}", withPS(pool, (*siteHandler).handleWerbungImage))
+
+	// "/ps/aktuell/..." - fester Pfad, löst per Redirect auf das jeweils als
+	// aktuell markierte Preisschießen auf (siehe handleAktuellRedirect).
+	// Ein einzelnes Wildcard-Muster wie "/ps/aktuell/{rest...}" kollidiert
+	// mit "/ps/{psid}/{$}" (beide matchen "/ps/aktuell/" und Go's ServeMux
+	// kann das nicht auflösen) - deshalb hier jede Route einzeln gespiegelt.
+	// Bei neuen Routen oben bitte auch hier ergänzen.
+	aktuell := handleAktuellRedirect(pool)
+	mux.HandleFunc("GET /ps/aktuell/{$}", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/liste/{key}", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/verein/{id}", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/teilnehmer/{nr}", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/schussbild/{id}", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/statistik", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/api/suche", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/kiosk", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/kiosk2", aktuell)
+	mux.HandleFunc("GET /ps/aktuell/werbung/{sub}/{file}", aktuell)
 }
 
 // handlePicker: Startseite des Prozesses - listet alle Preisschießen auf
@@ -135,6 +155,30 @@ func handlePicker(pool *pgxpool.Pool) http.HandlerFunc {
 <div class="header"><h1>Preisschießen</h1></div>
 <div class="layout"><div class="content" style="flex:1">%s</div></div>
 </body></html>`, siteCSS, b.String())
+	}
+}
+
+// handleAktuellRedirect löst den festen Pfad "/ps/aktuell/..." per Redirect
+// immer auf das Preisschießen mit aktuell=true auf (siehe
+// server/migrations/046_preisschiessen_aktuell.sql und dort
+// UpdatePreisschiessen, das die Eindeutigkeit durchsetzt) - Clients
+// (insbesondere fest verbaute Kiosk-Bildschirme) können so einen
+// unveränderlichen Pfad wie "/ps/aktuell/kiosk" verwenden, unabhängig davon,
+// welches Preisschießen gerade läuft.
+func handleAktuellRedirect(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var id string
+		if err := pool.QueryRow(r.Context(),
+			`SELECT id::text FROM preisschiessen WHERE aktuell LIMIT 1`,
+		).Scan(&id); err != nil {
+			http.Error(w, "Kein Preisschießen ist aktuell als \"Aktuell\" markiert.", http.StatusNotFound)
+			return
+		}
+		target := "/ps/" + id + strings.TrimPrefix(r.URL.Path, "/ps/aktuell")
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusFound)
 	}
 }
 
@@ -226,16 +270,17 @@ func (h *siteHandler) renderLayout(w http.ResponseWriter, ctx context.Context, t
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	farben := loadFarbenConfig(ctx, h.pool, h.preisschiessenID)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>%s – %s</title><style>%s</style></head><body>
+<title>%s – %s</title><style>%s%s</style></head><body>
 <div class="header"><a href="/" style="font-size:.8em;color:#004080;text-decoration:none;margin-right:14px">&#8592; Alle Preisschießen</a><h1>%s</h1></div>
 <div class="layout">
 <div class="sidebar">
 <table class="liste"><thead><tr><th>Listen</th></tr></thead><tbody>
 <tr%s><td><a href="%s/">Startseite</a></td></tr>`,
-		html.EscapeString(title), html.EscapeString(h.preisschiessenName), siteCSS,
+		html.EscapeString(title), html.EscapeString(h.preisschiessenName), siteCSS, colorOverrideCSS(farben),
 		html.EscapeString(h.preisschiessenName),
 		activeRowAttr(activeKey == "home"), h.base())
 	for _, it := range sidebar {
@@ -344,6 +389,7 @@ function tnGoNr(){
   }
 })();
 </script>`, h.base())
+	b.WriteString(h.renderAdBlock("main"))
 	h.renderLayout(w, ctx, "Startseite", "home", b.String())
 }
 
@@ -394,12 +440,14 @@ func (h *siteHandler) renderWertungListe(ctx context.Context, wertungID string) 
 	}
 
 	rows, err := h.pool.Query(ctx, `
-		SELECT platz, start_nr, nachname||' '||vorname, werte, summe
+		SELECT platz, start_nr, nachname||' '||vorname, werte, summe, scheiben
 		FROM ps_wertung_ergebnisse WHERE ps_wertung_id=$1 ORDER BY platz`, wertungID)
 	if err != nil {
 		return "", "", err
 	}
 	defer rows.Close()
+
+	showScheibe := h.loadShowScheibe(ctx)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<h2 class="page-title">%s</h2>`, html.EscapeString(shortDesc))
@@ -415,15 +463,29 @@ func (h *siteHandler) renderWertungListe(ctx context.Context, wertungID string) 
 	for i := 1; i <= 10; i++ {
 		fmt.Fprintf(&b, `<th class="num">%d</th>`, i)
 	}
-	fmt.Fprint(&b, `<th>Preis</th></tr></thead><tbody>`)
+	fmt.Fprint(&b, `<th>Preis</th>`)
+	if showScheibe {
+		fmt.Fprint(&b, `<th>Scheibe</th>`)
+	}
+	fmt.Fprint(&b, `</tr></thead><tbody>`)
+	colspan := 14 // Pl., Teiln., Name, 1-10, Preis
+	if showSumme {
+		colspan++
+	}
+	if showScheibe {
+		colspan++
+	}
+	werbungIntervall := h.loadWerbungIntervall(ctx)
 	any := false
+	n := 0
 	for rows.Next() {
 		any = true
 		var platz, startNr int
 		var name string
 		var werte []float64
 		var summe float64
-		if err := rows.Scan(&platz, &startNr, &name, &werte, &summe); err != nil {
+		var scheiben []string
+		if err := rows.Scan(&platz, &startNr, &name, &werte, &summe, &scheiben); err != nil {
 			return "", "", err
 		}
 		fmt.Fprintf(&b, `<tr><td>%d</td><td><a href="%s/teilnehmer/%d">%d</a></td><td>%s</td>`,
@@ -438,7 +500,15 @@ func (h *siteHandler) renderWertungListe(ctx context.Context, wertungID string) 
 			}
 			fmt.Fprintf(&b, `<td class="num">%s</td>`, val)
 		}
-		fmt.Fprintf(&b, `<td>%s</td></tr>`, gewinne[platz])
+		fmt.Fprintf(&b, `<td>%s</td>`, gewinne[platz])
+		if showScheibe {
+			fmt.Fprintf(&b, `<td>%s</td>`, html.EscapeString(strings.Join(scheiben, ", ")))
+		}
+		fmt.Fprint(&b, `</tr>`)
+		n++
+		if n%werbungIntervall == 0 {
+			b.WriteString(h.renderAdRow("lists", colspan))
+		}
 	}
 	fmt.Fprint(&b, `</tbody></table>`)
 	if !any {
@@ -470,6 +540,8 @@ func (h *siteHandler) renderVereinListe(ctx context.Context, typ string) (string
 	}
 	fmt.Fprintf(&b, `<table class="result"><thead><tr><th>Platz</th><th>Verein</th>
 		<th class="num">Teilnehmer</th><th class="num">%s</th><th>Preis</th></tr></thead><tbody>`, valueHeader)
+	werbungIntervall := h.loadWerbungIntervall(ctx)
+	n := 0
 	for _, r := range rows {
 		var val string
 		switch typ {
@@ -491,6 +563,10 @@ func (h *siteHandler) renderVereinListe(ctx context.Context, typ string) (string
 		fmt.Fprintf(&b, `<tr><td>%d</td><td><a href="%s/verein/%s">%s</a>%s</td>
 			<td class="num">%d</td><td class="num">%s</td><td>%s</td></tr>`,
 			r.Platz, h.base(), r.ClubID, html.EscapeString(r.ClubName), gastLabel, r.Anzahl, val, gewinne[r.Platz])
+		n++
+		if n%werbungIntervall == 0 {
+			b.WriteString(h.renderAdRow("lists", 5))
+		}
 	}
 	fmt.Fprint(&b, `</tbody></table>`)
 	return label, b.String(), nil
@@ -620,15 +696,18 @@ func (h *siteHandler) handleTeilnehmer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Scheiben mit auswertung_unsichtbar=true (siehe migrations/038) tauchen
+	// bewusst auch hier nicht auf - nicht nur in den Teilnehmer-Wertungen.
 	rows, err := h.pool.Query(ctx, `
 		SELECT ks.id, sc.name, COALESCE(vr.total_rings,0), COALESCE(vr.total_decimal,0),
-		       vr.best_center_distance, se.finished_at, se.status::text
+		       vr.best_center_distance, se.finished_at, se.status::text, d.anzeige
 		FROM ps_kauf_scheiben ks
 		JOIN ps_kaeufe k ON k.id = ks.kauf_id
 		JOIN ps_scheiben sc ON sc.id = ks.scheibe_id
+		JOIN disciplines d ON d.id = sc.discipline_id
 		LEFT JOIN sessions se ON se.id = ks.session_id
 		LEFT JOIN v_session_results vr ON vr.session_id = ks.session_id
-		WHERE k.teilnehmer_id=$1 AND k.returned_at IS NULL
+		WHERE k.teilnehmer_id=$1 AND k.returned_at IS NULL AND NOT sc.auswertung_unsichtbar
 		ORDER BY ks.serial_no`, teilnehmerID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -688,19 +767,23 @@ func (h *siteHandler) handleTeilnehmer(w http.ResponseWriter, r *http.Request) {
 	any := false
 	for rows.Next() {
 		any = true
-		var kaufScheibeID, scheibeName string
+		var kaufScheibeID, scheibeName, anzeige string
 		var totalRings int
 		var totalDecimal float64
 		var bestCD *float64
 		var finishedAt *time.Time
 		var status *string
-		if err := rows.Scan(&kaufScheibeID, &scheibeName, &totalRings, &totalDecimal, &bestCD, &finishedAt, &status); err != nil {
+		if err := rows.Scan(&kaufScheibeID, &scheibeName, &totalRings, &totalDecimal, &bestCD, &finishedAt, &status, &anzeige); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		cd := "–"
+		masked := anzeige == "teilverdeckt" || anzeige == "verdeckt"
+		ringCell, decCell, cdCell := formatWert(float64(totalRings), ""), formatWert(totalDecimal, ""), "–"
 		if bestCD != nil {
-			cd = formatWert(*bestCD, "")
+			cdCell = formatWert(*bestCD, "")
+		}
+		if masked {
+			ringCell, decCell, cdCell = "–", "–", "–"
 		}
 		zeit := "–"
 		if finishedAt != nil {
@@ -713,10 +796,14 @@ func (h *siteHandler) handleTeilnehmer(w http.ResponseWriter, r *http.Request) {
 				statusLabel = *status
 			}
 		}
-		fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td class="num">%d</td><td class="num">%s</td>
-			<td class="num">%s</td><td>%s</td><td><a href="%s/schussbild/%s">Schussbild</a></td></tr>`,
-			html.EscapeString(scheibeName), html.EscapeString(statusLabel), totalRings,
-			formatWert(totalDecimal, ""), cd, zeit, h.base(), kaufScheibeID)
+		schussbildCell := fmt.Sprintf(`<a href="%s/schussbild/%s">Schussbild</a>`, h.base(), kaufScheibeID)
+		if anzeige == "verdeckt" {
+			schussbildCell = "–"
+		}
+		fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td class="num">%s</td><td class="num">%s</td>
+			<td class="num">%s</td><td>%s</td><td>%s</td></tr>`,
+			html.EscapeString(scheibeName), html.EscapeString(statusLabel), ringCell,
+			decCell, cdCell, zeit, schussbildCell)
 	}
 	fmt.Fprint(&b, `</tbody></table>`)
 	if !any {

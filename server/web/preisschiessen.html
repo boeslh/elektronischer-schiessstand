@@ -503,6 +503,72 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
       </div>
 
       <div class="card">
+        <h2>Anzeige-Konfiguration</h2>
+        <p class="hint">Legt fest, welche Wertungen der eigenständige Anzeige-Prozess (preisanzeige)
+          zeigt und wie schnell er umschaltet. Es gibt zwei unabhängig voneinander bestückbare
+          Kiosk-Anzeigen (<code>/kiosk</code> und <code>/kiosk2</code>, z.B. für zwei Bildschirme mit
+          unterschiedlichen Wertungen) - alle übrigen Einstellungen unten gelten für beide gemeinsam.</p>
+        <div class="form-row2" style="grid-template-columns:1fr 1fr">
+          <div>
+            <label>Angezeigte Wertungen (Kiosk 1)</label>
+            <div class="checklist" id="aw-ac-wertungen"></div>
+          </div>
+          <div>
+            <label>Angezeigte Wertungen (Kiosk 2)</label>
+            <div class="checklist" id="aw-ac-wertungen-2"></div>
+          </div>
+        </div>
+        <div class="form-row2" style="margin-top:10px;grid-template-columns:1fr 1fr 1fr">
+          <div><label for="aw-ac-reload">Reload (Sekunden)</label><input type="number" id="aw-ac-reload" min="1" value="5"></div>
+          <div><label for="aw-ac-font">Titel-Schriftgröße (px)</label><input type="number" id="aw-ac-font" min="10" value="20"></div>
+          <div><label for="aw-ac-list-font">Listentext-Schriftgröße (px)</label><input type="number" id="aw-ac-list-font" min="8" value="18"></div>
+        </div>
+        <label for="aw-ac-werbung" style="margin-top:10px">Werbung: alle N Teilnehmer in den Ergebnislisten</label>
+        <input type="number" id="aw-ac-werbung" min="1" value="20">
+        <p class="hint" style="margin-top:4px">Bilder liegen als Dateien auf dem Rechner des Display-Servers unter
+          <code>/opt/ps/bilder/&lt;preisschiessen-id&gt;/main/</code> (Startseite, unten) bzw.
+          <code>.../lists/</code> (alle N Teilnehmer in Wertungs-/Vereins-Listen) - leeres Verzeichnis = keine
+          Werbung. Die Preisschießen-ID steht oben bei den Grunddaten.</p>
+        <label style="margin-top:10px">Farben</label>
+        <p class="hint" style="margin-top:-2px;margin-bottom:6px">Gelten sowohl für die browsbare
+          Ergebnis-Website als auch für den Kiosk-Modus - darüber lassen sich beide Ansichten
+          aneinander angleichen.</p>
+        <div class="form-row2" style="grid-template-columns:1fr 1fr 1fr 1fr">
+          <div><label for="aw-ac-bg">Hintergrund</label><input type="color" id="aw-ac-bg" value="#80ffff"></div>
+          <div><label for="aw-ac-text">Schrift</label><input type="color" id="aw-ac-text" value="#000000"></div>
+          <div><label for="aw-ac-row-even">Tabelle gerade Zeilen</label><input type="color" id="aw-ac-row-even" value="#eafeff"></div>
+          <div><label for="aw-ac-row-odd">Tabelle ungerade Zeilen</label><input type="color" id="aw-ac-row-odd" value="#cbf5f8"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+          <input type="checkbox" id="aw-ac-show-scheibe">
+          <span>Spalte "Scheibe" anzeigen</span>
+        </label>
+        <p class="hint" style="margin-top:-2px;margin-bottom:6px">Zeigt den Namen der Scheibe(n), die
+          der Teilnehmer geschossen hat (z.B. "LG Kombi" vs. "LP Kombi") - vor allem hilfreich, wenn
+          mehrere Scheiben in eine Wertung einfließen. Gilt sowohl für die browsbare Ergebnis-Website
+          als auch für den Kiosk-Modus.</p>
+        <label style="margin-top:10px">Kiosk-Modus: Spalten</label>
+        <p class="hint" style="margin-top:-2px;margin-bottom:6px">Verein/Klasse können einzeln ausgeblendet
+          werden - der dadurch frei werdende Platz kommt den Einzelergebnis-Spalten zugute.</p>
+        <div class="form-row2" style="grid-template-columns:1fr 1fr 1fr">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+            <input type="checkbox" id="aw-ac-kiosk-verein" checked>
+            <span>Verein anzeigen</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+            <input type="checkbox" id="aw-ac-kiosk-klasse" checked>
+            <span>Klasse anzeigen</span>
+          </label>
+          <div><label for="aw-ac-kiosk-einzel">Anzahl Einzelergebnisse</label>
+            <input type="number" id="aw-ac-kiosk-einzel" min="0" max="10" value="5"></div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-save" id="aw-ac-save-btn" onclick="awSaveAnzeigeConfig()" style="display:none">Speichern</button>
+        </div>
+        <div id="aw-ac-msg" class="msg"></div>
+      </div>
+
+      <div class="card">
         <h2>Ergebnisvorschau</h2>
         <label for="aw-preview-sel">Wertung</label>
         <select id="aw-preview-sel" onchange="awLoadPreview()"></select>
@@ -541,22 +607,6 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
               <tbody id="aw-vn-punkte-tbody"></tbody></table>
           </div>
         </div>
-      </div>
-
-      <div class="card">
-        <h2>Anzeige-Konfiguration</h2>
-        <p class="hint">Legt fest, welche Wertungen der eigenständige Anzeige-Prozess (preisanzeige)
-          zeigt und wie schnell er umschaltet.</p>
-        <label>Angezeigte Wertungen</label>
-        <div class="checklist" id="aw-ac-wertungen"></div>
-        <div class="form-row2" style="margin-top:10px">
-          <div><label for="aw-ac-reload">Reload (Sekunden)</label><input type="number" id="aw-ac-reload" min="1" value="5"></div>
-          <div><label for="aw-ac-font">Titel-Schriftgröße (px)</label><input type="number" id="aw-ac-font" min="10" value="20"></div>
-        </div>
-        <div class="form-actions">
-          <button type="button" class="btn-save" id="aw-ac-save-btn" onclick="awSaveAnzeigeConfig()" style="display:none">Speichern</button>
-        </div>
-        <div id="aw-ac-msg" class="msg"></div>
       </div>
     </div>
 
@@ -599,63 +649,80 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
 
     <!-- ══════════════════════════ Verwaltung ══════════════════════════ -->
     <div id="maintab-verwaltung" class="tab-content">
-      <div class="card">
-        <h2>Grunddaten</h2>
-        <form id="vw-ps-form" onsubmit="vwSavePS(event)">
-          <label for="vw-pf-name">Name *</label>
-          <input type="text" id="vw-pf-name" required placeholder="z.B. Preisschießen Herbst 2026">
-          <div class="form-row2">
-            <div><label for="vw-pf-start">Datum von</label><input type="date" id="vw-pf-start"></div>
-            <div><label for="vw-pf-end">Datum bis</label><input type="date" id="vw-pf-end"></div>
-          </div>
-          <label for="vw-pf-type">Typ</label>
-          <select id="vw-pf-type">
-            <option value="0">Kugel</option>
-            <option value="1">Bogen</option>
-            <option value="2">Kugel Auflage</option>
-          </select>
-          <label for="vw-pf-maxneg">Maximal erlaubtes Minus-Guthaben (€)</label>
-          <input type="number" id="vw-pf-maxneg" step="0.01" min="0" value="0">
-          <p class="hint" style="margin-top:4px">
-            Wie weit darf das Guthaben eines Teilnehmers beim Kauf ins Minus rutschen,
-            bevor bezahlt wird? 0 = kein Minus erlaubt (Kauf nur bei ausreichendem Guthaben).
-          </p>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
-            <input type="checkbox" id="vw-pf-active" checked>
-            <span>Aktiv</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
-            <input type="checkbox" id="vw-pf-sets-standpc">
-            <span>Sets am Stand-PC buchbar</span>
-          </label>
-          <p class="hint" style="margin-top:4px">
-            Standardmäßig aus - Sets werden dann nur an der Kasse angeboten, damit
-            die Auswahl am Stand-PC übersichtlich bleibt (einzelne Scheiben sind davon
-            unabhängig immer am Stand-PC buchbar).
-          </p>
-          <div class="form-actions">
-            <button type="submit" class="btn-save" id="vw-pf-save-btn" style="display:none">Speichern</button>
-          </div>
-          <div id="vw-pf-msg" class="msg"></div>
-        </form>
-        <div style="margin-top:12px">
-          <button class="btn-edit" style="padding:6px 12px" onclick="vwRecalcClasses()">Klasse neu berechnen</button>
-        </div>
-      </div>
-
       <div class="tabs">
-        <button class="tab-btn active" onclick="switchVerwaltungSubtab('scheiben', this)">Scheiben</button>
+        <button class="tab-btn active" onclick="switchVerwaltungSubtab('grunddaten', this)">Grunddaten</button>
+        <button class="tab-btn" onclick="switchVerwaltungSubtab('scheiben', this)">Scheiben</button>
         <button class="tab-btn" onclick="switchVerwaltungSubtab('sets', this)">Sets</button>
         <button class="tab-btn" onclick="switchVerwaltungSubtab('vereine', this)">Vereine</button>
       </div>
 
+      <!-- ══ Grunddaten ══ -->
+      <div id="verwaltung-sub-grunddaten" class="tab-content active">
+        <div class="card">
+          <h2>Grunddaten</h2>
+          <form id="vw-ps-form" onsubmit="vwSavePS(event)">
+            <label for="vw-pf-name">Name *</label>
+            <input type="text" id="vw-pf-name" required placeholder="z.B. Preisschießen Herbst 2026">
+            <p class="hint" style="margin-top:2px">ID: <code id="vw-pf-id" style="user-select:all">–</code>
+              (z.B. für das Werbebilder-Verzeichnis <code>/opt/ps/bilder/&lt;ID&gt;/</code> des Display-Servers)</p>
+            <div class="form-row2">
+              <div><label for="vw-pf-start">Datum von</label><input type="date" id="vw-pf-start"></div>
+              <div><label for="vw-pf-end">Datum bis</label><input type="date" id="vw-pf-end"></div>
+            </div>
+            <label for="vw-pf-type">Typ</label>
+            <select id="vw-pf-type">
+              <option value="0">Kugel</option>
+              <option value="1">Bogen</option>
+              <option value="2">Kugel Auflage</option>
+            </select>
+            <label for="vw-pf-maxneg">Maximal erlaubtes Minus-Guthaben (€)</label>
+            <input type="number" id="vw-pf-maxneg" step="0.01" min="0" value="0">
+            <p class="hint" style="margin-top:4px">
+              Wie weit darf das Guthaben eines Teilnehmers beim Kauf ins Minus rutschen,
+              bevor bezahlt wird? 0 = kein Minus erlaubt (Kauf nur bei ausreichendem Guthaben).
+            </p>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+              <input type="checkbox" id="vw-pf-active" checked>
+              <span>Aktiv</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+              <input type="checkbox" id="vw-pf-aktuell">
+              <span>Aktuell</span>
+            </label>
+            <p class="hint" style="margin-top:4px">
+              Es kann immer nur ein Preisschießen als "Aktuell" markiert sein - beim Setzen wird es bei
+              allen anderen automatisch entfernt. Der Display-Server löst den festen Pfad
+              <code>/ps/aktuell/</code> immer auf das so markierte Preisschießen auf (z.B.
+              <code>/ps/aktuell/kiosk</code>) - praktisch für Clients/Kiosk-Bildschirme, die nicht bei
+              jedem neuen Preisschießen umkonfiguriert werden sollen.
+            </p>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+              <input type="checkbox" id="vw-pf-sets-standpc">
+              <span>Sets am Stand-PC buchbar</span>
+            </label>
+            <p class="hint" style="margin-top:4px">
+              Standardmäßig aus - Sets werden dann nur an der Kasse angeboten, damit
+              die Auswahl am Stand-PC übersichtlich bleibt (einzelne Scheiben sind davon
+              unabhängig immer am Stand-PC buchbar).
+            </p>
+            <div class="form-actions">
+              <button type="submit" class="btn-save" id="vw-pf-save-btn" style="display:none">Speichern</button>
+            </div>
+            <div id="vw-pf-msg" class="msg"></div>
+          </form>
+          <div style="margin-top:12px">
+            <button class="btn-edit" style="padding:6px 12px" onclick="vwRecalcClasses()">Klasse neu berechnen</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ══ Scheiben ══ -->
-      <div id="verwaltung-sub-scheiben" class="tab-content active">
+      <div id="verwaltung-sub-scheiben" class="tab-content">
         <div class="split">
           <div class="card">
             <h2>Scheiben</h2>
             <table>
-              <thead><tr><th>Name</th><th>Disziplin</th><th>Preis</th><th>Einzeln</th><th>Max/Teiln.</th><th>Aktiv</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th>Disziplin</th><th>Preis</th><th>Einzeln</th><th>Max/Teiln.</th><th>Max/Tag</th><th>Aktiv</th><th></th></tr></thead>
               <tbody id="vw-sc-tbody"></tbody>
             </table>
           </div>
@@ -697,6 +764,16 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
               </label>
               <label for="vw-scf-maxpro">Maximale Anzahl pro Teilnehmer (leer = unbegrenzt)</label>
               <input type="number" id="vw-scf-maxpro" min="1" step="1" placeholder="unbegrenzt">
+              <label for="vw-scf-maxtag">Maximale Anzahl pro Tag (leer = unbegrenzt)</label>
+              <input type="number" id="vw-scf-maxtag" min="1" step="1" placeholder="unbegrenzt">
+              <p class="hint" style="margin-top:-2px">"Tag" = Kalendertag (Datum), keine rollierende 24h-Spanne.</p>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="vw-scf-auswertung-unsichtbar">
+                <span>Unsichtbar in der Auswertung</span>
+              </label>
+              <p class="hint" style="margin-top:-2px">Scheibe bleibt kauf-/beschießbar, ihre Schüsse fließen aber in
+                keine Teilnehmer-Wertung ein, solange dieses Häkchen gesetzt ist - typischerweise erst gegen Ende
+                des Preisschießens gesetzt.</p>
               <label>Nur für Schützenklassen (leer = alle)</label>
               <div class="checklist" id="vw-scf-classes"></div>
               <label>Erfordert vorherigen Kauf eines dieser Sets (leer = kein Gating)</label>
@@ -1970,23 +2047,52 @@ async function awLoadAnzeigeConfig() {
   const cfg = await api(`/preisschiessen/${currentPS.id}/anzeige-config`);
   document.getElementById('aw-ac-reload').value = cfg.reload_seconds;
   document.getElementById('aw-ac-font').value = cfg.title_font_size;
-  const ids = cfg.wertung_ids || [];
-  document.getElementById('aw-ac-wertungen').innerHTML = awWertungen.length
-    ? awWertungen.map(w => `
+  document.getElementById('aw-ac-list-font').value = cfg.list_font_size;
+  document.getElementById('aw-ac-werbung').value = cfg.werbung_intervall;
+  document.getElementById('aw-ac-bg').value = cfg.bg_color;
+  document.getElementById('aw-ac-text').value = cfg.text_color;
+  document.getElementById('aw-ac-row-even').value = cfg.row_even_color;
+  document.getElementById('aw-ac-row-odd').value = cfg.row_odd_color;
+  document.getElementById('aw-ac-show-scheibe').checked = cfg.show_scheibe;
+  document.getElementById('aw-ac-kiosk-verein').checked = cfg.kiosk_show_verein;
+  document.getElementById('aw-ac-kiosk-klasse').checked = cfg.kiosk_show_klasse;
+  document.getElementById('aw-ac-kiosk-einzel').value = cfg.kiosk_anzahl_einzelergebnisse;
+  const items = gwListItems(); // Teilnehmer-Wertungen + die 3 Vereins-Auswertungen, siehe dort
+  awRenderWertungenChecklist('aw-ac-wertungen', items, cfg.anzeige_items || []);
+  awRenderWertungenChecklist('aw-ac-wertungen-2', items, cfg.anzeige_items_2 || []);
+}
+
+function awRenderWertungenChecklist(elId, items, checkedIds) {
+  document.getElementById(elId).innerHTML = items.length
+    ? items.map(it => `
         <label class="check-row">
-          <input type="checkbox" data-wertung-id="${w.id}" ${ids.includes(w.id)?'checked':''}>
-          <span>${esc(w.short_desc)}</span>
+          <input type="checkbox" data-item="${it.key}" ${checkedIds.includes(it.key)?'checked':''}>
+          <span>${esc(it.label)}</span>
         </label>`).join('')
     : '<span class="hint">Noch keine Wertungen angelegt.</span>';
 }
 
+function awCheckedItems(elId) {
+  return Array.from(document.querySelectorAll(`#${elId} input[type=checkbox]:checked`))
+    .map(cb => cb.getAttribute('data-item'));
+}
+
 async function awSaveAnzeigeConfig() {
-  const wertungIDs = Array.from(document.querySelectorAll('#aw-ac-wertungen input[type=checkbox]:checked'))
-    .map(cb => cb.getAttribute('data-wertung-id'));
   const body = {
     reload_seconds: parseInt(document.getElementById('aw-ac-reload').value, 10) || 5,
     title_font_size: parseInt(document.getElementById('aw-ac-font').value, 10) || 20,
-    wertung_ids: wertungIDs,
+    list_font_size: parseInt(document.getElementById('aw-ac-list-font').value, 10) || 18,
+    werbung_intervall: parseInt(document.getElementById('aw-ac-werbung').value, 10) || 20,
+    bg_color: document.getElementById('aw-ac-bg').value,
+    text_color: document.getElementById('aw-ac-text').value,
+    row_even_color: document.getElementById('aw-ac-row-even').value,
+    row_odd_color: document.getElementById('aw-ac-row-odd').value,
+    show_scheibe: document.getElementById('aw-ac-show-scheibe').checked,
+    kiosk_show_verein: document.getElementById('aw-ac-kiosk-verein').checked,
+    kiosk_show_klasse: document.getElementById('aw-ac-kiosk-klasse').checked,
+    kiosk_anzahl_einzelergebnisse: parseInt(document.getElementById('aw-ac-kiosk-einzel').value, 10) || 0,
+    anzeige_items: awCheckedItems('aw-ac-wertungen'),
+    anzeige_items_2: awCheckedItems('aw-ac-wertungen-2'),
   };
   try {
     await api(`/preisschiessen/${currentPS.id}/anzeige-config`, jsonOpts('PUT', body));
@@ -2018,6 +2124,7 @@ window.addEventListener('schiessstand-role-ready', updateManageVisibility);
 function switchVerwaltungSubtab(name, btn) {
   const scope = document.getElementById('maintab-verwaltung');
   scope.querySelectorAll(':scope > .tabs > .tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('verwaltung-sub-grunddaten').classList.remove('active');
   document.getElementById('verwaltung-sub-scheiben').classList.remove('active');
   document.getElementById('verwaltung-sub-sets').classList.remove('active');
   document.getElementById('verwaltung-sub-vereine').classList.remove('active');
@@ -2146,12 +2253,14 @@ async function vwSaveVereinZeitraeume() {
 }
 
 function vwFillForm(p) {
+  document.getElementById('vw-pf-id').textContent = p.id;
   document.getElementById('vw-pf-name').value   = p.name;
   document.getElementById('vw-pf-start').value  = p.starts_on ? p.starts_on.slice(0,10) : '';
   document.getElementById('vw-pf-end').value    = p.ends_on   ? p.ends_on.slice(0,10)   : '';
   document.getElementById('vw-pf-type').value   = p.shooting_type;
   document.getElementById('vw-pf-maxneg').value = p.max_negative_guthaben ?? 0;
   document.getElementById('vw-pf-active').checked = p.active;
+  document.getElementById('vw-pf-aktuell').checked = !!p.aktuell;
   document.getElementById('vw-pf-sets-standpc').checked = !!p.sets_at_standpc;
 }
 
@@ -2164,6 +2273,7 @@ async function vwSavePS(e) {
     shooting_type: parseInt(document.getElementById('vw-pf-type').value, 10),
     max_negative_guthaben: parseFloat(document.getElementById('vw-pf-maxneg').value) || 0,
     active: document.getElementById('vw-pf-active').checked,
+    aktuell: document.getElementById('vw-pf-aktuell').checked,
     sets_at_standpc: document.getElementById('vw-pf-sets-standpc').checked,
   };
   try {
@@ -2244,17 +2354,19 @@ function vwRenderScheiben() {
   const tbody = document.getElementById('vw-sc-tbody');
   tbody.innerHTML = '';
   if (!vwScheiben.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);text-align:center">Keine Scheiben</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--dim);text-align:center">Keine Scheiben</td></tr>';
     return;
   }
   for (const sc of vwScheiben) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${sc.target_color ? `<span class="color-dot" style="background:${esc(sc.target_color)}"></span>` : ''}${esc(sc.name)}</td>
+      <td>${sc.target_color ? `<span class="color-dot" style="background:${esc(sc.target_color)}"></span>` : ''}${esc(sc.name)}
+        ${sc.auswertung_unsichtbar ? '<span class="badge badge-no" title="Unsichtbar in der Auswertung">Unsichtbar</span>' : ''}</td>
       <td style="font-size:.8rem">${esc(sc.discipline_name)}</td>
       <td style="font-size:.8rem">${sc.price.toFixed(2)} €</td>
       <td><span class="badge ${sc.standalone_erlaubt?'badge-yes':'badge-no'}">${sc.standalone_erlaubt?'Ja':'Nur im Set'}</span></td>
       <td style="font-size:.8rem">${sc.max_pro_teilnehmer ?? '–'}</td>
+      <td style="font-size:.8rem">${sc.max_pro_tag ?? '–'}</td>
       <td><span class="badge ${sc.active?'badge-yes':'badge-no'}">${sc.active?'Aktiv':'Inaktiv'}</span></td>
       <td class="row-actions">
         ${vwCanManage ? `<button class="btn-edit" onclick="vwEditScheibe('${sc.id}')">Bearb.</button>` : ''}
@@ -2270,6 +2382,7 @@ function vwClearScheibeForm() {
   document.getElementById('vw-scf-title').textContent = 'anlegen';
   document.getElementById('vw-scf-standalone').checked = true;
   document.getElementById('vw-scf-active').checked = true;
+  document.getElementById('vw-scf-auswertung-unsichtbar').checked = false;
   vwSetColorFields('#000000');
   document.getElementById('vw-scf-classes').innerHTML = vwClassChecklistHTML([]);
   document.getElementById('vw-scf-requires').innerHTML = vwSetsChecklistHTML([]);
@@ -2287,6 +2400,8 @@ function vwEditScheibe(id) {
   document.getElementById('vw-scf-standalone').checked = sc.standalone_erlaubt;
   document.getElementById('vw-scf-active').checked = sc.active;
   document.getElementById('vw-scf-maxpro').value = sc.max_pro_teilnehmer ?? '';
+  document.getElementById('vw-scf-maxtag').value = sc.max_pro_tag ?? '';
+  document.getElementById('vw-scf-auswertung-unsichtbar').checked = !!sc.auswertung_unsichtbar;
   document.getElementById('vw-scf-classes').innerHTML = vwClassChecklistHTML(sc.class_ids || []);
   document.getElementById('vw-scf-requires').innerHTML = vwSetsChecklistHTML(sc.required_set_ids || []);
   window.scrollTo({top: document.getElementById('vw-scf-title').offsetTop, behavior:'smooth'});
@@ -2312,6 +2427,8 @@ async function vwSaveScheibe(e) {
     standalone_erlaubt: document.getElementById('vw-scf-standalone').checked,
     active: document.getElementById('vw-scf-active').checked,
     max_pro_teilnehmer: document.getElementById('vw-scf-maxpro').value === '' ? null : parseInt(document.getElementById('vw-scf-maxpro').value, 10),
+    max_pro_tag: document.getElementById('vw-scf-maxtag').value === '' ? null : parseInt(document.getElementById('vw-scf-maxtag').value, 10),
+    auswertung_unsichtbar: document.getElementById('vw-scf-auswertung-unsichtbar').checked,
     sort_order: 0,
   };
   try {

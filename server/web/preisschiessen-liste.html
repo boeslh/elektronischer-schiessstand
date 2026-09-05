@@ -37,6 +37,7 @@ tr:hover td{background:#1e2530}
 .badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
 .badge-active{background:#1a3a2a;color:#4ab8a0}
 .badge-inactive{background:#1e2530;color:#75879a}
+.badge-aktuell{background:#3a2f1a;color:#e0b34a}
 </style>
 </head>
 <body>
@@ -103,7 +104,7 @@ function render() {
       ? `${(p.starts_on||'').slice(0,10)} – ${(p.ends_on||'').slice(0,10)}`
       : '–';
     tr.innerHTML = `
-      <td><strong>${esc(p.name)}</strong></td>
+      <td><strong>${esc(p.name)}</strong>${p.aktuell ? ' <span class="badge badge-aktuell">Aktuell</span>' : ''}</td>
       <td style="font-size:.8rem;white-space:nowrap">${zeitraum}</td>
       <td style="font-size:.8rem">${TYPE_LABEL[p.shooting_type] ?? p.shooting_type}</td>
       <td style="font-size:.8rem">${p.teilnehmer_count}</td>

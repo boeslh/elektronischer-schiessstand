@@ -23,6 +23,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -340,29 +341,47 @@ func (s *Store) ClonePreisschiessen(ctx context.Context, sourceID, newName strin
 		}
 	}
 
-	// ---- Anzeige-Konfiguration (wertung_ids auf die neuen Wertungen ummappen) ----
-	var reloadSeconds, titleFontSize int
-	var oldWertungIDs []string
+	// ---- Anzeige-Konfiguration (anzeige_items/anzeige_items_2 auf die neuen
+	// Wertungen ummappen - "verein:..."-Einträge bleiben unverändert, sie
+	// referenzieren keine Wertung) ----
+	var ac PSAnzeigeConfig
+	var oldItems, oldItems2 []string
 	hasAnzeigeConfig := false
-	if err := tx.QueryRow(ctx,
-		`SELECT reload_seconds, title_font_size, wertung_ids::text[] FROM ps_anzeige_config WHERE preisschiessen_id=$1`,
-		sourceID,
-	).Scan(&reloadSeconds, &titleFontSize, &oldWertungIDs); err == nil {
+	if err := tx.QueryRow(ctx, `
+		SELECT reload_seconds, title_font_size, list_font_size, anzeige_items, anzeige_items_2, werbung_intervall,
+		       bg_color, text_color, row_even_color, row_odd_color,
+		       kiosk_show_verein, kiosk_show_klasse, kiosk_anzahl_einzelergebnisse, show_scheibe
+		FROM ps_anzeige_config WHERE preisschiessen_id=$1`, sourceID,
+	).Scan(&ac.ReloadSeconds, &ac.TitleFontSize, &ac.ListFontSize, &oldItems, &oldItems2, &ac.WerbungIntervall,
+		&ac.BgColor, &ac.TextColor, &ac.RowEvenColor, &ac.RowOddColor,
+		&ac.KioskShowVerein, &ac.KioskShowKlasse, &ac.KioskAnzahlEinzelergebnisse, &ac.ShowScheibe,
+	); err == nil {
 		hasAnzeigeConfig = true
 	} else if err != pgx.ErrNoRows {
 		return "", err
 	}
 	if hasAnzeigeConfig {
-		newWertungIDs := make([]string, 0, len(oldWertungIDs))
-		for _, oid := range oldWertungIDs {
-			if nid, ok := wertungIDMap[oid]; ok {
-				newWertungIDs = append(newWertungIDs, nid)
+		remapItems := func(items []string) []string {
+			out := make([]string, 0, len(items))
+			for _, item := range items {
+				if oid, ok := strings.CutPrefix(item, "wertung:"); ok {
+					if nid, ok := wertungIDMap[oid]; ok {
+						out = append(out, "wertung:"+nid)
+					}
+					continue
+				}
+				out = append(out, item) // "verein:..." unverändert
 			}
+			return out
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO ps_anzeige_config (preisschiessen_id, reload_seconds, title_font_size, wertung_ids)
-			VALUES ($1,$2,$3,$4)`,
-			newPSID, reloadSeconds, titleFontSize, newWertungIDs); err != nil {
+			INSERT INTO ps_anzeige_config (preisschiessen_id, reload_seconds, title_font_size, list_font_size, anzeige_items, anzeige_items_2, werbung_intervall,
+			                                bg_color, text_color, row_even_color, row_odd_color,
+			                                kiosk_show_verein, kiosk_show_klasse, kiosk_anzahl_einzelergebnisse, show_scheibe)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+			newPSID, ac.ReloadSeconds, ac.TitleFontSize, ac.ListFontSize, remapItems(oldItems), remapItems(oldItems2), ac.WerbungIntervall,
+			ac.BgColor, ac.TextColor, ac.RowEvenColor, ac.RowOddColor,
+			ac.KioskShowVerein, ac.KioskShowKlasse, ac.KioskAnzahlEinzelergebnisse, ac.ShowScheibe); err != nil {
 			return "", err
 		}
 	}

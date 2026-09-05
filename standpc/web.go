@@ -7,11 +7,13 @@
 //   - Browser reconnectet automatisch (EventSource)
 //
 // Endpunkte:
-//   GET /          eingebettete Anzeige-Seite (HTML/JS, kein Build noetig)
-//   GET /events    SSE-Stream: named events "shot" und "status"
-//   GET /shots     bisherige Schuesse der Sitzung (JSON-Array, fuer Reload)
-//   GET /status    aktueller Modus + Disziplin (JSON)
-//   POST /mode     Modus umschalten {"mode":"wertung"|"probe"}
+//
+//	GET /          eingebettete Anzeige-Seite (HTML/JS, kein Build noetig)
+//	GET /events    SSE-Stream: named events "shot" und "status"
+//	GET /shots     bisherige Schuesse der Sitzung (JSON-Array, fuer Reload)
+//	GET /status    aktueller Modus + Disziplin (JSON)
+//	POST /mode     Modus umschalten {"mode":"wertung"|"probe"}
+//
 // ============================================================================
 package main
 
@@ -54,9 +56,10 @@ type WebServer struct {
 
 	mu             sync.Mutex
 	clients        map[chan sseMsg]struct{}
-	history        []*Shot // Sitzungsverlauf fuer neu verbundene Clients
+	history        []*Shot // Sitzungsverlauf fuer neu verbundene Clients (UNVERAENDERTE Werte, siehe maskShot)
 	historyGen     int     // wird bei ResetHistory inkrementiert
 	decimalScoring bool    // gecacht aus letztem BroadcastStatus; unter mu
+	anzeige        string  // gecacht aus letztem BroadcastStatus; unter mu - siehe maskShot
 	fontSizes      FontSizes
 }
 
@@ -183,17 +186,40 @@ func (ws *WebServer) broadcast(event string, data []byte) {
 	}
 }
 
+// maskShot blendet Ring/Zehntel/Teiler (und bei "verdeckt" zusaetzlich die
+// Trefferposition, also das grafische Trefferbild) in der fuer den Browser
+// bestimmten KOPIE eines Schusses aus - je nach Anzeige-Modus der aktuellen
+// Disziplin (disciplines.anzeige, siehe server/store.go ActiveSessionForLane).
+// Persistierung (DB-Speicherung in db.go, lokales Schussprotokoll in
+// shotlog.go) und die serverseitige Summenbildung (pushLiveState, ws.history)
+// bleiben bewusst unberuehrt - sie arbeiten weiterhin mit dem unveraenderten
+// Original; nur diese Browser-Kopie wird redigiert.
+func maskShot(s Shot, anzeige string) Shot {
+	if anzeige != "teilverdeckt" && anzeige != "verdeckt" {
+		return s
+	}
+	s.Ring = 0
+	s.Decimal = 0
+	s.CenterDistance = 0
+	s.InnerTen = false
+	if anzeige == "verdeckt" {
+		s.XMM, s.YMM = 0, 0
+	}
+	return s
+}
+
 // Broadcast sendet einen Schuss an alle verbundenen Browser.
 // gen muss vor dem letzten ResetHistory-Aufruf abgefragt worden sein;
 // stimmt es nicht ueberein, wird der Schuss nicht in die History aufgenommen
 // (verhindert dass der Probe-Ausloeser eines Auto-Switch in die Wertungs-History gelangt).
 func (ws *WebServer) Broadcast(shot *Shot, gen int) {
-	data, err := json.Marshal(shot)
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	display := maskShot(*shot, ws.anzeige)
+	data, err := json.Marshal(&display)
 	if err != nil {
 		return
 	}
-	ws.mu.Lock()
-	defer ws.mu.Unlock()
 	if !shot.Rejected && ws.historyGen == gen {
 		ws.history = append(ws.history, shot)
 	}
@@ -209,11 +235,14 @@ func (ws *WebServer) BroadcastStatus(si StatusInfo) {
 	}
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
-	// Zehntelwertung cachen, damit pushLiveState keinen SessionManager-Lock braucht.
+	// Zehntelwertung/Anzeige-Modus cachen, damit pushLiveState/Broadcast
+	// keinen SessionManager-Lock brauchen.
 	if si.Discipline != nil {
 		ws.decimalScoring = si.Discipline.DecimalScoring
+		ws.anzeige = si.Discipline.Anzeige
 	} else {
 		ws.decimalScoring = false
+		ws.anzeige = ""
 	}
 	ws.broadcast("status", data)
 	ws.pushLiveState(si.Mode)
@@ -283,7 +312,11 @@ func (ws *WebServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (ws *WebServer) handleShots(w http.ResponseWriter, r *http.Request) {
 	ws.mu.Lock()
-	data, _ := json.Marshal(ws.history)
+	display := make([]Shot, len(ws.history))
+	for i, s := range ws.history {
+		display[i] = maskShot(*s, ws.anzeige)
+	}
+	data, _ := json.Marshal(display)
 	ws.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(data)

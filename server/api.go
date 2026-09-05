@@ -2,22 +2,24 @@
 // api.go – REST-API der Standsteuerung
 //
 // Endpunkte:
-//   Verwaltung (Browser-UI / Aufsicht):
-//     GET  /api/lanes                     Standuebersicht mit Belegung
-//     POST /api/lanes/init {"count":n}    Staende 1..n anlegen
-//     GET  /api/shooters?q=...            Schuetzensuche
-//     POST /api/shooters                  Schuetze anlegen
-//     GET  /api/disciplines               aktive Disziplinen
-//     POST /api/lanes/{no}/assign         Stand belegen {shooter_id?,discipline_id}
-//     POST /api/sessions/{id}/status      {"status":"sighting|match|paused|finished|aborted"}
-//     POST /api/sessions/{id}/shots/{no}/annul  {"actor":"...","reason":"..."}
-//     GET  /api/sessions/{id}/shots       Schussliste
 //
-//   Stand-PC-Schnittstelle:
-//     GET  /api/lanes/{no}/session        aktive Session + Kalibrierung
-//                                         (null wenn Stand frei)
-//   Live:
-//     GET  /events                        SSE: jeder Schuss aller Staende
+//	Verwaltung (Browser-UI / Aufsicht):
+//	  GET  /api/lanes                     Standuebersicht mit Belegung
+//	  POST /api/lanes/init {"count":n}    Staende 1..n anlegen
+//	  GET  /api/shooters?q=...            Schuetzensuche
+//	  POST /api/shooters                  Schuetze anlegen
+//	  GET  /api/disciplines               aktive Disziplinen
+//	  POST /api/lanes/{no}/assign         Stand belegen {shooter_id?,discipline_id}
+//	  POST /api/sessions/{id}/status      {"status":"sighting|match|paused|finished|aborted"}
+//	  POST /api/sessions/{id}/shots/{no}/annul  {"actor":"...","reason":"..."}
+//	  GET  /api/sessions/{id}/shots       Schussliste
+//
+//	Stand-PC-Schnittstelle:
+//	  GET  /api/lanes/{no}/session        aktive Session + Kalibrierung
+//	                                      (null wenn Stand frei)
+//	Live:
+//	  GET  /events                        SSE: jeder Schuss aller Staende
+//
 // ============================================================================
 package main
 
@@ -953,8 +955,8 @@ func (a *APIServer) deleteClub(w http.ResponseWriter, r *http.Request) (any, err
 
 func (a *APIServer) importClubs(w http.ResponseWriter, r *http.Request) (any, error) {
 	body, err := decodeBody[struct {
-		Clubs       []ImportClubEntry `json:"clubs"`
-		CreateGaue  bool              `json:"create_gaue"`
+		Clubs      []ImportClubEntry `json:"clubs"`
+		CreateGaue bool              `json:"create_gaue"`
 	}](r)
 	if err != nil || len(body.Clubs) == 0 {
 		return nil, errors.New("clubs erforderlich")
@@ -1468,8 +1470,8 @@ func proxyGet(url string) (any, error) {
 
 func (a *APIServer) transferSession(w http.ResponseWriter, r *http.Request) (any, error) {
 	var body struct {
-		SessionID  string `json:"session_id"`
-		ToLaneNo   int    `json:"to_lane_no"`
+		SessionID string `json:"session_id"`
+		ToLaneNo  int    `json:"to_lane_no"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, errBadRequest("ungültiger Body")
@@ -1495,10 +1497,10 @@ func (a *APIServer) transferSession(w http.ResponseWriter, r *http.Request) (any
 
 func (a *APIServer) importSession(w http.ResponseWriter, r *http.Request) (any, error) {
 	var body struct {
-		SessionID string           `json:"session_id"`  // Ziel-Session in DB
-		LaneNo    int              `json:"lane_no"`     // StandPC für Schüsse
-		LocalSID  string           `json:"local_sid"`   // Session-ID im lokalen Log
-		Shots     []ImportShot     `json:"shots"`       // direkt mitgeliefert ODER
+		SessionID string       `json:"session_id"` // Ziel-Session in DB
+		LaneNo    int          `json:"lane_no"`    // StandPC für Schüsse
+		LocalSID  string       `json:"local_sid"`  // Session-ID im lokalen Log
+		Shots     []ImportShot `json:"shots"`      // direkt mitgeliefert ODER
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, errBadRequest("ungültiger Body")
@@ -1529,20 +1531,20 @@ func (a *APIServer) importSession(w http.ResponseWriter, r *http.Request) (any, 
 
 		// StandPC liefert []Shot (standpc-Format), in ImportShot umwandeln
 		var rawShots []struct {
-			ShotNo     int     `json:"shot_no"`
-			Mode       string  `json:"mode"`
-			FiredAt    string  `json:"fired_at"`
-			XMM        float64 `json:"x_mm"`
-			YMM        float64 `json:"y_mm"`
-			Ring       int     `json:"ring"`
-			Decimal    float64 `json:"decimal"`
-			InnerTen   bool    `json:"inner_ten"`
+			ShotNo         int     `json:"shot_no"`
+			Mode           string  `json:"mode"`
+			FiredAt        string  `json:"fired_at"`
+			XMM            float64 `json:"x_mm"`
+			YMM            float64 `json:"y_mm"`
+			Ring           int     `json:"ring"`
+			Decimal        float64 `json:"decimal"`
+			InnerTen       bool    `json:"inner_ten"`
 			CenterDistance float64 `json:"center_distance"`
-			Seq        int     `json:"seq"`
-			RawTNs     []int64 `json:"raw_t_ns"`
-			SensorHits int     `json:"sensor_hits"`
-			Confidence float64 `json:"confidence"`
-			Rejected   bool    `json:"rejected"`
+			Seq            int     `json:"seq"`
+			RawTNs         []int64 `json:"raw_t_ns"`
+			SensorHits     int     `json:"sensor_hits"`
+			Confidence     float64 `json:"confidence"`
+			Rejected       bool    `json:"rejected"`
 		}
 		if err := json.Unmarshal(raw, &rawShots); err != nil {
 			return nil, fmt.Errorf("StandPC-Antwort ungültig: %w", err)
@@ -1553,19 +1555,19 @@ func (a *APIServer) importSession(w http.ResponseWriter, r *http.Request) (any, 
 				continue
 			}
 			shots = append(shots, ImportShot{
-				ShotNo:     shotNo,
-				Kind:       s.Mode,
-				FiredAt:    s.FiredAt,
-				XMM:        s.XMM,
-				YMM:        s.YMM,
-				Ring:       s.Ring,
-				Decimal:    s.Decimal,
-				InnerTen:   s.InnerTen,
+				ShotNo:         shotNo,
+				Kind:           s.Mode,
+				FiredAt:        s.FiredAt,
+				XMM:            s.XMM,
+				YMM:            s.YMM,
+				Ring:           s.Ring,
+				Decimal:        s.Decimal,
+				InnerTen:       s.InnerTen,
 				CenterDistance: s.CenterDistance,
-				Seq:        s.Seq,
-				RawTNs:     s.RawTNs,
-				SensorHits: s.SensorHits,
-				Confidence: s.Confidence,
+				Seq:            s.Seq,
+				RawTNs:         s.RawTNs,
+				SensorHits:     s.SensorHits,
+				Confidence:     s.Confidence,
 			})
 			shotNo++
 		}
@@ -1619,6 +1621,7 @@ func (a *APIServer) pushDisciplinesToStandPC(w http.ResponseWriter, r *http.Requ
 		ScoringShots   int    `json:"scoring_shots"`
 		ShotsPerSeries int    `json:"shots_per_series"`
 		DecimalScoring bool   `json:"decimal_scoring"`
+		Anzeige        string `json:"anzeige"`
 	}
 
 	idSet := map[string]bool{}
@@ -1648,6 +1651,7 @@ func (a *APIServer) pushDisciplinesToStandPC(w http.ResponseWriter, r *http.Requ
 			ScoringShots:   d.MatchShotCount,
 			ShotsPerSeries: d.ShotsPerSeries,
 			DecimalScoring: d.DecimalScoring,
+			Anzeige:        d.Anzeige,
 		})
 	}
 

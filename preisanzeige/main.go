@@ -34,6 +34,9 @@ import (
 type Config struct {
 	PostgresDSN string `json:"postgres_dsn"`
 	ListenAddr  string `json:"listen_addr"`
+	// WerbungDir: Basisverzeichnis für Werbebilder, siehe werbung.go.
+	// Aufbau: <WerbungDir>/<preisschiessen_id>/{main,lists}/*.{jpg,jpeg,png,gif,webp}
+	WerbungDir string `json:"werbung_dir"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -47,6 +50,9 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8091"
+	}
+	if cfg.WerbungDir == "" {
+		cfg.WerbungDir = "/opt/ps/bilder"
 	}
 	return &cfg, nil
 }
@@ -68,6 +74,8 @@ func main() {
 		log.Fatalf("FATAL DB: %v", err)
 	}
 	defer pool.Close()
+
+	werbungBaseDir = cfg.WerbungDir
 
 	mux := http.NewServeMux()
 	registerSiteRoutes(mux, pool)

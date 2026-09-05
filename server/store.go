@@ -163,19 +163,19 @@ func (s *Store) TransferSession(ctx context.Context, sessionID string, toLaneNo 
 
 // ImportShot beschreibt einen einzelnen importierten Schuss.
 type ImportShot struct {
-	ShotNo    int     `json:"shot_no"`
-	Kind      string  `json:"kind"`      // "probe" | "match"
-	FiredAt   string  `json:"fired_at"`  // RFC3339
-	XMM       float64 `json:"x_mm"`
-	YMM       float64 `json:"y_mm"`
-	Ring      int     `json:"ring"`
-	Decimal   float64 `json:"decimal"`
-	InnerTen  bool    `json:"inner_ten"`
+	ShotNo         int     `json:"shot_no"`
+	Kind           string  `json:"kind"`     // "probe" | "match"
+	FiredAt        string  `json:"fired_at"` // RFC3339
+	XMM            float64 `json:"x_mm"`
+	YMM            float64 `json:"y_mm"`
+	Ring           int     `json:"ring"`
+	Decimal        float64 `json:"decimal"`
+	InnerTen       bool    `json:"inner_ten"`
 	CenterDistance float64 `json:"center_distance"`
-	Seq       int     `json:"seq"`
-	RawTNs    []int64 `json:"raw_t_ns"`
-	SensorHits int    `json:"sensor_hits"`
-	Confidence float64 `json:"confidence"`
+	Seq            int     `json:"seq"`
+	RawTNs         []int64 `json:"raw_t_ns"`
+	SensorHits     int     `json:"sensor_hits"`
+	Confidence     float64 `json:"confidence"`
 }
 
 // ImportShots schreibt Schüsse aus einem lokalen JSONL-Log in die Datenbank.
@@ -300,10 +300,15 @@ type DisciplineFull struct {
 	MaxSightingShots *int    `json:"max_sighting_shots"` // nil = unbegrenzt
 	ShotsPerSeries   int     `json:"shots_per_series"`
 	DecimalScoring   bool    `json:"decimal_scoring"`
-	MatchTimeS         *int   `json:"match_time_s"` // nil = keine Begrenzung
-	Active             bool   `json:"active"`
-	Notes              string `json:"notes"`
-	StandPCTargetNo    int    `json:"standpc_target_no"` // Scheibenummer im StandPC (0 = nicht gesetzt)
+	MatchTimeS       *int    `json:"match_time_s"` // nil = keine Begrenzung
+	Active           bool    `json:"active"`
+	Notes            string  `json:"notes"`
+	StandPCTargetNo  int     `json:"standpc_target_no"` // Scheibenummer im StandPC (0 = nicht gesetzt)
+	// Anzeige steuert, was am Stand-PC während des Schießens tatsächlich
+	// gezeigt wird: "voll" (Standard), "teilverdeckt" (Trefferbild grafisch,
+	// aber Ring/Zehntel/Teiler als "-"), "verdeckt" (auch kein Trefferbild,
+	// nur "-") - siehe standpc/web.go maskShot.
+	Anzeige string `json:"anzeige"`
 }
 
 // TargetRef wird fuer Auswahlfelder in der Disziplin-Verwaltung benoetigt.
@@ -337,7 +342,7 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 		       d.match_shot_count, d.max_sighting_shots,
 		       d.shots_per_series, d.decimal_scoring,
 		       d.match_time_s, d.active, COALESCE(d.notes,''),
-		       d.standpc_target_no
+		       d.standpc_target_no, d.anzeige
 		FROM disciplines d
 		LEFT JOIN targets t ON t.id = d.target_id
 		ORDER BY d.active DESC, d.name`)
@@ -354,7 +359,7 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 			&d.MatchShotCount, &d.MaxSightingShots,
 			&d.ShotsPerSeries, &d.DecimalScoring,
 			&d.MatchTimeS, &d.Active, &d.Notes,
-			&d.StandPCTargetNo,
+			&d.StandPCTargetNo, &d.Anzeige,
 		); err != nil {
 			return nil, err
 		}
@@ -364,23 +369,31 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 }
 
 func (s *Store) CreateDiscipline(ctx context.Context, d DisciplineFull) (string, error) {
+	anzeige := d.Anzeige
+	if anzeige == "" {
+		anzeige = "voll"
+	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO disciplines
 		  (name, rule_no, distance_m, target_id,
 		   match_shot_count, max_sighting_shots, shots_per_series,
-		   decimal_scoring, match_time_s, active, notes)
+		   decimal_scoring, match_time_s, active, notes, anzeige)
 		VALUES ($1, NULLIF($2,''), $3, $4,
-		        $5, $6, $7, $8, $9, $10, NULLIF($11,''))
+		        $5, $6, $7, $8, $9, $10, NULLIF($11,''), $12)
 		RETURNING id`,
 		d.Name, d.RuleNo, d.DistanceM, d.TargetID,
 		d.MatchShotCount, d.MaxSightingShots, d.ShotsPerSeries,
-		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes,
+		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, anzeige,
 	).Scan(&id)
 	return id, err
 }
 
 func (s *Store) UpdateDiscipline(ctx context.Context, d DisciplineFull) error {
+	anzeige := d.Anzeige
+	if anzeige == "" {
+		anzeige = "voll"
+	}
 	_, err := s.pool.Exec(ctx, `
 		UPDATE disciplines SET
 		  name               = $1,
@@ -394,11 +407,12 @@ func (s *Store) UpdateDiscipline(ctx context.Context, d DisciplineFull) error {
 		  match_time_s       = $9,
 		  active             = $10,
 		  notes              = NULLIF($11,''),
-		  standpc_target_no  = $13
+		  standpc_target_no  = $13,
+		  anzeige            = $14
 		WHERE id = $12`,
 		d.Name, d.RuleNo, d.DistanceM, d.TargetID,
 		d.MatchShotCount, d.MaxSightingShots, d.ShotsPerSeries,
-		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, d.ID, d.StandPCTargetNo,
+		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, d.ID, d.StandPCTargetNo, anzeige,
 	)
 	return err
 }
@@ -524,6 +538,7 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 	var eventName, eventType string
 	var trialShots, scoringShots, shotsPerSeries, targetNo int
 	var decimalScoring bool
+	var anzeige string
 	var lastShotNo, probeCount, wertungShotsFired int
 	err := s.pool.QueryRow(ctx, `
 		SELECT se.id, se.status, d.name,
@@ -532,7 +547,7 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		       c.plate_offset_x, c.plate_offset_y,
 		       COALESCE(ev.name,''), COALESCE(ev.type::text,''),
 		       COALESCE(d.max_sighting_shots,-1), d.match_shot_count,
-		       d.shots_per_series, d.decimal_scoring, d.standpc_target_no,
+		       d.shots_per_series, d.decimal_scoring, d.standpc_target_no, d.anzeige,
 		       COALESCE((SELECT MAX(shot_no) FROM shots WHERE session_id=se.id), 0),
 		       COALESCE((SELECT COUNT(*) FROM shots
 		                 WHERE session_id=se.id AND kind='sighting' AND status='valid'), 0),
@@ -550,7 +565,7 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		laneNo).Scan(&sessionID, &status, &discipline, &shooterName,
 		&sensorPos, &plateAngle, &soundSpeed, &offX, &offY,
 		&eventName, &eventType,
-		&trialShots, &scoringShots, &shotsPerSeries, &decimalScoring, &targetNo,
+		&trialShots, &scoringShots, &shotsPerSeries, &decimalScoring, &targetNo, &anzeige,
 		&lastShotNo, &probeCount, &wertungShotsFired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil // Stand frei -> Stand-PC arbeitet ohne Session
@@ -559,17 +574,17 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		return nil, err
 	}
 	return map[string]any{
-		"session_id":       sessionID,
-		"status":           status,
-		"discipline":       discipline,
-		"shooter":          shooterName,
-		"sensor_pos":       jsonRaw(sensorPos),
-		"plate_angle_deg":  plateAngle,
-		"sound_speed_mps":  soundSpeed,
-		"plate_offset_x":   offX,
-		"plate_offset_y":   offY,
-		"event_name":       eventName,
-		"event_type":       eventType,
+		"session_id":      sessionID,
+		"status":          status,
+		"discipline":      discipline,
+		"shooter":         shooterName,
+		"sensor_pos":      jsonRaw(sensorPos),
+		"plate_angle_deg": plateAngle,
+		"sound_speed_mps": soundSpeed,
+		"plate_offset_x":  offX,
+		"plate_offset_y":  offY,
+		"event_name":      eventName,
+		"event_type":      eventType,
 		// Disziplinparameter direkt mitgeliefert (statt dass der Stand-PC sie
 		// per Namen aus seiner eigenen, potenziell veralteten/unvollstaendigen
 		// disciplines.json nachschlagen muss - Server ist hier die einzige
@@ -580,6 +595,10 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		"shots_per_series": shotsPerSeries,
 		"decimal_scoring":  decimalScoring,
 		"target_no":        targetNo,
+		// Anzeige-Modus (voll/teilverdeckt/verdeckt) - der Stand-PC blendet
+		// Ring/Zehntel/Teiler (und bei "verdeckt" das Trefferbild) je nach
+		// Wert aus, siehe standpc/web.go maskShot.
+		"anzeige": anzeige,
 		// Authoritativer Schusszaehler-Stand dieser Session (server-seitig
 		// aus den tatsaechlich gespeicherten Schuessen ermittelt) - der
 		// Stand-PC uebernimmt das bei JEDER neuen Zuweisung dieser Session
@@ -969,8 +988,9 @@ func (s *Store) ImportClubs(ctx context.Context, entries []ImportClubEntry, crea
 // ShooterClass entspricht einer Zeile des CSV-Exports "Sportklassen" aus dem
 // Verwaltungstool. type/sex werden als numerische Codes wie im Export
 // gespeichert (Anzeige uebersetzt clientseitig):
-//   type: 0=Kugel, 1=Bogen, 2=Kugel Auflage
-//   sex:  0=weiblich, 1=maennlich, NULL=offen
+//
+//	type: 0=Kugel, 1=Bogen, 2=Kugel Auflage
+//	sex:  0=weiblich, 1=maennlich, NULL=offen
 type ShooterClass struct {
 	ID        string `json:"id"`
 	Code      string `json:"code"`
@@ -1069,8 +1089,8 @@ func (s *Store) ImportShooterClasses(ctx context.Context, entries []ShooterClass
 
 // RecalculateResult fasst das Ergebnis von RecalculateSportsClasses zusammen.
 type RecalculateResult struct {
-	Updated       int `json:"updated"`
-	SkippedNoData int `json:"skipped_no_data"` // Geschlecht oder Geburtsdatum fehlt
+	Updated        int `json:"updated"`
+	SkippedNoData  int `json:"skipped_no_data"`  // Geschlecht oder Geburtsdatum fehlt
 	SkippedNoMatch int `json:"skipped_no_match"` // keine passende Sportklasse gefunden
 }
 
@@ -1214,26 +1234,26 @@ func (s *Store) RecalculateSportsClasses(ctx context.Context, year int) (Recalcu
 
 // ShooterFull enthält alle Stammdatenfelder eines Schützen.
 type ShooterFull struct {
-	ID          string  `json:"id"`
-	LastName    string  `json:"last_name"`
-	FirstName   string  `json:"first_name"`
-	Title       string  `json:"title"`
-	Gender      string  `json:"gender"`
-	BirthDate   string  `json:"birth_date"`
-	PassNo      string  `json:"pass_no"`
-	ClubID      string  `json:"club_id"`
-	ClubName    string  `json:"club_name"`
-	Street      string  `json:"street"`
-	Zip         string  `json:"zip"`
-	City        string  `json:"city"`
-	Phone       string  `json:"phone"`
-	Mobile      string  `json:"mobile"`
-	Email       string  `json:"email"`
-	SportsClass *int    `json:"sports_class"`
-	AgeGroup    *int    `json:"age_group"`
-	EntryDate   string  `json:"entry_date"`
-	Interests   string  `json:"interests"`
-	Country     string  `json:"country"`
+	ID          string `json:"id"`
+	LastName    string `json:"last_name"`
+	FirstName   string `json:"first_name"`
+	Title       string `json:"title"`
+	Gender      string `json:"gender"`
+	BirthDate   string `json:"birth_date"`
+	PassNo      string `json:"pass_no"`
+	ClubID      string `json:"club_id"`
+	ClubName    string `json:"club_name"`
+	Street      string `json:"street"`
+	Zip         string `json:"zip"`
+	City        string `json:"city"`
+	Phone       string `json:"phone"`
+	Mobile      string `json:"mobile"`
+	Email       string `json:"email"`
+	SportsClass *int   `json:"sports_class"`
+	AgeGroup    *int   `json:"age_group"`
+	EntryDate   string `json:"entry_date"`
+	Interests   string `json:"interests"`
+	Country     string `json:"country"`
 }
 
 // MemberRow repräsentiert eine Zeile der Mitgliederliste-CSV.
@@ -1507,29 +1527,29 @@ func parseGermanDate(s string) (time.Time, error) {
 // ----------------------------------------------------------------------------
 
 type Team struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	ShortName  string `json:"short_name"`
-	Season     string `json:"season"`
-	Discipline string `json:"discipline"`
-	ClubID     string `json:"club_id"`
-	ClubName   string `json:"club_name"`
-	GauID      string `json:"gau_id"`
-	GauName    string `json:"gau_name"`
-	Notes      string `json:"notes"`
-	Active     bool   `json:"active"`
-	MemberCount int   `json:"member_count"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	ShortName   string `json:"short_name"`
+	Season      string `json:"season"`
+	Discipline  string `json:"discipline"`
+	ClubID      string `json:"club_id"`
+	ClubName    string `json:"club_name"`
+	GauID       string `json:"gau_id"`
+	GauName     string `json:"gau_name"`
+	Notes       string `json:"notes"`
+	Active      bool   `json:"active"`
+	MemberCount int    `json:"member_count"`
 }
 
 type TeamMember struct {
-	ShooterID  string `json:"shooter_id"`
-	LastName   string `json:"last_name"`
-	FirstName  string `json:"first_name"`
-	PassNo     string `json:"pass_no"`
-	ClubName   string `json:"club_name"`
-	Position   *int   `json:"position"`
-	JoinedAt   string `json:"joined_at"`
-	Notes      string `json:"notes"`
+	ShooterID string `json:"shooter_id"`
+	LastName  string `json:"last_name"`
+	FirstName string `json:"first_name"`
+	PassNo    string `json:"pass_no"`
+	ClubName  string `json:"club_name"`
+	Position  *int   `json:"position"`
+	JoinedAt  string `json:"joined_at"`
+	Notes     string `json:"notes"`
 }
 
 func (s *Store) ListTeams(ctx context.Context, clubID, gauID string, activeOnly bool) ([]Team, error) {
@@ -1654,31 +1674,31 @@ func (s *Store) RemoveTeamMember(ctx context.Context, teamID, shooterID string) 
 
 // Competition bildet die events-Tabelle mit Wettkampf-Erweiterungen ab.
 type Competition struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Type           string `json:"type"` // einzel | runde | gruppe
-	StartsOn       string `json:"starts_on"`
-	EndsOn         string `json:"ends_on"`
-	Status         string `json:"status"`
-	DisciplineID   string `json:"discipline_id"`
-	DisciplineName string `json:"discipline_name"`
-	Location       string `json:"location"`
-	Notes          string `json:"notes"`
-	Active         bool   `json:"active"`
-	StarterCount   int    `json:"starter_count"`
-	ParticipantCount int  `json:"participant_count"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Type             string `json:"type"` // einzel | runde | gruppe
+	StartsOn         string `json:"starts_on"`
+	EndsOn           string `json:"ends_on"`
+	Status           string `json:"status"`
+	DisciplineID     string `json:"discipline_id"`
+	DisciplineName   string `json:"discipline_name"`
+	Location         string `json:"location"`
+	Notes            string `json:"notes"`
+	Active           bool   `json:"active"`
+	StarterCount     int    `json:"starter_count"`
+	ParticipantCount int    `json:"participant_count"`
 }
 
 // CompetitionParticipant ist eine antretende Einheit (Mannschaft, Verein oder Gau).
 type CompetitionParticipant struct {
-	ID        string `json:"id"`
-	EventID   string `json:"event_id"`
-	TeamID    string `json:"team_id"`
-	ClubID    string `json:"club_id"`
-	GauID     string `json:"gau_id"`
-	Label     string `json:"label"`      // aufgelöster Name
+	ID         string `json:"id"`
+	EventID    string `json:"event_id"`
+	TeamID     string `json:"team_id"`
+	ClubID     string `json:"club_id"`
+	GauID      string `json:"gau_id"`
+	Label      string `json:"label"`       // aufgelöster Name
 	EntityType string `json:"entity_type"` // team | club | gau
-	SortOrder int    `json:"sort_order"`
+	SortOrder  int    `json:"sort_order"`
 }
 
 // CompetitionStarter ist ein Schütze, der an einem Wettkampf teilnimmt.
@@ -2017,29 +2037,29 @@ func (s *Store) DeleteSavedAuswertung(ctx context.Context, id string) error {
 
 // GruppenwettkampfStarter ist ein Starter mit Ergebnis für die Gruppenwettkampf-Auswertung.
 type GruppenwettkampfStarter struct {
-	StarterID      string  `json:"starter_id"`
-	ShooterID      string  `json:"shooter_id"`
-	LastName       string  `json:"last_name"`
-	FirstName      string  `json:"first_name"`
-	ClubName       string  `json:"club_name"`
-	ClubID         string  `json:"club_id"`
-	GauID          string  `json:"gau_id"`
-	TeamID         string  `json:"team_id"`
-	TeamName       string  `json:"team_name"`
-	DisciplineName string  `json:"discipline_name"`
-	DecimalScoring bool    `json:"decimal_scoring"`
-	ShotCount      int     `json:"shot_count"`
-	TotalRings     int     `json:"total_rings"`
-	TotalDecimal   float64 `json:"total_decimal"`
+	StarterID          string  `json:"starter_id"`
+	ShooterID          string  `json:"shooter_id"`
+	LastName           string  `json:"last_name"`
+	FirstName          string  `json:"first_name"`
+	ClubName           string  `json:"club_name"`
+	ClubID             string  `json:"club_id"`
+	GauID              string  `json:"gau_id"`
+	TeamID             string  `json:"team_id"`
+	TeamName           string  `json:"team_name"`
+	DisciplineName     string  `json:"discipline_name"`
+	DecimalScoring     bool    `json:"decimal_scoring"`
+	ShotCount          int     `json:"shot_count"`
+	TotalRings         int     `json:"total_rings"`
+	TotalDecimal       float64 `json:"total_decimal"`
 	BestCenterDistance float64 `json:"best_center_distance"`
-	InnerTens      int     `json:"inner_tens"`
-	SessionStatus  string  `json:"session_status"`
-	SessionID      string  `json:"session_id"`
+	InnerTens          int     `json:"inner_tens"`
+	SessionStatus      string  `json:"session_status"`
+	SessionID          string  `json:"session_id"`
 }
 
 // GruppenwettkampfData enthält Gruppen (Participants) und Einzelergebnisse.
 type GruppenwettkampfData struct {
-	Participants []CompetitionParticipant `json:"participants"`
+	Participants []CompetitionParticipant  `json:"participants"`
 	Starters     []GruppenwettkampfStarter `json:"starters"`
 }
 

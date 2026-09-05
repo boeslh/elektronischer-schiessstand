@@ -29,7 +29,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -82,6 +84,10 @@ type PSWertungErgebnis struct {
 	Werte        []float64 `json:"werte"`
 	Summe        float64   `json:"summe"`
 	Platz        int       `json:"platz"`
+	// Scheiben: Namen der Scheibe(n), die der Teilnehmer für diese Wertung
+	// tatsächlich geschossen hat (z.B. "LG Kombi" vs. "LP Kombi" in einer
+	// kombinierten Wertung) - siehe computeMeisterPunkt.
+	Scheiben []string `json:"scheiben"`
 }
 
 type PSAuswertungStatus struct {
@@ -97,10 +103,43 @@ type PSAuswertungStatus struct {
 }
 
 type PSAnzeigeConfig struct {
-	PreisschiessenID string   `json:"preisschiessen_id"`
-	ReloadSeconds    int      `json:"reload_seconds"`
-	TitleFontSize    int      `json:"title_font_size"`
-	WertungIDs       []string `json:"wertung_ids"`
+	PreisschiessenID string `json:"preisschiessen_id"`
+	ReloadSeconds    int    `json:"reload_seconds"`
+	TitleFontSize    int    `json:"title_font_size"`
+	ListFontSize     int    `json:"list_font_size"`
+	// AnzeigeItems: für den Kiosk-Modus ausgewählte Teilnehmer-Wertungen
+	// und/oder Vereins-Auswertungen, im selben Schlüsselschema wie die
+	// Listen-Navigation der browsbaren Ergebnis-Website (site.go
+	// loadSidebar): "wertung:<uuid>" bzw. "verein:anzahl"/"verein:prozent"/
+	// "verein:punkte" - siehe validAnzeigeItem und preisanzeige/display.go.
+	AnzeigeItems []string `json:"anzeige_items"`
+	// AnzeigeItems2: dieselbe Auswahl, aber für die zweite, unabhängige
+	// Kiosk-Anzeige ("/ps/{id}/kiosk2") - alle übrigen Einstellungen dieser
+	// Struct gelten für beide Kiosk-Anzeigen gemeinsam.
+	AnzeigeItems2 []string `json:"anzeige_items_2"`
+	// WerbungIntervall: Werbebild alle N Teilnehmer-Zeilen in einer
+	// Ergebnisliste (Wertung/Vereins-Auswertung) im Display-Server - die
+	// Bilder selbst liegen als Dateien auf dessen Rechner, siehe
+	// preisanzeige/werbung.go.
+	WerbungIntervall int `json:"werbung_intervall"`
+	// Farben gelten sowohl für die browsbare Ergebnis-Website als auch für
+	// den Kiosk-Modus des Display-Servers, siehe preisanzeige/farben.go -
+	// darüber lassen sich beide Ansichten aneinander angleichen.
+	BgColor      string `json:"bg_color"`
+	TextColor    string `json:"text_color"`
+	RowEvenColor string `json:"row_even_color"`
+	RowOddColor  string `json:"row_odd_color"`
+	// Spaltensteuerung im Kiosk-Modus (preisanzeige/display.go): Verein/
+	// Klasse einzeln aus-/einblendbar, dafür eine konfigurierbare Anzahl an
+	// Einzelergebnis-Spalten (0-10, bisher fest "Beste 5").
+	KioskShowVerein             bool `json:"kiosk_show_verein"`
+	KioskShowKlasse             bool `json:"kiosk_show_klasse"`
+	KioskAnzahlEinzelergebnisse int  `json:"kiosk_anzahl_einzelergebnisse"`
+	// ShowScheibe: zusätzliche Spalte mit dem Namen der geschossenen
+	// Scheibe(n) (z.B. "LG Kombi"/"LP Kombi") - gilt sowohl für die
+	// browsbare Ergebnis-Website als auch für den Kiosk-Modus, siehe
+	// PSWertungErgebnis.Scheiben.
+	ShowScheibe bool `json:"show_scheibe"`
 }
 
 // ----------------------------------------------------------------------------
@@ -278,7 +317,7 @@ func (s *Store) DeleteWertung(ctx context.Context, id string) error {
 func (s *Store) ListWertungErgebnisse(ctx context.Context, wertungID string) ([]PSWertungErgebnis, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT teilnehmer_id, start_nr, nachname, vorname, COALESCE(verein,''),
-		       COALESCE(klasse,''), werte, summe, COALESCE(platz,0)
+		       COALESCE(klasse,''), werte, summe, COALESCE(platz,0), scheiben
 		FROM ps_wertung_ergebnisse WHERE ps_wertung_id=$1 ORDER BY platz`, wertungID)
 	if err != nil {
 		return nil, err
@@ -288,7 +327,7 @@ func (s *Store) ListWertungErgebnisse(ctx context.Context, wertungID string) ([]
 	for rows.Next() {
 		var x PSWertungErgebnis
 		if err := rows.Scan(&x.TeilnehmerID, &x.StartNr, &x.Nachname, &x.Vorname, &x.Verein,
-			&x.Klasse, &x.Werte, &x.Summe, &x.Platz); err != nil {
+			&x.Klasse, &x.Werte, &x.Summe, &x.Platz, &x.Scheiben); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -307,10 +346,10 @@ func replaceWertungErgebnisse(ctx context.Context, tx pgx.Tx, wertungID string, 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO ps_wertung_ergebnisse
 			  (ps_wertung_id, teilnehmer_id, start_nr, nachname, vorname, verein, klasse,
-			   werte, summe, platz)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			   werte, summe, platz, scheiben)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 			wertungID, r.TeilnehmerID, r.StartNr, r.Nachname, r.Vorname, r.Verein, r.Klasse,
-			r.Werte, r.Summe, r.Platz); err != nil {
+			r.Werte, r.Summe, r.Platz, orEmptyStrs(r.Scheiben)); err != nil {
 			return err
 		}
 	}
@@ -418,21 +457,76 @@ func (s *Store) GetAnzeigeConfig(ctx context.Context, preisschiessenID string) (
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO ps_anzeige_config (preisschiessen_id) VALUES ($1)
 		ON CONFLICT (preisschiessen_id) DO UPDATE SET preisschiessen_id = EXCLUDED.preisschiessen_id
-		RETURNING reload_seconds, title_font_size, wertung_ids::text[]`,
+		RETURNING reload_seconds, title_font_size, list_font_size, anzeige_items, anzeige_items_2, werbung_intervall,
+		          bg_color, text_color, row_even_color, row_odd_color,
+		          kiosk_show_verein, kiosk_show_klasse, kiosk_anzahl_einzelergebnisse, show_scheibe`,
 		preisschiessenID,
-	).Scan(&x.ReloadSeconds, &x.TitleFontSize, &x.WertungIDs)
+	).Scan(&x.ReloadSeconds, &x.TitleFontSize, &x.ListFontSize, &x.AnzeigeItems, &x.AnzeigeItems2, &x.WerbungIntervall,
+		&x.BgColor, &x.TextColor, &x.RowEvenColor, &x.RowOddColor,
+		&x.KioskShowVerein, &x.KioskShowKlasse, &x.KioskAnzahlEinzelergebnisse, &x.ShowScheibe)
 	return x, err
 }
 
+var hexColorRE = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+var wertungItemRE = regexp.MustCompile(`^wertung:[0-9a-fA-F-]{36}$`)
+var validVereinTypen = map[string]bool{"anzahl": true, "prozent": true, "punkte": true}
+
+// validAnzeigeItem prüft das Schlüsselschema für PSAnzeigeConfig.AnzeigeItems
+// (siehe dortigen Kommentar) - anders als bei der bisherigen wertung_ids-
+// Spalte (UUID[]) übernimmt hier keine DB-FK-Constraint die Validierung, da
+// "verein:..." kein FK auf eine Tabelle ist.
+func validAnzeigeItem(s string) bool {
+	if typ, ok := strings.CutPrefix(s, "verein:"); ok {
+		return validVereinTypen[typ]
+	}
+	return wertungItemRE.MatchString(s)
+}
+
 func (s *Store) SetAnzeigeConfig(ctx context.Context, x PSAnzeigeConfig) error {
+	if x.WerbungIntervall < 1 {
+		return errBadRequest("Werbe-Intervall muss mindestens 1 sein")
+	}
+	if x.KioskAnzahlEinzelergebnisse < 0 || x.KioskAnzahlEinzelergebnisse > 10 {
+		return errBadRequest("Anzahl Einzelergebnisse muss zwischen 0 und 10 liegen")
+	}
+	for _, c := range []string{x.BgColor, x.TextColor, x.RowEvenColor, x.RowOddColor} {
+		if !hexColorRE.MatchString(c) {
+			return errBadRequest("Farben müssen im Format #rrggbb angegeben werden")
+		}
+	}
+	for _, item := range x.AnzeigeItems {
+		if !validAnzeigeItem(item) {
+			return errBadRequest("Ungültiger Eintrag in den angezeigten Wertungen: " + item)
+		}
+	}
+	for _, item := range x.AnzeigeItems2 {
+		if !validAnzeigeItem(item) {
+			return errBadRequest("Ungültiger Eintrag in den angezeigten Wertungen (Kiosk 2): " + item)
+		}
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO ps_anzeige_config (preisschiessen_id, reload_seconds, title_font_size, wertung_ids)
-		VALUES ($1,$2,$3,$4::uuid[])
+		INSERT INTO ps_anzeige_config (preisschiessen_id, reload_seconds, title_font_size, list_font_size, anzeige_items, anzeige_items_2, werbung_intervall,
+		                                bg_color, text_color, row_even_color, row_odd_color,
+		                                kiosk_show_verein, kiosk_show_klasse, kiosk_anzahl_einzelergebnisse, show_scheibe)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (preisschiessen_id) DO UPDATE SET
 		  reload_seconds = EXCLUDED.reload_seconds,
 		  title_font_size = EXCLUDED.title_font_size,
-		  wertung_ids = EXCLUDED.wertung_ids`,
-		x.PreisschiessenID, x.ReloadSeconds, x.TitleFontSize, orEmptyStrs(x.WertungIDs))
+		  list_font_size = EXCLUDED.list_font_size,
+		  anzeige_items = EXCLUDED.anzeige_items,
+		  anzeige_items_2 = EXCLUDED.anzeige_items_2,
+		  werbung_intervall = EXCLUDED.werbung_intervall,
+		  bg_color = EXCLUDED.bg_color,
+		  text_color = EXCLUDED.text_color,
+		  row_even_color = EXCLUDED.row_even_color,
+		  row_odd_color = EXCLUDED.row_odd_color,
+		  kiosk_show_verein = EXCLUDED.kiosk_show_verein,
+		  kiosk_show_klasse = EXCLUDED.kiosk_show_klasse,
+		  kiosk_anzahl_einzelergebnisse = EXCLUDED.kiosk_anzahl_einzelergebnisse,
+		  show_scheibe = EXCLUDED.show_scheibe`,
+		x.PreisschiessenID, x.ReloadSeconds, x.TitleFontSize, x.ListFontSize, orEmptyStrs(x.AnzeigeItems), orEmptyStrs(x.AnzeigeItems2), x.WerbungIntervall,
+		x.BgColor, x.TextColor, x.RowEvenColor, x.RowOddColor,
+		x.KioskShowVerein, x.KioskShowKlasse, x.KioskAnzahlEinzelergebnisse, x.ShowScheibe)
 	return err
 }
 
@@ -449,6 +543,7 @@ type wertungRow struct {
 	vorname      string
 	verein       string
 	klasse       string
+	scheibeName  string
 	wert         float64
 }
 
@@ -485,7 +580,7 @@ func loadWertungRows(ctx context.Context, pool *pgxpool.Pool, w PSWertung) ([]we
 
 	sql := fmt.Sprintf(`
 		SELECT pt.id, pt.teilnehmer_nr, sh.last_name, sh.first_name,
-		       COALESCE(cl.name,''), COALESCE(sc.name,''), (%s) * ws.faktor AS wert
+		       COALESCE(cl.name,''), COALESCE(sc.name,''), psc.name, (%s) * ws.faktor AS wert
 		FROM ps_kauf_scheiben ks
 		JOIN ps_wertung_scheiben ws ON ws.scheibe_id = ks.scheibe_id AND ws.wertung_id = $1
 		JOIN ps_kaeufe k          ON k.id = ks.kauf_id
@@ -500,6 +595,7 @@ func loadWertungRows(ctx context.Context, pool *pgxpool.Pool, w PSWertung) ([]we
 		WHERE ks.preisschiessen_id = $2
 		  AND (array_length($3::uuid[],1) IS NULL OR pt.class_id = ANY($3::uuid[]))
 		  AND vsr.shot_count >= d.match_shot_count
+		  AND NOT psc.auswertung_unsichtbar
 		ORDER BY pt.id, wert %s`, valueExpr, joinTable, order)
 
 	rows, err := pool.Query(ctx, sql, w.ID, w.PreisschiessenID, w.KlassenIDs)
@@ -511,7 +607,7 @@ func loadWertungRows(ctx context.Context, pool *pgxpool.Pool, w PSWertung) ([]we
 	for rows.Next() {
 		var x wertungRow
 		if err := rows.Scan(&x.teilnehmerID, &x.startNr, &x.nachname, &x.vorname,
-			&x.verein, &x.klasse, &x.wert); err != nil {
+			&x.verein, &x.klasse, &x.scheibeName, &x.wert); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -547,19 +643,25 @@ func computeMeisterPunkt(ctx context.Context, pool *pgxpool.Pool, w PSWertung) (
 
 	// Nach Teilnehmer gruppieren (SQL liefert bereits nach pt.id sortiert).
 	type group struct {
-		meta  wertungRow
-		werte []float64
+		meta         wertungRow
+		werte        []float64
+		scheibenSeen map[string]bool
+		scheiben     []string // Reihenfolge der ersten Nennung, siehe scheibenSeen
 	}
 	order := []string{}
 	groups := map[string]*group{}
 	for _, r := range rows {
 		g, ok := groups[r.teilnehmerID]
 		if !ok {
-			g = &group{meta: r}
+			g = &group{meta: r, scheibenSeen: map[string]bool{}}
 			groups[r.teilnehmerID] = g
 			order = append(order, r.teilnehmerID)
 		}
 		g.werte = append(g.werte, r.wert) // Faktor bereits in loadWertungRows (je Scheibe) angewandt
+		if r.scheibeName != "" && !g.scheibenSeen[r.scheibeName] {
+			g.scheibenSeen[r.scheibeName] = true
+			g.scheiben = append(g.scheiben, r.scheibeName)
+		}
 	}
 
 	out := make([]PSWertungErgebnis, 0, len(order))
@@ -590,6 +692,7 @@ func computeMeisterPunkt(ctx context.Context, pool *pgxpool.Pool, w PSWertung) (
 			Klasse:       g.meta.klasse,
 			Werte:        werte,
 			Summe:        sum,
+			Scheiben:     g.scheiben,
 		})
 	}
 

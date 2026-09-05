@@ -3,13 +3,14 @@
 // main.go: Konfiguration laden, Komponenten verdrahten, Lebenszyklus
 //
 // Datenfluss:
-//   ESP32 --USB-Serial--> serialReader --> Shot-Pipeline:
-//     1. TDOA-Solver  (tdoa.go)   Rohzeiten -> Position auf Blech
-//     2. Geometrie    (tdoa.go)   Blech -> Scheibenkoordinaten
-//     3. Wertung      (score.go)  x/y -> Ring, Zehntel, Teiler
-//     4. Schussprotokoll (shotlog.go)  lokales append-only Log  [IMMER]
-//     5. Datenbank    (db.go)     zentrale PostgreSQL          [optional]
-//     6. Live-Anzeige (web.go)    Browser via SSE
+//
+//	ESP32 --USB-Serial--> serialReader --> Shot-Pipeline:
+//	  1. TDOA-Solver  (tdoa.go)   Rohzeiten -> Position auf Blech
+//	  2. Geometrie    (tdoa.go)   Blech -> Scheibenkoordinaten
+//	  3. Wertung      (score.go)  x/y -> Ring, Zehntel, Teiler
+//	  4. Schussprotokoll (shotlog.go)  lokales append-only Log  [IMMER]
+//	  5. Datenbank    (db.go)     zentrale PostgreSQL          [optional]
+//	  6. Live-Anzeige (web.go)    Browser via SSE
 //
 // Build:   go build -o standpc .
 // Start:   ./standpc -config config.json
@@ -78,7 +79,7 @@ type Config struct {
 	SessionID string `json:"session_id"`
 
 	// Webserver fuer die Schuetzenanzeige
-	HTTPListen  string `json:"http_listen"`   // z.B. ":8080"
+	HTTPListen string `json:"http_listen"` // z.B. ":8080"
 	// Eigene URL fuer Server-Discovery (leer = automatisch aus ServerURL und HTTPListen ableiten)
 	AnnounceURL string `json:"announce_url"` // z.B. "http://192.168.1.10:8080"
 
@@ -114,6 +115,10 @@ type DisciplineDef struct {
 	ScoringShots   int    `json:"scoring_shots"`    // Wertungsschuesse
 	ShotsPerSeries int    `json:"shots_per_series"` // Schuesse je Serie
 	DecimalScoring bool   `json:"decimal_scoring"`  // Zehntelwertung aktiv
+	// Anzeige: ""/"voll" (Standard) | "teilverdeckt" | "verdeckt" - siehe
+	// web.go maskShot. Leer wird wie "voll" behandelt (aeltere/lokale
+	// Disziplindefinitionen ohne dieses Feld).
+	Anzeige string `json:"anzeige,omitempty"`
 }
 
 // FontSizes: konfigurierbare Schriftgroessen der Anzeige (px), vom Server
@@ -149,7 +154,7 @@ func loadFontSizes(path string) (*FontSizes, error) {
 
 // DisciplinesConfig: Inhalt der disciplines.json
 type DisciplinesConfig struct {
-	Default     string         `json:"default"`
+	Default     string          `json:"default"`
 	Disciplines []DisciplineDef `json:"disciplines"`
 }
 
@@ -157,9 +162,9 @@ type DisciplinesConfig struct {
 var builtinDisciplines = DisciplinesConfig{
 	Default: "LG-40",
 	Disciplines: []DisciplineDef{
-		{Name: "LG-40",  TargetNo: 1, TrialShots: 100, ScoringShots: 40, ShotsPerSeries: 10, DecimalScoring: false},
+		{Name: "LG-40", TargetNo: 1, TrialShots: 100, ScoringShots: 40, ShotsPerSeries: 10, DecimalScoring: false},
 		{Name: "LGA-30", TargetNo: 1, TrialShots: 100, ScoringShots: 30, ShotsPerSeries: 10, DecimalScoring: true},
-		{Name: "LP-40",  TargetNo: 7, TrialShots: 100, ScoringShots: 40, ShotsPerSeries: 10, DecimalScoring: false},
+		{Name: "LP-40", TargetNo: 7, TrialShots: 100, ScoringShots: 40, ShotsPerSeries: 10, DecimalScoring: false},
 		{Name: "LPA-30", TargetNo: 7, TrialShots: 100, ScoringShots: 30, ShotsPerSeries: 10, DecimalScoring: true},
 	},
 }

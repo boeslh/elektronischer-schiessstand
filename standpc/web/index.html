@@ -562,7 +562,16 @@ function scoreSum(list) {
   const dec = discipline && discipline.decimal_scoring;
   return list.reduce((a, s) => a + (dec ? s.decimal : s.ring), 0);
 }
+// isMasked: Disziplin blendet Ring/Zehntel/Teiler-Textwerte aus
+// ("teilverdeckt" oder "verdeckt", siehe server disciplines.anzeige - die
+// Werte kommen fuer beide Modi bereits als 0 vom Server/Backend, siehe
+// standpc/web.go maskShot; hier wird trotzdem explizit "–" statt einer
+// irrefuehrenden "0" angezeigt).
+function isMasked() { return !!(discipline && discipline.anzeige && discipline.anzeige !== 'voll'); }
+// isFullyHidden: zusaetzlich kein Trefferbild ("verdeckt").
+function isFullyHidden() { return !!(discipline && discipline.anzeige === 'verdeckt'); }
 function fmtScore(val) {
+  if (isMasked()) return '–';
   return (discipline && discipline.decimal_scoring) ? val.toFixed(1) : String(val);
 }
 
@@ -628,6 +637,7 @@ function renderShots() {
   const series   = shots.slice(serStart);
 
   series.forEach((s, i) => {
+    if (isFullyHidden()) return; // "verdeckt": kein Trefferbild
     const isLast    = (i === series.length - 1);
     const fillColor = s.overcount
       ? '#FFA500'
@@ -672,22 +682,25 @@ function addShot(s, isNew) {
   renderShots();
 
   const showDec = discipline ? discipline.decimal_scoring : false;
-  const ringDisplay = showDec ? s.decimal.toFixed(1) : String(s.ring);
+  const masked = isMasked();
+  const ringDisplay = masked ? '–' : (showDec ? s.decimal.toFixed(1) : String(s.ring));
 
   document.getElementById('lastRing').textContent = ringDisplay;
-  document.getElementById('lastInfo').textContent =
-    `Schuss ${shots.length} · x ${s.x_mm.toFixed(1)} / y ${s.y_mm.toFixed(1)} mm` +
-    (s.inner_ten ? ' · Innenzehner' : '');
+  document.getElementById('lastInfo').textContent = masked
+    ? `Schuss ${shots.length}`
+    : `Schuss ${shots.length} · x ${s.x_mm.toFixed(1)} / y ${s.y_mm.toFixed(1)} mm` +
+      (s.inner_ten ? ' · Innenzehner' : '');
 
   updateScore();
   if (isNew) updateZoom();
 
   const tr = document.createElement('tr');
-  tr.innerHTML =
-    `<td>${shots.length}</td>` +
-    `<td>${s.ring}</td>` +
-    `<td>${s.decimal.toFixed(1)}</td>` +
-    `<td>${s.center_distance.toFixed(1)}</td>`;
+  tr.innerHTML = masked
+    ? `<td>${shots.length}</td><td>–</td><td>–</td><td>–</td>`
+    : `<td>${shots.length}</td>` +
+      `<td>${s.ring}</td>` +
+      `<td>${s.decimal.toFixed(1)}</td>` +
+      `<td>${s.center_distance.toFixed(1)}</td>`;
   const rows = document.getElementById('rows');
   rows.insertBefore(tr, rows.firstChild);
 }

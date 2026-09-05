@@ -143,6 +143,13 @@ form textarea { resize: vertical; min-height: 56px; }
         <label for="f-active">Aktiv</label>
       </div>
 
+      <label for="f-anzeige">Anzeige am Stand-PC</label>
+      <select id="f-anzeige">
+        <option value="voll">Voll (Trefferbild + Ring/Zehntel/Teiler)</option>
+        <option value="teilverdeckt">Teilverdeckt (nur Trefferbild, Werte als "-")</option>
+        <option value="verdeckt">Verdeckt (nur "-", kein Trefferbild)</option>
+      </select>
+
       <label for="f-notes">Notizen</label>
       <textarea id="f-notes" rows="2"></textarea>
 
@@ -194,7 +201,7 @@ function renderTable() {
     tr.innerHTML = `
       <td><strong>${esc(d.name)}</strong>${d.rule_no ? `<br><small>${esc(d.rule_no)}</small>` : ''}</td>
       <td style="font-size:.8rem">${esc(d.target_name)}${d.standpc_target_no ? `<br><small>StandPC #${d.standpc_target_no}</small>` : ''}</td>
-      <td>${d.match_shot_count}${d.decimal_scoring ? ' <span class="badge decimal">Z</span>' : ''}</td>
+      <td>${d.match_shot_count}${d.decimal_scoring ? ' <span class="badge decimal">Z</span>' : ''}${d.anzeige && d.anzeige !== 'voll' ? ` <span class="badge decimal" title="Anzeige: ${esc(d.anzeige)}">${d.anzeige === 'verdeckt' ? 'V' : 'TV'}</span>` : ''}</td>
       <td>${probe}</td>
       <td>${d.shots_per_series}</td>
       <td>
@@ -234,6 +241,7 @@ function editRow(id) {
   document.getElementById('f-time').value = d.match_time_s != null ? Math.round(d.match_time_s/60) : '';
   document.getElementById('f-decimal').checked = d.decimal_scoring;
   document.getElementById('f-active').checked = d.active;
+  document.getElementById('f-anzeige').value = d.anzeige || 'voll';
   document.getElementById('f-notes').value = d.notes || '';
   hideMsg();
   document.getElementById('form-card').scrollIntoView({behavior:'smooth'});
@@ -247,6 +255,7 @@ function clearForm() {
   document.getElementById('f-scoring').value = '40';
   document.getElementById('f-series').value = '10';
   document.getElementById('f-active').checked = true;
+  document.getElementById('f-anzeige').value = 'voll';
   renderTargetSelect('');
   hideMsg();
 }
@@ -282,6 +291,7 @@ async function saveForm(e) {
     match_time_s:       timeMin !== '' ? Math.round(parseFloat(timeMin) * 60) : null,
     decimal_scoring:    document.getElementById('f-decimal').checked,
     active:             document.getElementById('f-active').checked,
+    anzeige:            document.getElementById('f-anzeige').value,
     notes:              document.getElementById('f-notes').value.trim(),
   };
 

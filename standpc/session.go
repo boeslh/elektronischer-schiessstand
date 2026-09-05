@@ -17,6 +17,7 @@
 //   - Umschalten wertung -> probe: nur wenn noch kein Wertungsschuss
 //     abgegeben wurde (wertungCount == 0)
 //   - Sessionwechsel: immer Neustart mit "probe"
+//
 // ============================================================================
 package main
 
@@ -61,6 +62,10 @@ type serverSession struct {
 	ShotsPerSeries int  `json:"shots_per_series"`
 	DecimalScoring bool `json:"decimal_scoring"`
 	TargetNo       int  `json:"target_no"`
+	// Anzeige: "voll" (Standard), "teilverdeckt" (Trefferbild grafisch, aber
+	// Ring/Zehntel/Teiler als "-"), "verdeckt" (auch kein Trefferbild) -
+	// siehe server/store.go ActiveSessionForLane und web.go maskShot.
+	Anzeige string `json:"anzeige"`
 
 	// Authoritativer Schusszaehler-Stand dieser Session, server-seitig aus
 	// den tatsaechlich gespeicherten Schuessen ermittelt (server/store.go
@@ -136,11 +141,11 @@ type SessionManager struct {
 	web         *WebServer
 	disciplines []DisciplineDef // geladene Disziplinliste
 
-	mu           sync.RWMutex
-	sessionID    string
-	shooter      string
-	solver       *TDOASolver
-	shotNo       int // PC-seitiger Zaehler, 1-basiert je Session
+	mu        sync.RWMutex
+	sessionID string
+	shooter   string
+	solver    *TDOASolver
+	shotNo    int // PC-seitiger Zaehler, 1-basiert je Session
 
 	mode              string         // ModeProbe | ModeWertung
 	discipline        *DisciplineDef // aktuelle Disziplin; nil = keine
@@ -218,7 +223,7 @@ func (m *SessionManager) setDisciplineLocked(def *DisciplineDef) {
 	if def != nil && def.TrialShots == 0 {
 		m.mode = ModeWertung
 	}
-	m.probeCount  = 0
+	m.probeCount = 0
 	m.wertungCount = 0
 	m.wertungShotsFired = 0
 	m.web.ResetHistory()
@@ -723,7 +728,7 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 	// --- Modus-Signal vom Server (unabhaengig vom Sessionwechsel) ---
 	if s != nil && s.Mode == ModeWertung && m.mode == ModeProbe {
 		m.mode = ModeWertung
-		m.probeCount  = 0
+		m.probeCount = 0
 		m.wertungCount = 0
 		m.wertungShotsFired = 0
 		m.web.ResetHistory()
@@ -738,17 +743,17 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 	// --- Sessionwechsel ---
 	if newID == "" {
 		log.Printf("Session: Stand freigegeben (war %s)", m.sessionID)
-		m.sessionID    = ""
-		m.shooter      = ""
+		m.sessionID = ""
+		m.shooter = ""
 		m.rawDiscipline = ""
-		m.shotNo       = 0
-		m.probeCount   = 0
+		m.shotNo = 0
+		m.probeCount = 0
 		m.wertungCount = 0
 		m.wertungShotsFired = 0
-		m.mode         = ModeProbe
-		m.discipline   = nil
-		m.eventName    = ""
-		m.eventType    = ""
+		m.mode = ModeProbe
+		m.discipline = nil
+		m.eventName = ""
+		m.eventType = ""
 		m.solver = NewTDOASolver(m.cfg)
 		m.web.ResetHistory()
 		m.web.BroadcastStatus(m.statusLocked())
@@ -782,6 +787,7 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 		ScoringShots:   s.ScoringShots,
 		ShotsPerSeries: s.ShotsPerSeries,
 		DecimalScoring: s.DecimalScoring,
+		Anzeige:        s.Anzeige,
 	})
 	if m.discipline != nil {
 		log.Printf("Session: Disziplin %s (Probe %d / Wertung %d)",
@@ -789,7 +795,7 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 	}
 
 	m.sessionID = newID
-	m.shooter   = s.Shooter
+	m.shooter = s.Shooter
 	m.eventName = s.EventName
 	m.eventType = s.EventType
 
