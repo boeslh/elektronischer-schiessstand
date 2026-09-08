@@ -27,6 +27,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -40,7 +41,7 @@ var ErrUnknownRole = errors.New("unbekannte Rolle")
 var knownTileKeys = []string{
 	"lanes", "stammdaten", "disciplines", "wettkampf", "standaktion",
 	"ergebnisse", "simulator", "auswertung", "settings", "archiv",
-	"preisschiessen",
+	"preisschiessen", "anzeigen",
 }
 
 func isKnownTile(t string) bool { return containsStr(knownTileKeys, t) }
@@ -83,7 +84,11 @@ func (s *Store) roleTiles(ctx context.Context, roleKey string) ([]string, error)
 		return nil, err
 	}
 	defer rows.Close()
-	var tiles []string
+	// Bewusst als leeres statt nil-Slice initialisiert: eine Rolle ganz ohne
+	// Kacheln (z.B. eine frisch angelegte, noch unkonfigurierte Rolle) muss
+	// als JSON "[]" ankommen, nicht "null" - sonst wirft r.tiles.indexOf(...)
+	// im Frontend (role.js/benutzerverwaltung.html).
+	tiles := []string{}
 	for rows.Next() {
 		var t string
 		if err := rows.Scan(&t); err != nil {
@@ -203,6 +208,118 @@ func (s *Store) SetRoleManagePreisschiessenRight(ctx context.Context, roleKey st
 		return ErrUnknownRole
 	}
 	return nil
+}
+
+// protectedRoleKeys sind die 4 fest eingebauten Rollen (siehe
+// migrations/016_ui_roles.sql) - "admin" und "anwender" sind zusaetzlich
+// hart im Code verdrahtet (requireAdmin bzw. ResolveOrCreateSession-Fallback),
+// "developer"/"revisor" bewusst mitgeschuetzt, da "zusaetzliche Rollen
+// loeschen" sich nur auf selbst angelegte Rollen bezieht.
+var protectedRoleKeys = map[string]bool{
+	"admin": true, "developer": true, "anwender": true, "revisor": true,
+}
+
+// slugifyRoleKey erzeugt aus einem Anzeigenamen einen technischen role_key
+// (Kleinbuchstaben, Umlaute transliteriert, alles andere durch "_" ersetzt).
+func slugifyRoleKey(displayName string) string {
+	replacer := strings.NewReplacer(
+		"ä", "ae", "ö", "oe", "ü", "ue", "Ä", "Ae", "Ö", "Oe", "Ü", "Ue", "ß", "ss")
+	s := strings.ToLower(replacer.Replace(displayName))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastUnderscore = false
+		} else if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		out = "rolle"
+	}
+	return out
+}
+
+// CreateRole legt eine neue, zusaetzliche Rolle an (ohne Passwort, ohne
+// Kacheln, ohne Sonderrechte - alles ueber die bestehenden Setter danach
+// konfigurierbar, genau wie bei den 4 fest eingebauten Rollen). Der
+// role_key wird aus dem Anzeigenamen abgeleitet, bei Kollision mit einer
+// Zahl eindeutig gemacht.
+func (s *Store) CreateRole(ctx context.Context, displayName string) (RoleAdmin, error) {
+	base := slugifyRoleKey(displayName)
+	roleKey := base
+	for i := 2; ; i++ {
+		var exists bool
+		if err := s.pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM ui_roles WHERE role_key=$1)`, roleKey,
+		).Scan(&exists); err != nil {
+			return RoleAdmin{}, err
+		}
+		if !exists {
+			break
+		}
+		roleKey = fmt.Sprintf("%s_%d", base, i)
+	}
+	var sortOrder int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(MAX(sort_order),0)+1 FROM ui_roles`,
+	).Scan(&sortOrder); err != nil {
+		return RoleAdmin{}, err
+	}
+	if _, err := s.pool.Exec(ctx,
+		`INSERT INTO ui_roles (role_key, display_name, sort_order) VALUES ($1,$2,$3)`,
+		roleKey, displayName, sortOrder); err != nil {
+		return RoleAdmin{}, err
+	}
+	return RoleAdmin{RoleKey: roleKey, DisplayName: displayName, SortOrder: sortOrder, Tiles: []string{}}, nil
+}
+
+// DeleteRole entfernt eine selbst angelegte Rolle (nicht eine der 4 fest
+// eingebauten, siehe protectedRoleKeys) - ui_role_tiles/ui_role_sessions
+// werden per ON DELETE CASCADE mit entfernt, wer gerade in dieser Rolle
+// eingeloggt ist, faellt beim naechsten Aufruf automatisch auf den
+// Anwender-Fallback zurueck (siehe ResolveOrCreateSession).
+func (s *Store) DeleteRole(ctx context.Context, roleKey string) error {
+	if protectedRoleKeys[roleKey] {
+		return errBadRequest("diese Rolle ist fest eingebaut und kann nicht gelöscht werden")
+	}
+	ct, err := s.pool.Exec(ctx, `DELETE FROM ui_roles WHERE role_key=$1`, roleKey)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrUnknownRole
+	}
+	return nil
+}
+
+// PublicRoleInfo ist die oeffentliche (unauthentifizierte) Rollenliste fuers
+// Rollenwechsel-Widget (role.js) - bewusst nur role_key/display_name, keine
+// Rechte/Passwort-Status.
+type PublicRoleInfo struct {
+	RoleKey     string `json:"role_key"`
+	DisplayName string `json:"display_name"`
+}
+
+func (s *Store) PublicRoleList(ctx context.Context) ([]PublicRoleInfo, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT role_key, display_name FROM ui_roles ORDER BY sort_order`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PublicRoleInfo
+	for rows.Next() {
+		var p PublicRoleInfo
+		if err := rows.Scan(&p.RoleKey, &p.DisplayName); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) createSession(ctx context.Context, roleKey string) (string, error) {
@@ -649,6 +766,39 @@ func (a *APIServer) listRoles(w http.ResponseWriter, r *http.Request) (any, erro
 		return nil, err
 	}
 	return map[string]any{"roles": roles, "known_tiles": knownTileKeys}, nil
+}
+
+// listRolesPublic: unauthentifizierte Rollenliste fürs Rollenwechsel-Widget
+// (role.js) - nur role_key/display_name, siehe PublicRoleInfo.
+func (a *APIServer) listRolesPublic(w http.ResponseWriter, r *http.Request) (any, error) {
+	roles, err := a.store.PublicRoleList(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+func (a *APIServer) createRole(w http.ResponseWriter, r *http.Request) (any, error) {
+	if _, err := a.requireAdmin(w, r); err != nil {
+		return nil, err
+	}
+	body, err := decodeBody[struct {
+		DisplayName string `json:"display_name"`
+	}](r)
+	if err != nil || body.DisplayName == "" {
+		return nil, errBadRequest("display_name erforderlich")
+	}
+	return a.store.CreateRole(r.Context(), body.DisplayName)
+}
+
+func (a *APIServer) deleteRole(w http.ResponseWriter, r *http.Request) (any, error) {
+	if _, err := a.requireAdmin(w, r); err != nil {
+		return nil, err
+	}
+	if err := a.store.DeleteRole(r.Context(), r.PathValue("key")); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
 }
 
 func (a *APIServer) setRoleTiles(w http.ResponseWriter, r *http.Request) (any, error) {

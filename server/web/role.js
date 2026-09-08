@@ -6,7 +6,11 @@
 // bereit (z.B. um den "annullieren"-Button oder Korrektur-UI ein-/auszublenden).
 
 (function () {
-  const ROLE_LABELS = { admin: 'Admin', developer: 'Entwickler', anwender: 'Anwender', revisor: 'Revisor' };
+  // Wird beim Start aus /api/roles/public geladen (siehe fetchPublicRoles) -
+  // enthaelt so auch selbst angelegte Rollen (Benutzerverwaltung), nicht nur
+  // die 4 fest eingebauten.
+  let ROLE_LABELS = {};
+  const LAST_ROLE_KEY = 'ss_last_role';
   const TILE_BY_PATH = {
     '/lanes': 'lanes', '/stammdaten': 'stammdaten', '/disciplines': 'disciplines',
     '/wettkampf': 'wettkampf', '/standaktion': 'standaktion', '/ergebnisse': 'ergebnisse',
@@ -14,6 +18,7 @@
     '/archiv': 'archiv',
     '/preisschiessen': 'preisschiessen', '/preisschiessen-liste': 'preisschiessen',
     '/preisschiessen-bearbeiten': 'preisschiessen',
+    '/anzeigen': 'anzeigen',
   };
 
   window.SCHIESSSTAND_ROLE = { role_key: null, tiles: [], can_correct_results: false };
@@ -61,12 +66,7 @@
       <div id="ssrole-panel">
         <h3>Rolle wechseln</h3>
         <label for="ssrole-sel">Rolle</label>
-        <select id="ssrole-sel">
-          <option value="anwender">Anwender</option>
-          <option value="admin">Admin</option>
-          <option value="developer">Entwickler</option>
-          <option value="revisor">Revisor</option>
-        </select>
+        <select id="ssrole-sel"><!-- wird per JS aus /api/roles/public befuellt --></select>
         <label for="ssrole-pw">Passwort</label>
         <input type="password" id="ssrole-pw" autocomplete="current-password">
         <div id="ssrole-err"></div>
@@ -116,9 +116,37 @@
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { errEl.textContent = j.error || 'Fehler'; return; }
+      try { localStorage.setItem(LAST_ROLE_KEY, roleKey); } catch (e) { /* z.B. privater Modus */ }
       location.reload();
     } catch (e) {
       errEl.textContent = 'Fehler: ' + e.message;
+    }
+  }
+
+  // fetchPublicRoles laedt die aktuelle Rollenliste (inkl. selbst angelegter
+  // Rollen, siehe Benutzerverwaltung) und befuellt das Auswahlfeld - dabei
+  // wird die zuletzt gewaehlte Rolle aus localStorage vorausgewaehlt, sofern
+  // sie noch existiert.
+  async function fetchPublicRoles() {
+    try {
+      const roles = await fetch('/api/roles/public').then(r => r.json());
+      ROLE_LABELS = {};
+      const sel = document.getElementById('ssrole-sel');
+      sel.innerHTML = '';
+      (roles || []).forEach(rl => {
+        ROLE_LABELS[rl.role_key] = rl.display_name;
+        const opt = document.createElement('option');
+        opt.value = rl.role_key;
+        opt.textContent = rl.display_name;
+        sel.appendChild(opt);
+      });
+      let lastRole = null;
+      try { lastRole = localStorage.getItem(LAST_ROLE_KEY); } catch (e) { /* z.B. privater Modus */ }
+      if (lastRole && (roles || []).some(rl => rl.role_key === lastRole)) {
+        sel.value = lastRole;
+      }
+    } catch (e) {
+      console.error('Rollenliste konnte nicht geladen werden:', e);
     }
   }
 
@@ -135,7 +163,7 @@
         return;
       }
       const tileKey = TILE_BY_PATH[path];
-      if (tileKey && role.tiles.indexOf(tileKey) === -1) {
+      if (tileKey && (role.tiles || []).indexOf(tileKey) === -1) {
         a.style.display = 'none';
       }
     });
@@ -145,7 +173,10 @@
     css();
     widget = buildWidget();
     try {
-      const role = await fetch('/api/role').then(r => r.json());
+      const [role] = await Promise.all([
+        fetch('/api/role').then(r => r.json()),
+        fetchPublicRoles(),
+      ]);
       window.SCHIESSSTAND_ROLE = role;
       if (!role.role_key) {
         widget.badge.style.display = 'none';

@@ -20,6 +20,8 @@ main{flex:1;padding:20px;max-width:760px;margin:0 auto;width:100%}
 /* ── Cards ── */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px;margin-bottom:16px}
 .card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+.card h2 .quicklink{float:right;font-size:.72rem;font-weight:600;letter-spacing:normal;text-transform:none;color:#7ab0e0;text-decoration:none}
+.card h2 .quicklink:hover{text-decoration:underline}
 
 /* ── Table ── */
 table{width:100%;border-collapse:collapse}
@@ -140,6 +142,9 @@ textarea{resize:vertical;min-height:56px}
       <label for="cf-location">Ort / Halle</label>
       <input type="text" id="cf-location" placeholder="z.B. Schützenheim Musterstadt">
 
+      <label for="cf-liga">Liga</label>
+      <input type="text" id="cf-liga" placeholder="z.B. Kreisliga A">
+
       <label for="cf-status">Status</label>
       <select id="cf-status">
         <option value="planned">Geplant</option>
@@ -159,6 +164,8 @@ textarea{resize:vertical;min-height:56px}
       <div class="form-actions">
         <button type="submit" class="btn-save">Speichern</button>
         <button type="button" class="btn-cancel" onclick="goBack()">Abbrechen</button>
+        <button type="button" class="btn-new" id="btn-auswertung" style="display:none" onclick="gotoAuswertung()">⬡ Auswertung</button>
+        <button type="button" class="btn-new" id="btn-standbelegung" style="display:none" onclick="gotoStandbelegung()">⚔ Standbelegung</button>
       </div>
       <div id="cf-msg" class="msg"></div>
     </form>
@@ -170,7 +177,7 @@ textarea{resize:vertical;min-height:56px}
 
   <!-- ── Runde: feste Heim/Gast-Auswahl ── -->
   <div class="card" id="dt-runde" style="display:none">
-    <h2>Mannschaften</h2>
+    <h2>Mannschaften <a href="/stammdaten?tab=mannschaften" target="_blank" class="quicklink">→ Stammdaten</a></h2>
     <div id="dt-runde-chips" class="chips-wrap"></div>
     <div id="dt-runde-form" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
       <div>
@@ -178,12 +185,14 @@ textarea{resize:vertical;min-height:56px}
         <select id="dt-heim-sel">
           <option value="">– wählen –</option>
         </select>
+        <button type="button" class="btn-new" style="margin-top:6px;font-size:.72rem;padding:4px 10px" onclick="quickCreateTeam('heim')">+ Neue Mannschaft</button>
       </div>
       <div>
         <label style="display:block;font-size:.75rem;color:var(--dim);margin-bottom:4px">Gast-Mannschaft</label>
         <select id="dt-gast-sel">
           <option value="">– wählen –</option>
         </select>
+        <button type="button" class="btn-new" style="margin-top:6px;font-size:.72rem;padding:4px 10px" onclick="quickCreateTeam('gast')">+ Neue Mannschaft</button>
       </div>
     </div>
     <button class="btn-new" style="margin-top:10px" onclick="saveRundeParticipants()">Mannschaften übernehmen</button>
@@ -192,7 +201,7 @@ textarea{resize:vertical;min-height:56px}
 
   <!-- ── Gruppe: Freitext-Suche für Teams / Vereine / Gaue ── -->
   <div class="card" id="dt-gruppe" style="display:none">
-    <h2>Teilnehmende Einheiten</h2>
+    <h2>Teilnehmende Einheiten <a href="/stammdaten?tab=mannschaften" target="_blank" class="quicklink">→ Stammdaten</a></h2>
     <div class="chips-wrap" id="dt-gruppe-chips"></div>
     <div class="add-search">
       <input type="search" id="dt-gruppe-search" placeholder="Mannschaft, Verein oder Gau suchen…" oninput="searchParticipant()">
@@ -207,10 +216,27 @@ textarea{resize:vertical;min-height:56px}
   </div>
 
   <div class="card" id="dt-starters" style="display:none">
-    <h2>Starter</h2>
+    <h2>Starter <a href="/stammdaten?tab=mitglieder" target="_blank" class="quicklink">→ Stammdaten</a></h2>
     <div id="dt-starter-simple" class="add-search" style="margin-bottom:10px">
       <input type="search" id="dt-starter-search" placeholder="Schütze suchen…" oninput="searchStarter(null)">
     </div>
+    <div id="dt-starter-quicknew">
+      <button type="button" class="btn-new" style="font-size:.75rem;padding:5px 12px;margin-bottom:10px" onclick="toggleQuickShooter()">+ Neuen Schützen anlegen</button>
+      <div id="dt-quick-shooter-form" style="display:none;background:#0e1218;border:1px solid var(--line);border-radius:6px;padding:12px;margin-bottom:10px">
+        <div class="add-search" style="margin-bottom:8px">
+          <input type="text" id="qs-last" placeholder="Nachname *" style="flex:1">
+          <input type="text" id="qs-first" placeholder="Vorname" style="flex:1">
+          <input type="text" id="qs-pass" placeholder="Passnr." style="max-width:120px">
+        </div>
+        <button type="button" class="btn-new" onclick="quickCreateShooter()">Anlegen</button>
+        <button type="button" class="btn-cancel" onclick="toggleQuickShooter()">Abbrechen</button>
+        <div id="qs-msg" class="msg" style="margin-top:6px"></div>
+      </div>
+    </div>
+    <p id="dt-starter-runde-hint" class="hint" style="display:none;margin-bottom:10px">
+      Bitte zuerst oben Heim- und Gast-Mannschaft festlegen - bei einem Rundenwettkampf muss jeder Starter
+      einer der beiden Mannschaften zugeordnet sein.
+    </p>
     <div id="dt-starter-results" class="search-results" style="display:none"></div>
     <div id="dt-starters-content"></div>
     <div id="dt-starter-msg" class="msg"></div>
@@ -290,6 +316,7 @@ function fillForm(c) {
   document.getElementById('cf-end').value      = c.ends_on   ? c.ends_on.slice(0,10)   : '';
   document.getElementById('cf-disc').value     = c.discipline_id || '';
   document.getElementById('cf-location').value = c.location || '';
+  document.getElementById('cf-liga').value     = c.liga || '';
   document.getElementById('cf-status').value   = c.status || 'planned';
   document.getElementById('cf-notes').value    = c.notes || '';
   document.getElementById('cf-active').checked = c.active;
@@ -297,19 +324,29 @@ function fillForm(c) {
 
 function updateHeader() {
   document.getElementById('pageTitle').textContent = compID ? activeComp.name : 'Neuer Wettkampf';
+  document.getElementById('btn-standbelegung').style.display = compID ? 'inline-block' : 'none';
+  document.getElementById('btn-auswertung').style.display =
+    (compID && (activeComp.type === 'runde' || activeComp.type === 'gruppe')) ? 'inline-block' : 'none';
   if (!compID) { document.getElementById('metaLine').innerHTML = ''; return; }
   const c = activeComp;
   const date = [c.starts_on?.slice(0,10), c.ends_on?.slice(0,10)].filter(Boolean).join(' – ');
-  const auswertungLink = (c.type === 'runde' || c.type === 'gruppe')
-    ? ` <a href="/auswertung?event_id=${c.id}${c.type==='gruppe'?'&tab=gruppe':''}" style="color:#7ab0e0;margin-left:10px" title="Zur Auswertung">⬡ Auswertung</a>`
-    : '';
   document.getElementById('metaLine').innerHTML =
     `<span class="badge badge-${c.type}" style="margin-right:6px">${TYPE_LABEL[c.type]||c.type}</span>`+
     `<span class="badge badge-${c.status}" style="margin-right:6px">${STATUS_LABEL[c.status]||c.status}</span>`+
     (date ? `${date}&nbsp;&nbsp;` : '')+
     (c.discipline_name ? `${esc(c.discipline_name)}&nbsp;&nbsp;` : '')+
-    (c.location ? `📍 ${esc(c.location)}` : '')+
-    auswertungLink;
+    (c.liga ? `${esc(c.liga)}&nbsp;&nbsp;` : '')+
+    (c.location ? `📍 ${esc(c.location)}` : '');
+}
+
+function gotoAuswertung() {
+  if (!activeComp) return;
+  location.href = `/auswertung?event_id=${activeComp.id}${activeComp.type==='gruppe'?'&tab=gruppe':''}`;
+}
+
+function gotoStandbelegung() {
+  if (!activeComp) return;
+  location.href = `/lanes?wettkampf=${activeComp.id}`;
 }
 
 async function saveCompetition(e) {
@@ -321,6 +358,7 @@ async function saveCompetition(e) {
     ends_on:       document.getElementById('cf-end').value,
     discipline_id: document.getElementById('cf-disc').value,
     location:      document.getElementById('cf-location').value.trim(),
+    liga:          document.getElementById('cf-liga').value.trim(),
     status:        document.getElementById('cf-status').value,
     notes:         document.getElementById('cf-notes').value.trim(),
     active:        document.getElementById('cf-active').checked,
@@ -347,6 +385,27 @@ function showDetailSections() {
 }
 
 // ── Runde: Heim/Gast-Dropdowns ────────────────────────────────────────────
+// Schnellanlage einer Mannschaft direkt aus der Wettkampf-Bearbeitung heraus
+// (ohne Umweg über Stammdaten) - name-only, Verein/Gau/Saison etc. lassen
+// sich bei Bedarf spaeter dort nachtragen.
+async function quickCreateTeam(which) {
+  const name = prompt('Name der neuen Mannschaft:');
+  if (!name || !name.trim()) return;
+  try {
+    const res = await api('/teams', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name: name.trim()}),
+    });
+    teams = await api('/teams') || [];
+    const heimVal = document.getElementById('dt-heim-sel').value;
+    const gastVal = document.getElementById('dt-gast-sel').value;
+    fillRundeSelects();
+    document.getElementById('dt-heim-sel').value = which === 'heim' ? res.id : heimVal;
+    document.getElementById('dt-gast-sel').value = which === 'gast' ? res.id : gastVal;
+    showMsg('dt-runde-msg', `Mannschaft "${name.trim()}" angelegt.`, 'ok');
+  } catch(err) { showMsg('dt-runde-msg', 'Fehler: '+err.message, 'err'); }
+}
+
 function fillRundeSelects() {
   if (!teams.length) {
     const hint = '<option value="">Keine Mannschaften vorhanden – zuerst unter Stammdaten anlegen</option>';
@@ -454,7 +513,17 @@ function searchParticipant() {
     if (type === 'club') list = clubs.filter(x => x.name.toLowerCase().includes(q.toLowerCase()));
     if (type === 'gau')  list = gaue.filter( x => x.name.toLowerCase().includes(q.toLowerCase()));
 
-    if (!list.length) {
+    // Bei Mannschaften: Option, eine neu gesuchte, noch nicht vorhandene
+    // Mannschaft direkt anzulegen und sofort hinzuzufuegen - ohne Umweg
+    // ueber Stammdaten (Verein/Gau lassen sich dort spaeter nachtragen).
+    const exactMatch = type === 'team' && list.some(x => x.name.toLowerCase() === q.toLowerCase());
+    const createRow = (type === 'team' && !exactMatch)
+      ? `<div class="search-result-item" style="color:var(--acc)" onclick="quickCreateTeamAndAdd('${esc(q)}')">
+           <span>+ Neue Mannschaft „${esc(q)}" anlegen</span>
+         </div>`
+      : '';
+
+    if (!list.length && !createRow) {
       res.innerHTML = '<div class="search-result-item" style="color:var(--dim)">Keine Treffer</div>';
       res.style.display = 'block'; return;
     }
@@ -463,8 +532,19 @@ function searchParticipant() {
       <div class="search-result-item" onclick="addParticipant('${type}','${x.id}','${esc(x.name)}')">
         <span>${esc(x.name)}</span>
         <span style="color:var(--dim);font-size:.75rem">${ENTITY_LABEL[type]}</span>
-      </div>`).join('');
+      </div>`).join('') + createRow;
   }, 200);
+}
+
+async function quickCreateTeamAndAdd(name) {
+  try {
+    const res = await api('/teams', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name}),
+    });
+    teams = await api('/teams') || [];
+    await addParticipant('team', res.id, name);
+  } catch(err) { showMsg('dt-gruppe-msg', 'Fehler: '+err.message, 'err'); }
 }
 
 async function addParticipant(type, entityID, name) {
@@ -503,6 +583,19 @@ async function loadStarters() {
 function renderStarters() {
   const content = document.getElementById('dt-starters-content');
   const simpleRow = document.getElementById('dt-starter-simple');
+  const rundeHint = document.getElementById('dt-starter-runde-hint');
+
+  if (activeComp.type === 'runde' && participants.length === 0) {
+    // Ohne Heim/Gast-Mannschaft darf kein Starter angelegt werden - die
+    // generische (mannschaftslose) Suche wuerde sonst team_id='' erzeugen,
+    // was in der Rundenwettkampf-Auswertung als "(Ohne Mannschaft)" auftaucht
+    // (siehe Bugfix: Starter ohne Mannschaft in der Auswertung).
+    simpleRow.style.display = 'none';
+    rundeHint.style.display = 'block';
+    content.innerHTML = starterTable(starters);
+    return;
+  }
+  rundeHint.style.display = 'none';
 
   if (activeComp.type === 'runde' && participants.length > 0) {
     simpleRow.style.display = 'none';
@@ -607,6 +700,41 @@ function searchStarter(teamID) {
       </div>`;
     }).join('');
   }, 250);
+}
+
+function toggleQuickShooter() {
+  const box = document.getElementById('dt-quick-shooter-form');
+  const opening = box.style.display === 'none';
+  box.style.display = opening ? 'block' : 'none';
+  if (opening) {
+    document.getElementById('qs-last').value = '';
+    document.getElementById('qs-first').value = '';
+    document.getElementById('qs-pass').value = '';
+    document.getElementById('qs-msg').style.display = 'none';
+    document.getElementById('qs-last').focus();
+  }
+}
+
+// Schnellanlage eines neuen Schuetzen direkt aus der Wettkampf-Bearbeitung
+// heraus. Weist ihn NICHT automatisch einer Mannschaft zu (bei einem
+// Rundenwettkampf ist das Pflicht, siehe Backend-Guard in addStarter) -
+// danach einfach oben bzw. in der gewuenschten Mannschaft nach dem Namen
+// suchen und hinzufuegen.
+async function quickCreateShooter() {
+  const lastName  = document.getElementById('qs-last').value.trim();
+  const firstName = document.getElementById('qs-first').value.trim();
+  const passNo    = document.getElementById('qs-pass').value.trim();
+  if (!lastName) { showMsg('qs-msg', 'Nachname erforderlich.', 'err'); return; }
+  try {
+    await api('/shooters', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({last_name: lastName, first_name: firstName, pass_no: passNo}),
+    });
+    showMsg('qs-msg', `"${lastName}, ${firstName}" angelegt - jetzt oben suchen und hinzufügen.`, 'ok');
+    document.getElementById('qs-last').value = '';
+    document.getElementById('qs-first').value = '';
+    document.getElementById('qs-pass').value = '';
+  } catch(err) { showMsg('qs-msg', 'Fehler: '+err.message, 'err'); }
 }
 
 async function addStarter(shooterID, teamID) {

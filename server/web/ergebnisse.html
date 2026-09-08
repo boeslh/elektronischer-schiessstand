@@ -252,9 +252,14 @@ function renderTable(rows) {
       <td class="num">${r.shot_count || '–'}</td>
       <td class="num">${score}</td>
       <td>${badge}</td>
-      <td><a class="btn-sec" href="${scorecardURL(r)}"
-             onclick="event.stopPropagation()"
-             style="text-decoration:none;display:inline-block;white-space:nowrap">🎯 Grafische Ansicht</a></td>`;
+      <td style="white-space:nowrap">
+        <a class="btn-sec" href="${scorecardURL(r)}"
+           onclick="event.stopPropagation()"
+           style="text-decoration:none;display:inline-block;white-space:nowrap">🎯 Grafische Ansicht</a>
+        <a class="btn-sec" href="/api/sessions/${r.session_id}/pdf" target="_blank"
+           onclick="event.stopPropagation()"
+           style="text-decoration:none;display:inline-block;white-space:nowrap;margin-left:4px">📄 PDF</a>
+      </td>`;
 
     tr.onclick = () => toggleDetail(tr, r);
     tbody.appendChild(tr);
@@ -382,6 +387,8 @@ function renderDetail(r, rawShots) {
   const viewBtn = `<div style="margin-bottom:12px">
     <a class="btn-sec" href="${scorecardURL(r)}"
        style="text-decoration:none;display:inline-block">🎯 Grafische Ansicht</a>
+    <a class="btn-sec" href="/api/sessions/${r.session_id}/pdf" target="_blank"
+       style="text-decoration:none;display:inline-block;margin-left:6px">📄 PDF</a>
   </div>`;
 
   if (!shots.length) {

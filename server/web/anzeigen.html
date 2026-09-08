@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anzeigen – Schießstand</title>
+<style>
+  :root {
+    --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+    --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+  header{border-bottom:1px solid var(--line);padding:14px 24px;display:flex;align-items:center;gap:12px}
+  header a{color:var(--dim);text-decoration:none;font-size:13px}
+  header a:hover{color:var(--text)}
+  header h1{font-size:20px;font-weight:700}
+  main{flex:1;padding:32px 24px;max-width:760px;width:100%;margin:0 auto}
+
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px;margin-bottom:20px}
+  .section h2{font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:18px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px}
+  th{text-align:left;color:var(--dim);font-weight:500;padding:6px 8px;font-size:.78rem;border-bottom:1px solid var(--line)}
+  td{padding:8px 8px;border-bottom:1px solid #1e2530;vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr.slot-row{cursor:pointer}
+  tr.slot-row:hover td{background:#202838}
+  .slot-id{font-family:monospace;color:var(--acc);font-weight:700}
+  .slot-url{font-family:monospace;font-size:11px;color:var(--dim)}
+
+  .field{margin-bottom:16px}
+  .field label{display:block;font-size:13px;color:var(--dim);margin-bottom:6px}
+  input[type=text],input[type=number],select{
+    background:#0e1218;border:1px solid var(--line);border-radius:6px;
+    color:var(--text);font-size:14px;padding:8px 12px;width:100%;
+  }
+  input:focus,select:focus{outline:none;border-color:var(--acc)}
+  .lane-check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px;background:#0e1218;border:1px solid var(--line);border-radius:6px;padding:10px;max-height:160px;overflow-y:auto}
+  .lane-check-grid label{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--text);cursor:pointer;margin:0}
+
+  .actions{display:flex;gap:10px;margin-top:16px;align-items:center}
+  .btn-save{background:var(--acc);border:none;border-radius:6px;color:#0d1a16;
+            font-size:13px;font-weight:600;padding:9px 20px;cursor:pointer}
+  .btn-save:hover{opacity:.85}
+  .btn-reset{background:none;border:1px solid var(--line);border-radius:6px;
+             color:var(--dim);font-size:13px;padding:9px 16px;cursor:pointer}
+  .btn-reset:hover{border-color:var(--text);color:var(--text)}
+  .btn-del{background:#2a1a1a;border:1px solid #4a2a2a;border-radius:4px;color:#e05c5c;font-size:.75rem;padding:4px 10px;cursor:pointer}
+
+  .msg{font-size:13px;padding:8px 12px;border-radius:6px;display:none;margin-top:8px}
+  .msg.ok{background:#1a3a2a;color:#4ab8a0}
+  .msg.err{background:#3a1a1a;color:#e05c5c}
+  .hint{font-size:12px;color:var(--dim);margin-bottom:16px}
+
+  footer{padding:12px 24px;font-size:11px;color:var(--dim);border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/">← Startseite</a>
+  <h1 style="margin-left:8px">Anzeigen</h1>
+</header>
+
+<main>
+
+  <div class="section">
+    <h2>Konfigurierte Anzeigen-Slots</h2>
+    <p class="hint">
+      Ein Bildschirm (z.B. im Vorraum) wird im Browser fest auf eine URL
+      <code style="font-family:monospace;color:var(--text)">/anzeige/&lt;id&gt;</code> eingestellt.
+      Was dort gezeigt wird, kann hier jederzeit geändert werden, ohne zur Anzeige gehen zu müssen.
+      Eine unbekannte oder ungültige ID zeigt automatisch Anzeige 1.
+    </p>
+    <table>
+      <thead><tr><th>ID</th><th>Typ</th><th>Name</th><th>URL</th><th></th></tr></thead>
+      <tbody id="slot-tbody"></tbody>
+    </table>
+    <button class="btn-save" onclick="newSlot()">+ Neue Anzeige</button>
+  </div>
+
+  <div class="section">
+    <h2 id="form-title">Neue Anzeige</h2>
+    <form id="slot-form" onsubmit="saveSlot(event)">
+      <input type="hidden" id="sf-id">
+
+      <div class="field">
+        <label for="sf-type">Typ</label>
+        <select id="sf-type" onchange="renderTypeFields()">
+          <option value="stand">Standanzeige (Raster)</option>
+          <option value="runde">Rundenwettkampf</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="sf-name">Name (nur zur Orientierung hier in der Liste)</label>
+        <input type="text" id="sf-name" placeholder="z.B. Vorraum links">
+      </div>
+
+      <div id="type-fields-stand">
+        <div class="field">
+          <label>Anzuzeigende Stände</label>
+          <div class="hint" style="margin-bottom:8px">Keine Auswahl = alle aktiven Stände.</div>
+          <div class="lane-check-grid" id="sf-lanes"></div>
+        </div>
+        <div class="field">
+          <label for="sf-grid">Rastergröße</label>
+          <select id="sf-grid">
+            <option value="auto">Automatik (kleinstes passendes Raster)</option>
+            <option value="4">4 (2×2)</option>
+            <option value="6">6 (2×3)</option>
+            <option value="9">9 (3×3)</option>
+            <option value="15">15 (3×5)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sf-reload">Wechsel-/Reload-Intervall (Sekunden)</label>
+          <input type="number" id="sf-reload" min="3" max="120" value="8">
+        </div>
+      </div>
+
+      <div id="type-fields-runde" style="display:none">
+        <div class="field">
+          <label for="sf-event">Rundenwettkampf</label>
+          <select id="sf-event">
+            <option value="">– wählen –</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn-save">Speichern</button>
+        <button type="button" class="btn-reset" onclick="newSlot()">Neu / Abbrechen</button>
+        <div id="sf-msg" class="msg"></div>
+      </div>
+    </form>
+  </div>
+
+</main>
+
+<footer>Schießstand-Management &middot; Anzeigen</footer>
+
+<script src="/settings.js"></script>
+<script>
+const api = (path, opts) => fetch('/api'+path, opts).then(async r => {
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+});
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function showMsg(text, type) {
+  const el = document.getElementById('sf-msg');
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+let slots = [], lanes = [], rundenWettkaempfe = [];
+
+async function loadAll() {
+  [slots, lanes, rundenWettkaempfe] = await Promise.all([
+    api('/anzeige-config'),
+    api('/lanes'),
+    api('/competitions?type=runde'),
+  ]);
+  renderLaneChecks();
+  renderEventSelect();
+  renderSlotTable();
+}
+
+function renderSlotTable() {
+  const tbody = document.getElementById('slot-tbody');
+  tbody.innerHTML = '';
+  const typeLabel = {stand: 'Standanzeige', runde: 'Rundenwettkampf'};
+  for (const s of slots) {
+    const tr = document.createElement('tr');
+    tr.className = 'slot-row';
+    tr.innerHTML = `
+      <td class="slot-id">${s.id}</td>
+      <td>${typeLabel[s.type] || esc(s.type)}</td>
+      <td>${esc(s.name) || '<span style="color:var(--dim)">–</span>'}</td>
+      <td class="slot-url">/anzeige/${s.id}</td>
+      <td><button class="btn-del" onclick="deleteSlot(${s.id});event.stopPropagation()">Löschen</button></td>`;
+    tr.onclick = () => editSlot(s);
+    tbody.appendChild(tr);
+  }
+  if (!slots.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Anzeigen konfiguriert.</td></tr>';
+  }
+}
+
+function renderLaneChecks() {
+  const wrap = document.getElementById('sf-lanes');
+  wrap.innerHTML = lanes.map(l => `
+    <label><input type="checkbox" value="${l.lane_no}"> Stand ${l.lane_no}</label>
+  `).join('');
+}
+
+function renderEventSelect() {
+  const sel = document.getElementById('sf-event');
+  sel.innerHTML = '<option value="">– wählen –</option>' +
+    rundenWettkaempfe.map(c => `<option value="${c.id}">${esc(c.name)}${c.starts_on ? ' ('+c.starts_on+')' : ''}</option>`).join('');
+}
+
+function renderTypeFields() {
+  const type = document.getElementById('sf-type').value;
+  document.getElementById('type-fields-stand').style.display = type === 'stand' ? 'block' : 'none';
+  document.getElementById('type-fields-runde').style.display = type === 'runde' ? 'block' : 'none';
+}
+
+function newSlot() {
+  document.getElementById('form-title').textContent = 'Neue Anzeige';
+  document.getElementById('sf-id').value = '';
+  document.getElementById('sf-type').value = 'stand';
+  document.getElementById('sf-name').value = '';
+  document.getElementById('sf-grid').value = 'auto';
+  document.getElementById('sf-reload').value = 8;
+  document.getElementById('sf-event').value = '';
+  document.querySelectorAll('#sf-lanes input').forEach(cb => cb.checked = false);
+  renderTypeFields();
+}
+
+function editSlot(s) {
+  document.getElementById('form-title').textContent = `Anzeige ${s.id} bearbeiten`;
+  document.getElementById('sf-id').value = s.id;
+  document.getElementById('sf-type').value = s.type;
+  document.getElementById('sf-name').value = s.name || '';
+  const params = s.params || {};
+  if (s.type === 'stand') {
+    document.getElementById('sf-grid').value = params.grid_size || 'auto';
+    document.getElementById('sf-reload').value = params.reload_seconds || 8;
+    const selected = new Set((params.lane_nos || []).map(String));
+    document.querySelectorAll('#sf-lanes input').forEach(cb => cb.checked = selected.has(cb.value));
+  } else if (s.type === 'runde') {
+    document.getElementById('sf-event').value = params.event_id || '';
+  }
+  renderTypeFields();
+  document.getElementById('slot-form').scrollIntoView({behavior:'smooth'});
+}
+
+async function saveSlot(e) {
+  e.preventDefault();
+  const id = document.getElementById('sf-id').value;
+  const type = document.getElementById('sf-type').value;
+  const name = document.getElementById('sf-name').value.trim();
+
+  let params = {};
+  if (type === 'stand') {
+    const laneNos = [...document.querySelectorAll('#sf-lanes input:checked')].map(cb => parseInt(cb.value));
+    params = {
+      lane_nos: laneNos,
+      grid_size: document.getElementById('sf-grid').value,
+      reload_seconds: parseInt(document.getElementById('sf-reload').value) || 8,
+    };
+  } else if (type === 'runde') {
+    const eventID = document.getElementById('sf-event').value;
+    if (!eventID) { showMsg('Bitte einen Rundenwettkampf wählen.', 'err'); return; }
+    params = { event_id: eventID };
+  }
+
+  const body = { type, name, params };
+  try {
+    if (id) {
+      await api(`/anzeige-config/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      showMsg('Gespeichert.', 'ok');
+    } else {
+      const res = await api('/anzeige-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      showMsg(`Angelegt als Anzeige ${res.id} (/anzeige/${res.id}).`, 'ok');
+    }
+    await loadAll();
+    newSlot();
+  } catch(err) {
+    showMsg('Fehler: ' + err.message, 'err');
+  }
+}
+
+async function deleteSlot(id) {
+  if (!confirm(`Anzeige ${id} wirklich löschen?` + (id === 1 ? '\n\nAnzeige 1 wird danach automatisch wieder als Standard-Standanzeige (Automatik) neu angelegt.' : ''))) return;
+  try {
+    await api(`/anzeige-config/${id}`, {method:'DELETE'});
+    await loadAll();
+  } catch(err) {
+    alert('Fehler: ' + err.message);
+  }
+}
+
+loadAll();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

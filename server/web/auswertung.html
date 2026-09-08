@@ -169,6 +169,7 @@
       <span style="font-size:12px;color:var(--dim)">je Mannschaft in Wertung</span>
 
       <button type="button" class="btn" id="btn-eval" onclick="auswerten()" style="margin-left:auto">Auswerten</button>
+      <button type="button" class="btn-sec" id="btn-pdf" onclick="oeffnePDF()" disabled>📄 PDF</button>
     </div>
 
     <!-- Gespeicherte Auswertungen -->
@@ -359,6 +360,7 @@ loadEvents();
 async function onEventChange() {
   const eventID = document.getElementById('sel-event').value;
   document.getElementById('result-area').innerHTML = '';
+  document.getElementById('btn-pdf').disabled = true;
   if (!eventID) {
     document.getElementById('saved-bar').style.display = 'none';
     return;
@@ -456,6 +458,7 @@ async function auswerten() {
   const area    = document.getElementById('result-area');
   area.innerHTML = '<div class="spinner">Lade Ergebnisse…</div>';
   document.getElementById('btn-eval').disabled = true;
+  document.getElementById('btn-pdf').disabled  = true;
 
   try {
     const entries = await fetch(`/api/auswertung/rundenwettkampf?event_id=${eventID}`)
@@ -467,11 +470,19 @@ async function auswerten() {
     }
 
     area.innerHTML = renderRunde(entries, bestOf);
+    document.getElementById('btn-pdf').disabled = false;
   } catch(e) {
     area.innerHTML = `<div class="msg-err">Fehler: ${esc(e.message)}</div>`;
   } finally {
     document.getElementById('btn-eval').disabled = false;
   }
+}
+
+function oeffnePDF() {
+  const eventID = document.getElementById('sel-event').value;
+  if (!eventID) return;
+  const bestOf = parseInt(document.getElementById('sel-bestof').value) || 0;
+  window.open(`/api/auswertung/rundenwettkampf/pdf?event_id=${eventID}&best_of=${bestOf}`, '_blank');
 }
 
 function renderRunde(entries, bestOf) {

@@ -79,6 +79,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	registerSiteRoutes(mux, pool)
+	registerAnzeigeRoutes(mux, pool)
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: mux}
 
 	go func() {

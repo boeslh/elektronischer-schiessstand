@@ -152,6 +152,23 @@
     </div>
   </div>
 
+  <div class="section">
+    <h2>Admin-Passwort (Stand-PC)</h2>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px">
+      Schützt die lokale Admin-Oberfläche jedes Stand-PC (<code style="font-family:monospace;color:var(--text)">/admin</code>),
+      über die Kalibrierung und Konfigurationsparameter direkt am Stand geändert werden können.
+      Nur der Hash wird gespeichert und an alle Stände verteilt – das Passwort selbst wird hier nicht angezeigt.
+    </p>
+    <div class="field">
+      <label for="admin-pw">Neues Passwort</label>
+      <input type="password" id="admin-pw" style="width:100%;background:#0e1218;border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:14px;padding:8px 12px" placeholder="Neues Admin-Passwort">
+    </div>
+    <div class="actions">
+      <button class="btn-save" onclick="pushAdminPassword()">Setzen &amp; an alle Stände senden</button>
+      <div id="msg-adminpw" class="msg"></div>
+    </div>
+  </div>
+
   <div class="actions">
     <button class="btn-save" onclick="save()">Speichern</button>
     <button class="btn-reset" onclick="resetDefaults()">Zurücksetzen</button>
@@ -263,6 +280,37 @@ async function pushFontSizes() {
     }
   } catch(e) {
     showMsgEl('msg-fontsizes', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function pushAdminPassword() {
+  const pwField = document.getElementById('admin-pw');
+  const password = pwField.value;
+  if (!password) {
+    showMsgEl('msg-adminpw', 'Bitte ein Passwort eingeben.', 'err');
+    return;
+  }
+  try {
+    let r = await fetch('/api/settings/standpc-admin-password', {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const results = await fetch('/api/settings/standpc-admin-password/push', {method:'POST'}).then(r => r.json());
+    const ok = (results||[]).filter(r => r.ok).length;
+    const failed = (results||[]).filter(r => !r.ok);
+    pwField.value = '';
+    if (!results || !results.length) {
+      showMsgEl('msg-adminpw', 'Passwort gespeichert. Keine Stände mit StandPC-URL konfiguriert.', 'ok');
+    } else if (failed.length === 0) {
+      showMsgEl('msg-adminpw', `An ${ok} Stand${ok !== 1 ? 'e' : ''} gesendet.`, 'ok');
+    } else {
+      showMsgEl('msg-adminpw',
+        `${ok} erfolgreich, nicht erreichbar: ${failed.map(f => 'Stand '+f.lane_no).join(', ')}.`, 'err');
+    }
+  } catch(e) {
+    showMsgEl('msg-adminpw', 'Fehler: ' + e.message, 'err');
   }
 }
 

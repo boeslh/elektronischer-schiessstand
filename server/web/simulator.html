@@ -342,6 +342,7 @@ async function searchResults() {
   const params = new URLSearchParams();
   if (date) params.set('date', date);
   if (name) params.set('name', name);
+  params.set('raw_data_only', '1'); // Simulator kann ohne air_ns-Rohdaten nichts neu berechnen
 
   setStatus('Lade…');
   try {

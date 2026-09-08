@@ -85,6 +85,9 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/role", a.h(a.getRole))
 	mux.HandleFunc("POST /api/role/switch", a.h(a.switchRole))
 	mux.HandleFunc("GET /api/roles", a.h(a.listRoles))
+	mux.HandleFunc("GET /api/roles/public", a.h(a.listRolesPublic))
+	mux.HandleFunc("POST /api/roles", a.h(a.createRole))
+	mux.HandleFunc("DELETE /api/roles/{key}", a.h(a.deleteRole))
 	mux.HandleFunc("PUT /api/roles/{key}/tiles", a.h(a.setRoleTiles))
 	mux.HandleFunc("PUT /api/roles/{key}/password", a.h(a.setRolePassword))
 	mux.HandleFunc("PUT /api/roles/{key}/permissions", a.h(a.setRoleCorrection))
@@ -135,6 +138,9 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/buchen", a.h(a.postBuchenAtLane))
 	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/freigeben", a.h(a.postFreeLane))
 	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/scheibe-abschliessen", a.h(a.postScheibeAbschliessenAtLane))
+	mux.HandleFunc("GET /api/lanes/{no}/preisschiessen/teilnehmer-suche", a.h(a.getSearchTeilnehmerForSelfServiceLane))
+	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/teilnehmer", a.h(a.postSelectTeilnehmerAtLane))
+	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/verlassen", a.h(a.postLeaveSelfServiceMode))
 	mux.HandleFunc("GET /stammdaten", a.serveHTMLGated(webSub, "stammdaten.html", "stammdaten"))
 
 	mux.HandleFunc("GET /api/gaue", a.h(a.listGaue))
@@ -147,6 +153,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/clubs/{id}", a.h(a.updateClub))
 	mux.HandleFunc("DELETE /api/clubs/{id}", a.h(a.deleteClub))
 	mux.HandleFunc("POST /api/clubs/import", a.h(a.importClubs))
+	mux.HandleFunc("POST /api/clubs/recalculate-member-counts", a.h(a.recalculateClubMemberCounts))
 
 	mux.HandleFunc("GET /api/shooter-classes", a.h(a.listShooterClasses))
 	mux.HandleFunc("POST /api/shooter-classes", a.h(a.createShooterClass))
@@ -177,6 +184,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /ergebnis-ansicht", a.serveHTMLGated(webSub, "ergebnis-ansicht.html", "ergebnisse"))
 	mux.HandleFunc("GET /auswertung", a.serveHTMLGated(webSub, "auswertung.html", "auswertung"))
 	mux.HandleFunc("GET /api/auswertung/rundenwettkampf", a.h(a.listRundenwettkampfResults))
+	mux.HandleFunc("GET /api/auswertung/rundenwettkampf/pdf", a.getRundenwettkampfPDF)
 	mux.HandleFunc("GET /api/auswertung/gruppenwettkampf", a.h(a.listGruppenwettkampfData))
 	mux.HandleFunc("GET /api/auswertungen", a.h(a.listSavedAuswertungen))
 	mux.HandleFunc("POST /api/auswertungen", a.h(a.createSavedAuswertung))
@@ -231,6 +239,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/preisschiessen/{id}/kaeufe/{kid}/ruckgabe", a.h(a.postRuckgabe))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/teilnehmer/{tid}/stand", a.h(a.postAssignTeilnehmerLanePending))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}/teilnehmer/{tid}/stand", a.h(a.deleteTeilnehmerLanePending))
+	mux.HandleFunc("POST /api/preisschiessen/{id}/lane-selfservice", a.h(a.postAssignLaneSelfService))
 	mux.HandleFunc("GET /api/preisschiessen/pending-lanes", a.h(a.listPendingLanes))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/lanes-overview", a.h(a.listPSLaneOverview))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/auswertung", a.h(a.psAuswertung))
@@ -272,6 +281,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/disciplines/{id}", a.h(a.deleteDiscipline))
 	mux.HandleFunc("POST /api/sessions/{id}/status", a.h(a.setSessionStatus))
 	mux.HandleFunc("GET /api/sessions/{id}/shots", a.h(a.sessionShots))
+	mux.HandleFunc("GET /api/sessions/{id}/pdf", a.getSessionPDF)
 	mux.HandleFunc("POST /api/sessions/{id}/shots/{no}/annul", a.h(a.annulShot))
 	mux.HandleFunc("POST /api/sessions/{id}/shots/{no}/correct", a.h(a.correctShot))
 	mux.HandleFunc("DELETE /api/sessions/{id}/shots/{no}/correct", a.h(a.revertShotCorrection))
@@ -288,6 +298,11 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/simulator-configs/{id}", a.h(a.deleteSimulatorConfig))
 
 	mux.HandleFunc("GET /archiv", a.serveHTMLGated(webSub, "archiv.html", "archiv"))
+	mux.HandleFunc("GET /anzeigen", a.serveHTMLGated(webSub, "anzeigen.html", "anzeigen"))
+	mux.HandleFunc("GET /api/anzeige-config", a.h(a.listAnzeigeConfigs))
+	mux.HandleFunc("POST /api/anzeige-config", a.h(a.createAnzeigeConfig))
+	mux.HandleFunc("PUT /api/anzeige-config/{id}", a.h(a.updateAnzeigeConfig))
+	mux.HandleFunc("DELETE /api/anzeige-config/{id}", a.h(a.deleteAnzeigeConfig))
 	mux.HandleFunc("GET /api/archive/events", a.h(a.listArchivedEvents))
 	mux.HandleFunc("POST /api/archive/export", a.archiveExport)
 	mux.HandleFunc("POST /api/archive/export-delete", a.archiveExportDelete)
@@ -300,6 +315,10 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/settings/font-sizes", a.h(a.getFontSizes))
 	mux.HandleFunc("PUT /api/settings/font-sizes", a.h(a.setFontSizes))
 	mux.HandleFunc("POST /api/settings/font-sizes/push", a.h(a.pushFontSizes))
+	mux.HandleFunc("PUT /api/settings/standpc-admin-password", a.h(a.setStandpcAdminPassword))
+	mux.HandleFunc("POST /api/settings/standpc-admin-password/push", a.h(a.pushStandpcAdminPasswordHash))
+	mux.HandleFunc("POST /api/esp32-calibrations", a.h(a.postESP32Calibration))
+	mux.HandleFunc("GET /api/esp32-calibrations/{mac}", a.h(a.getESP32Calibration))
 	mux.HandleFunc("GET /api/lanes/{no}/local-sessions", a.h(a.proxyLocalSessions))
 	mux.HandleFunc("GET /api/lanes/{no}/local-sessions/{sid}/shots", a.h(a.proxyLocalSessionShots))
 	mux.HandleFunc("POST /api/transfer", a.h(a.transferSession))
@@ -330,6 +349,9 @@ func (a *APIServer) h(fn handlerFunc) http.HandlerFunc {
 		if err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, ErrLaneBusy) {
+				status = http.StatusConflict
+			}
+			if errors.Is(err, ErrLaneInSelfService) {
 				status = http.StatusConflict
 			}
 			if errors.Is(err, ErrWrongPassword) {
@@ -587,26 +609,7 @@ func (a *APIServer) simulatorShots(w http.ResponseWriter, r *http.Request) (any,
 // (disciplines.standpc_target_no), falls bekannt - sonst einen Fallback aus
 // den rohen DB-Ringdurchmessern (siehe target_geometry.go).
 func (a *APIServer) sessionTargetGeometry(w http.ResponseWriter, r *http.Request) (any, error) {
-	sessionID := r.PathValue("id")
-	targetID, _, _, standpcTargetNo, err := a.store.SessionTargets(r.Context(), sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if geo, ok := targetGeometries[standpcTargetNo]; ok {
-		return geo, nil
-	}
-	target, err := a.store.LoadTargetDef(r.Context(), targetID)
-	if err != nil {
-		return nil, err
-	}
-	// standpc_target_no oft nicht gepflegt (siehe Migration 010) - anhand des
-	// Scheibennamens (z.B. "LP 10m ISSF") auf eine bekannte Geometrie mit
-	// korrekter "gefuellt"-Zeichnung schliessen, bevor auf den ungenauen
-	// Ringwert-Heuristik-Fallback zurueckgegriffen wird.
-	if geo, ok := matchTargetGeometryByName(target.Name); ok {
-		return geo, nil
-	}
-	return targetGeometryFromRings(target), nil
+	return a.store.resolveTargetGeometry(r.Context(), r.PathValue("id"))
 }
 
 type simSideResult struct {
@@ -968,6 +971,14 @@ func (a *APIServer) importClubs(w http.ResponseWriter, r *http.Request) (any, er
 	return map[string]any{"created": created, "updated": updated}, nil
 }
 
+func (a *APIServer) recalculateClubMemberCounts(w http.ResponseWriter, r *http.Request) (any, error) {
+	count, err := a.store.RecalculateAllClubMemberCounts(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"count": count}, nil
+}
+
 // ----------------------------------------------------------------------------
 // Stammdaten – Schützen (vollständig)
 // ----------------------------------------------------------------------------
@@ -1312,6 +1323,17 @@ func (a *APIServer) addStarter(w http.ResponseWriter, r *http.Request) (any, err
 	if err != nil || body.ShooterID == "" {
 		return nil, errors.New("shooter_id erforderlich")
 	}
+	// Bei einem Rundenwettkampf muss jeder Starter einer Mannschaft (Heim/Gast)
+	// zugeordnet sein - sonst taucht er in der Auswertung als "(Ohne
+	// Mannschaft)" auf, was es dort per Definition nicht geben darf. Das
+	// UI verhindert das inzwischen auch (wettkampf-bearbeiten.html
+	// renderStarters), diese Pruefung ist die serverseitige Absicherung.
+	if body.TeamID == "" {
+		comp, err := a.store.GetCompetition(r.Context(), r.PathValue("id"))
+		if err == nil && comp.Type == "runde" {
+			return nil, errBadRequest("bei einem Rundenwettkampf muss jeder Starter einer Mannschaft zugeordnet werden")
+		}
+	}
 	id, err := a.store.AddStarter(r.Context(),
 		r.PathValue("id"), body.ShooterID, body.DisciplineID, body.TeamID, body.StartNo, body.Role)
 	if err != nil {
@@ -1361,7 +1383,7 @@ func (a *APIServer) removeStarter(w http.ResponseWriter, r *http.Request) (any, 
 func (a *APIServer) listResults(w http.ResponseWriter, r *http.Request) (any, error) {
 	q := r.URL.Query()
 	results, err := a.store.ListResults(r.Context(),
-		q.Get("date"), q.Get("name"), q.Get("event_id"))
+		q.Get("date"), q.Get("name"), q.Get("event_id"), q.Get("raw_data_only") == "1")
 	if err != nil {
 		return nil, err
 	}
@@ -1637,8 +1659,9 @@ func (a *APIServer) pushDisciplinesToStandPC(w http.ResponseWriter, r *http.Requ
 		if len(idSet) > 0 && !idSet[d.ID] {
 			continue
 		}
-		if d.StandPCTargetNo == 0 {
-			continue // ohne target_no nicht übertragbar
+		targetNo, ok := matchTargetNoByName(d.TargetName)
+		if !ok {
+			continue // Scheibenname enthaelt keines der bekannten Kuerzel LG/ZS/SP/LP
 		}
 		trialShots := 100
 		if d.MaxSightingShots != nil {
@@ -1646,7 +1669,7 @@ func (a *APIServer) pushDisciplinesToStandPC(w http.ResponseWriter, r *http.Requ
 		}
 		defs = append(defs, standpcDef{
 			Name:           d.Name,
-			TargetNo:       d.StandPCTargetNo,
+			TargetNo:       targetNo,
 			TrialShots:     trialShots,
 			ScoringShots:   d.MatchShotCount,
 			ShotsPerSeries: d.ShotsPerSeries,
@@ -1656,7 +1679,7 @@ func (a *APIServer) pushDisciplinesToStandPC(w http.ResponseWriter, r *http.Requ
 	}
 
 	if len(defs) == 0 {
-		return nil, &httpError{code: 400, msg: "keine übertragbaren Disziplinen (standpc_target_no nicht gesetzt?)"}
+		return nil, &httpError{code: 400, msg: "keine übertragbaren Disziplinen (Scheibenname enthält keines der Kürzel LG/ZS/SP/LP)"}
 	}
 
 	if body.Default == "" && len(defs) > 0 {

@@ -157,13 +157,18 @@ type PSScheibeTyp struct {
 // pollt (GET /api/lanes/{no}/preisschiessen): welcher Teilnehmer wartet
 // bzw. schießt dort gerade, und was er wählen/nachkaufen kann.
 type PSLaneInfo struct {
-	PreisschiessenID     string         `json:"preisschiessen_id,omitempty"`
-	PreisschiessenName   string         `json:"preisschiessen_name"`
-	TeilnehmerID         string         `json:"teilnehmer_id"`
-	TeilnehmerNr         int            `json:"teilnehmer_nr"`
-	ShooterName          string         `json:"shooter_name"`
-	Guthaben             float64        `json:"guthaben"`
-	Pending              bool           `json:"pending"`
+	PreisschiessenID   string  `json:"preisschiessen_id,omitempty"`
+	PreisschiessenName string  `json:"preisschiessen_name"`
+	TeilnehmerID       string  `json:"teilnehmer_id"`
+	TeilnehmerNr       int     `json:"teilnehmer_nr"`
+	ShooterName        string  `json:"shooter_name"`
+	Guthaben           float64 `json:"guthaben"`
+	Pending            bool    `json:"pending"`
+	// NeedsTeilnehmer: Stand ist für Preisschießen-Selbstbedienung reserviert
+	// (ps_lane_selfservice) und wartet darauf, dass sich ein Teilnehmer am
+	// Stand-PC selbst auswählt (siehe SearchTeilnehmerForSelfServiceLane/
+	// SelectTeilnehmerAtLane) - alle Teilnehmer-Felder oben sind dann leer.
+	NeedsTeilnehmer      bool           `json:"needs_teilnehmer,omitempty"`
 	CurrentScheibeName   string         `json:"current_scheibe_name,omitempty"`
 	CurrentTargetColor   string         `json:"current_target_color,omitempty"`
 	CurrentShotCount     int            `json:"current_shot_count,omitempty"`
@@ -1536,6 +1541,148 @@ func (s *Store) AssignTeilnehmerLanePending(ctx context.Context, teilnehmerID st
 	return tx.Commit(ctx)
 }
 
+// ----------------------------------------------------------------------------
+// Standzuweisung ohne Teilnehmer (ps_lane_selfservice): die Aufsicht
+// reserviert nur den Stand für ein Preisschießen, der Teilnehmer sucht und
+// wählt sich selbst am Stand-PC aus (siehe SearchTeilnehmerForSelfServiceLane/
+// SelectTeilnehmerAtLane). Bleibt über mehrere Teilnehmer-Durchgänge hinweg
+// bestehen - "Stand freigeben" (FreeLane) räumt nur den jeweils aktuellen
+// Teilnehmer ab, siehe Kommentar bei ps_lane_selfservice (migrations/047).
+// ----------------------------------------------------------------------------
+
+// AssignPreisschiessenSelfServiceToLane reserviert einen Stand für
+// Selbstbedienung in einem Preisschießen, ohne einen Teilnehmer festzulegen.
+func (s *Store) AssignPreisschiessenSelfServiceToLane(ctx context.Context, preisschiessenID string, laneNo int) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var laneID string
+	if err := tx.QueryRow(ctx,
+		`SELECT id FROM lanes WHERE lane_no=$1 AND active FOR UPDATE`,
+		laneNo).Scan(&laneID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("Stand %d: nicht gefunden", laneNo)
+		}
+		return err
+	}
+
+	var busy int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sessions
+		WHERE lane_id=$1 AND status IN ('assigned','sighting','match','paused')`,
+		laneID).Scan(&busy); err != nil {
+		return err
+	}
+	if busy > 0 {
+		return ErrLaneBusy
+	}
+	var pendingBusy int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM ps_lane_pending WHERE lane_id=$1`, laneID,
+	).Scan(&pendingBusy); err != nil {
+		return err
+	}
+	if pendingBusy > 0 {
+		return ErrLaneBusy
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ps_lane_selfservice (lane_id, preisschiessen_id) VALUES ($1,$2)
+		ON CONFLICT (lane_id) DO UPDATE SET preisschiessen_id = EXCLUDED.preisschiessen_id, created_at = now()`,
+		laneID, preisschiessenID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// SelectTeilnehmerAtLane: der Teilnehmer wählt sich selbst an einem für
+// Selbstbedienung reservierten Stand aus (siehe
+// SearchTeilnehmerForSelfServiceLane) - ab hier läuft alles wie bei einer
+// Büro-Zuweisung weiter (AssignTeilnehmerLanePending, Scheibenwahl usw.).
+func (s *Store) SelectTeilnehmerAtLane(ctx context.Context, laneNo int, teilnehmerID string) error {
+	var selfServicePSID string
+	if err := s.pool.QueryRow(ctx, `
+		SELECT lsv.preisschiessen_id::text FROM ps_lane_selfservice lsv
+		JOIN lanes l ON l.id = lsv.lane_id WHERE l.lane_no=$1`, laneNo,
+	).Scan(&selfServicePSID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &httpError{code: 400, msg: "Stand ist nicht für Selbstbedienung reserviert"}
+		}
+		return err
+	}
+
+	t, err := s.GetTeilnehmer(ctx, teilnehmerID)
+	if err != nil {
+		return err
+	}
+	if t.PreisschiessenID != selfServicePSID {
+		return &httpError{code: 400, msg: "Teilnehmer gehört nicht zu diesem Preisschießen"}
+	}
+	return s.AssignTeilnehmerLanePending(ctx, teilnehmerID, laneNo)
+}
+
+// LeaveSelfServiceMode beendet den Selbstbedienungsmodus eines Stands
+// komplett (räumt zunächst einen evtl. gerade laufenden Teilnehmer/Session
+// wie FreeLane ab, danach die ps_lane_selfservice-Reservierung selbst).
+func (s *Store) LeaveSelfServiceMode(ctx context.Context, laneNo int) error {
+	if err := s.FreeLane(ctx, laneNo); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM ps_lane_selfservice
+		WHERE lane_id = (SELECT id FROM lanes WHERE lane_no=$1)`, laneNo)
+	return err
+}
+
+// PSSelfServiceTeilnehmer ist die schlanke Projektion für die
+// Stand-PC-Selbstauswahl - bewusst ohne Finanzdaten (Guthaben etc.), da dies
+// auf einem öffentlich zugänglichen Touchscreen läuft.
+type PSSelfServiceTeilnehmer struct {
+	TeilnehmerID string `json:"teilnehmer_id"`
+	TeilnehmerNr int    `json:"teilnehmer_nr"`
+	ShooterName  string `json:"shooter_name"`
+}
+
+// SearchTeilnehmerForSelfServiceLane sucht Teilnehmer innerhalb des für
+// diesen Stand reservierten Preisschießens (siehe ps_lane_selfservice) -
+// nach Teilnehmernummer oder Name, analog preisanzeige/site.go handleSuche.
+func (s *Store) SearchTeilnehmerForSelfServiceLane(ctx context.Context, laneNo int, q string) ([]PSSelfServiceTeilnehmer, error) {
+	var preisschiessenID string
+	if err := s.pool.QueryRow(ctx, `
+		SELECT lsv.preisschiessen_id::text FROM ps_lane_selfservice lsv
+		JOIN lanes l ON l.id = lsv.lane_id WHERE l.lane_no=$1`, laneNo,
+	).Scan(&preisschiessenID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, &httpError{code: 400, msg: "Stand ist nicht für Selbstbedienung reserviert"}
+		}
+		return nil, err
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT t.id, t.teilnehmer_nr, sh.last_name || ', ' || sh.first_name
+		FROM ps_teilnehmer t JOIN shooters sh ON sh.id = t.shooter_id
+		WHERE t.preisschiessen_id = $1
+		  AND (sh.last_name ILIKE '%'||$2||'%' OR sh.first_name ILIKE '%'||$2||'%'
+		               OR t.teilnehmer_nr::text = $2)
+		ORDER BY t.teilnehmer_nr LIMIT 20`, preisschiessenID, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PSSelfServiceTeilnehmer{}
+	for rows.Next() {
+		var x PSSelfServiceTeilnehmer
+		if err := rows.Scan(&x.TeilnehmerID, &x.TeilnehmerNr, &x.ShooterName); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
 // ClearTeilnehmerLanePending hebt eine Standzuweisung wieder auf (bevor der
 // Schütze eine Scheibe gewählt hat).
 func (s *Store) ClearTeilnehmerLanePending(ctx context.Context, teilnehmerID string) error {
@@ -1578,6 +1725,11 @@ type psLaneState struct {
 	PendingRow      bool   // ps_lane_pending-Zeile vorhanden
 	ActiveSessionID string // "" wenn keine aktive Session
 	CurrentBeendet  bool   // aktive Session vorhanden UND ihre Scheibe ist "beendet"
+	// SelfServicePreisschiessenID: gesetzt, wenn TeilnehmerID=="" ist, WEIL
+	// der Stand für Preisschießen-Selbstbedienung reserviert ist (siehe
+	// ps_lane_selfservice) und gerade noch kein Teilnehmer gewählt hat -
+	// nicht dasselbe wie "kein Preisschießen-Kontext" (leer bei beidem).
+	SelfServicePreisschiessenID string
 }
 
 // ownedSetIDs liefert die Set-IDs, die ein Teilnehmer aktuell besitzt
@@ -1630,7 +1782,17 @@ func (s *Store) laneState(ctx context.Context, laneNo int) (psLaneState, error) 
 		WHERE l.lane_no = $1 AND se.status IN ('assigned','sighting','match','paused')
 		ORDER BY se.started_at DESC NULLS LAST LIMIT 1`, laneNo).Scan(&st.TeilnehmerID, &sessionID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return st, nil
+		// Weder ps_lane_pending noch aktive Session - evtl. ist der Stand
+		// trotzdem für Preisschießen-Selbstbedienung reserviert (siehe
+		// ps_lane_selfservice), nur eben noch ohne gewählten Teilnehmer.
+		err = s.pool.QueryRow(ctx, `
+			SELECT lsv.preisschiessen_id::text FROM ps_lane_selfservice lsv
+			JOIN lanes l ON l.id = lsv.lane_id
+			WHERE l.lane_no = $1`, laneNo).Scan(&st.SelfServicePreisschiessenID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return st, nil
+		}
+		return st, err
 	}
 	if err != nil {
 		return st, err
@@ -1660,7 +1822,18 @@ func (s *Store) GetLanePreisschiessenInfo(ctx context.Context, laneNo int) (*PSL
 		return nil, err
 	}
 	if st.TeilnehmerID == "" {
-		return nil, nil
+		if st.SelfServicePreisschiessenID == "" {
+			return nil, nil
+		}
+		ps, err := s.GetPreisschiessen(ctx, st.SelfServicePreisschiessenID)
+		if err != nil {
+			return nil, err
+		}
+		return &PSLaneInfo{
+			PreisschiessenID:   ps.ID,
+			PreisschiessenName: ps.Name,
+			NeedsTeilnehmer:    true,
+		}, nil
 	}
 
 	t, err := s.GetTeilnehmer(ctx, st.TeilnehmerID)
@@ -1779,14 +1952,15 @@ func (s *Store) GetLanePreisschiessenInfo(ctx context.Context, laneNo int) (*PSL
 // Schüsse bereits abgegeben sind - leer, wenn der Stand frei ist oder von
 // einem Teilnehmer eines ANDEREN Preisschießens belegt ist.
 type PSLaneOverviewRow struct {
-	LaneNo        int    `json:"lane_no"`
-	TeilnehmerID  string `json:"teilnehmer_id,omitempty"`
-	TeilnehmerNr  int    `json:"teilnehmer_nr,omitempty"`
-	ShooterName   string `json:"shooter_name,omitempty"`
-	Pending       bool   `json:"pending"`
-	ScheibeName   string `json:"scheibe_name,omitempty"`
-	ShotCount     int    `json:"shot_count,omitempty"`
-	RequiredShots int    `json:"required_shots,omitempty"`
+	LaneNo          int    `json:"lane_no"`
+	TeilnehmerID    string `json:"teilnehmer_id,omitempty"`
+	TeilnehmerNr    int    `json:"teilnehmer_nr,omitempty"`
+	ShooterName     string `json:"shooter_name,omitempty"`
+	Pending         bool   `json:"pending"`
+	ScheibeName     string `json:"scheibe_name,omitempty"`
+	ShotCount       int    `json:"shot_count,omitempty"`
+	RequiredShots   int    `json:"required_shots,omitempty"`
+	NeedsTeilnehmer bool   `json:"needs_teilnehmer,omitempty"`
 }
 
 // ListPSLaneOverview liefert für alle aktiven Stände eine kompakte
@@ -1826,6 +2000,7 @@ func (s *Store) ListPSLaneOverview(ctx context.Context, preisschiessenID string)
 			row.ScheibeName = info.CurrentScheibeName
 			row.ShotCount = info.CurrentShotCount
 			row.RequiredShots = info.CurrentRequiredShots
+			row.NeedsTeilnehmer = info.NeedsTeilnehmer
 		}
 		out = append(out, row)
 	}
@@ -2380,6 +2555,19 @@ func (a *APIServer) deleteTeilnehmerLanePending(w http.ResponseWriter, r *http.R
 	return map[string]any{"ok": true}, nil
 }
 
+func (a *APIServer) postAssignLaneSelfService(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[struct {
+		LaneNo int `json:"lane_no"`
+	}](r)
+	if err != nil || body.LaneNo < 1 {
+		return nil, errors.New("lane_no erforderlich")
+	}
+	if err := a.store.AssignPreisschiessenSelfServiceToLane(r.Context(), r.PathValue("id"), body.LaneNo); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
 func (a *APIServer) listPendingLanes(w http.ResponseWriter, r *http.Request) (any, error) {
 	return a.store.ListPendingLanes(r.Context())
 }
@@ -2448,6 +2636,42 @@ func (a *APIServer) postScheibeAbschliessenAtLane(w http.ResponseWriter, r *http
 		return nil, errors.New("ungueltige Standnummer")
 	}
 	if err := a.store.ScheibeAbschliessenAtLane(r.Context(), no); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) getSearchTeilnehmerForSelfServiceLane(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	return a.store.SearchTeilnehmerForSelfServiceLane(r.Context(), no, r.URL.Query().Get("q"))
+}
+
+func (a *APIServer) postSelectTeilnehmerAtLane(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	body, err := decodeBody[struct {
+		TeilnehmerID string `json:"teilnehmer_id"`
+	}](r)
+	if err != nil || body.TeilnehmerID == "" {
+		return nil, errors.New("teilnehmer_id erforderlich")
+	}
+	if err := a.store.SelectTeilnehmerAtLane(r.Context(), no, body.TeilnehmerID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) postLeaveSelfServiceMode(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	if err := a.store.LeaveSelfServiceMode(r.Context(), no); err != nil {
 		return nil, err
 	}
 	return map[string]any{"ok": true}, nil

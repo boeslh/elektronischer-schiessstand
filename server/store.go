@@ -55,6 +55,10 @@ type Lane struct {
 	// Veranstaltung (aus events-Tabelle via session.event_id)
 	EventName string `json:"event_name,omitempty"`
 	EventType string `json:"event_type,omitempty"` // einzel | runde | gruppe
+	// Preisschiessen-Selbstbedienung (ps_lane_selfservice, siehe migrations/047):
+	// Stand ist reserviert und wartet auf Teilnehmerauswahl am Stand-PC - hat
+	// noch KEINE Session, darf trotzdem nicht regulaer belegt werden.
+	PSSelfServiceName string `json:"ps_selfservice_name,omitempty"`
 	// Live-Zustand vom StandPC (in-memory, nicht aus DB)
 	LiveMode         string  `json:"live_mode,omitempty"`
 	LiveWertungCount int     `json:"live_wertung_count,omitempty"`
@@ -111,7 +115,8 @@ func (s *Store) ListLanes(ctx context.Context) ([]Lane, error) {
 		       COALESCE(sh.last_name || ', ' || sh.first_name, ''),
 		       COALESCE(d.name,''),
 		       COALESCE(r.shot_count,0), COALESCE(r.total_rings,0),
-		       COALESCE(ev.name,''), COALESCE(ev.type::text,'')
+		       COALESCE(ev.name,''), COALESCE(ev.type::text,''),
+		       COALESCE(ps.name,'')
 		FROM lanes l
 		LEFT JOIN LATERAL (
 		    SELECT * FROM sessions
@@ -123,6 +128,8 @@ func (s *Store) ListLanes(ctx context.Context) ([]Lane, error) {
 		LEFT JOIN disciplines d  ON d.id   = se.discipline_id
 		LEFT JOIN events ev      ON ev.id  = se.event_id
 		LEFT JOIN v_session_results r ON r.session_id = se.id
+		LEFT JOIN ps_lane_selfservice lsv ON lsv.lane_id = l.id
+		LEFT JOIN preisschiessen ps        ON ps.id = lsv.preisschiessen_id
 		ORDER BY l.lane_no`)
 	if err != nil {
 		return nil, err
@@ -134,7 +141,8 @@ func (s *Store) ListLanes(ctx context.Context) ([]Lane, error) {
 		var l Lane
 		if err := rows.Scan(&l.ID, &l.LaneNo, &l.Name, &l.Active, &l.StandPCURL,
 			&l.SessionID, &l.SessionState, &l.ShooterID, &l.ShooterName, &l.Discipline,
-			&l.ShotCount, &l.TotalRings, &l.EventName, &l.EventType); err != nil {
+			&l.ShotCount, &l.TotalRings, &l.EventName, &l.EventType,
+			&l.PSSelfServiceName); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -428,6 +436,7 @@ func (s *Store) DeleteDiscipline(ctx context.Context, id string) error {
 // ----------------------------------------------------------------------------
 
 var ErrLaneBusy = errors.New("Stand ist bereits belegt")
+var ErrLaneInSelfService = errors.New("Stand ist im Preisschießen-Selbstbedienungsmodus")
 
 // AssignLane belegt einen Stand: legt eine Session an (Status 'assigned').
 // Nutzt die aktuell gueltige Kalibrierung des Stands; existiert keine,
@@ -458,6 +467,22 @@ func (s *Store) AssignLane(ctx context.Context, laneNo int,
 	}
 	if busy > 0 {
 		return "", ErrLaneBusy
+	}
+
+	// Im Preisschiessen-Selbstbedienungsmodus reserviert (ps_lane_selfservice,
+	// siehe migrations/047) - hat KEINE aktive Session (busy-Check oben greift
+	// nicht), darf aber trotzdem nicht regulaer belegt werden, solange der
+	// Stand auf einen sich selbst auswaehlenden Preisschiessen-Teilnehmer
+	// wartet. Erst "Preisschiessmodus verlassen" (LeaveSelfServiceMode) gibt
+	// den Stand fuer normale Zuweisungen frei.
+	var inSelfService bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM ps_lane_selfservice WHERE lane_id=$1)`,
+		laneID).Scan(&inSelfService); err != nil {
+		return "", err
+	}
+	if inSelfService {
+		return "", ErrLaneInSelfService
 	}
 
 	// Aktuelle Kalibrierung holen oder Default anlegen
@@ -535,8 +560,8 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		plateAngle, soundSpeed        float64
 		offX, offY                    float64
 	)
-	var eventName, eventType string
-	var trialShots, scoringShots, shotsPerSeries, targetNo int
+	var eventName, eventType, targetName string
+	var trialShots, scoringShots, shotsPerSeries int
 	var decimalScoring bool
 	var anzeige string
 	var lastShotNo, probeCount, wertungShotsFired int
@@ -547,7 +572,7 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		       c.plate_offset_x, c.plate_offset_y,
 		       COALESCE(ev.name,''), COALESCE(ev.type::text,''),
 		       COALESCE(d.max_sighting_shots,-1), d.match_shot_count,
-		       d.shots_per_series, d.decimal_scoring, d.standpc_target_no, d.anzeige,
+		       d.shots_per_series, d.decimal_scoring, tg.name, d.anzeige,
 		       COALESCE((SELECT MAX(shot_no) FROM shots WHERE session_id=se.id), 0),
 		       COALESCE((SELECT COUNT(*) FROM shots
 		                 WHERE session_id=se.id AND kind='sighting' AND status='valid'), 0),
@@ -556,6 +581,7 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		FROM sessions se
 		JOIN lanes l        ON l.id  = se.lane_id
 		JOIN disciplines d  ON d.id  = se.discipline_id
+		JOIN targets tg     ON tg.id = d.target_id
 		JOIN calibrations c ON c.id  = se.calibration_id
 		LEFT JOIN shooters sh ON sh.id = se.shooter_id
 		LEFT JOIN events ev   ON ev.id = se.event_id
@@ -565,7 +591,7 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		laneNo).Scan(&sessionID, &status, &discipline, &shooterName,
 		&sensorPos, &plateAngle, &soundSpeed, &offX, &offY,
 		&eventName, &eventType,
-		&trialShots, &scoringShots, &shotsPerSeries, &decimalScoring, &targetNo, &anzeige,
+		&trialShots, &scoringShots, &shotsPerSeries, &decimalScoring, &targetName, &anzeige,
 		&lastShotNo, &probeCount, &wertungShotsFired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil // Stand frei -> Stand-PC arbeitet ohne Session
@@ -573,9 +599,26 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 	if err != nil {
 		return nil, err
 	}
+	// StandPC-Scheibennummer (welche der 4 lokal bekannten Scheibenformen
+	// LG/ZS/SP/LP der Stand-PC fuer Grafik+Scoring verwenden soll) wird aus
+	// dem Scheibennamen abgeleitet, nicht mehr aus einem manuell gepflegten
+	// Feld - siehe target_geometry.go matchTargetNoByName. 0 = unbekannt,
+	// Stand-PC faellt dann lokal auf Scheibe 1 (LG) zurueck.
+	targetNo, _ := matchTargetNoByName(targetName)
+	// mode: Signal an den Stand-PC, per Standsteuerung (Server) ausgeloeste
+	// Probe->Wertung-Umschaltungen zu uebernehmen (siehe standpc/session.go
+	// poll(), Feld serverSession.Mode) - ohne dieses Feld bleibt ein am
+	// Server geklickter "Wertung"-Button ohne jede Wirkung auf den Stand-PC:
+	// die Session zeigt dort korrekt "match", der Stand-PC zaehlt aber
+	// unbeeindruckt in seinem lokalen (weiterhin "probe") Modus weiter.
+	mode := ""
+	if status == "match" {
+		mode = "wertung"
+	}
 	return map[string]any{
 		"session_id":      sessionID,
 		"status":          status,
+		"mode":            mode,
 		"discipline":      discipline,
 		"shooter":         shooterName,
 		"sensor_pos":      jsonRaw(sensorPos),
@@ -691,11 +734,54 @@ type Result struct {
 	LiveData           bool    `json:"live_data,omitempty"` // true = Daten kommen vom StandPC, nicht DB
 }
 
+// SessionResultHeader: Kopfdaten fuer das Einzelergebnis-PDF (siehe
+// pdf_einzelergebnis.go) - alles, was NICHT aus den Schuessen selbst folgt.
+type SessionResultHeader struct {
+	ShooterName    string
+	ClubName       string
+	SportKlasse    string // Kurzname der Sportklasse (starters.class_id), leer wenn kein Starter/keine Klasse
+	Discipline     string
+	DecimalScoring bool
+	ShotsPerSeries int
+	TargetID       string
+	LaneNo         int
+	StartedAt      string // ISO, leer wenn noch nicht gestartet
+}
+
+// GetSessionResultHeader laedt die Kopfdaten einer Session fuer das
+// Einzelergebnis-PDF. shooter_id ist nullable (anonymes Training) - ohne
+// Schuetze macht ein "Einzelergebnis"-PDF zwar wenig Sinn, wird aber nicht
+// hart abgelehnt (ShooterName bleibt dann leer, Aufrufer entscheidet).
+func (s *Store) GetSessionResultHeader(ctx context.Context, sessionID string) (SessionResultHeader, error) {
+	var h SessionResultHeader
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(sh.last_name || ', ' || sh.first_name, ''),
+		       COALESCE(c.name, ''),
+		       COALESCE(sc.short_name, sc.name, ''),
+		       d.name, d.decimal_scoring, d.shots_per_series, d.target_id::text,
+		       l.lane_no, COALESCE(se.started_at::text, '')
+		FROM sessions se
+		JOIN disciplines d ON d.id = se.discipline_id
+		JOIN lanes l       ON l.id = se.lane_id
+		LEFT JOIN shooters sh        ON sh.id = se.shooter_id
+		LEFT JOIN clubs c            ON c.id  = sh.club_id
+		LEFT JOIN starters st        ON st.id = se.starter_id
+		LEFT JOIN shooter_classes sc ON sc.id = st.class_id
+		WHERE se.id = $1::uuid`, sessionID,
+	).Scan(&h.ShooterName, &h.ClubName, &h.SportKlasse,
+		&h.Discipline, &h.DecimalScoring, &h.ShotsPerSeries, &h.TargetID,
+		&h.LaneNo, &h.StartedAt)
+	return h, err
+}
+
 // ListResults gibt Ergebnisse gefiltert nach Datum, Schützename und Veranstaltung zurück.
-// date:    ISO-Datum (2006-01-02); leer = kein Datumsfilter
-// name:    Teilstring Nachname oder Vorname; leer = kein Filter
-// eventID: UUID einer Veranstaltung; leer = kein Filter
-func (s *Store) ListResults(ctx context.Context, date, name, eventID string) ([]Result, error) {
+// date:        ISO-Datum (2006-01-02); leer = kein Datumsfilter
+// name:        Teilstring Nachname oder Vorname; leer = kein Filter
+// eventID:     UUID einer Veranstaltung; leer = kein Filter
+// rawDataOnly: true = nur Sessions mit gespeicherten air_ns-Rohdaten (siehe
+// migrations/013_shots_telegram_raw.sql) - für den Simulator, der ohne
+// Rohdaten nichts neu berechnen kann (siehe simulator.html searchResults).
+func (s *Store) ListResults(ctx context.Context, date, name, eventID string, rawDataOnly bool) ([]Result, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT se.id,
 		       l.lane_no,
@@ -721,9 +807,10 @@ func (s *Store) ListResults(ctx context.Context, date, name, eventID string) ([]
 		                AND se.started_at AT TIME ZONE 'Europe/Berlin' <  ($1::date + 1)::timestamptz)
 		  AND ($2 = '' OR sh.last_name ILIKE '%'||$2||'%' OR sh.first_name ILIKE '%'||$2||'%')
 		  AND ($3 = '' OR se.event_id = $3::uuid)
+		  AND (NOT $4 OR EXISTS (SELECT 1 FROM shots sr WHERE sr.session_id = se.id AND sr.air_ns IS NOT NULL))
 		ORDER BY se.started_at DESC NULLS LAST
 		LIMIT 500`,
-		date, name, eventID)
+		date, name, eventID, rawDataOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -915,6 +1002,33 @@ func (s *Store) UpdateClub(ctx context.Context, c ClubFull) error {
 func (s *Store) DeleteClub(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM clubs WHERE id=$1`, id)
 	return err
+}
+
+// RecalculateClubMemberCount setzt member_count eines Vereins auf die
+// tatsächliche Anzahl seiner Mitglieder (shooters.club_id) - wird bei jeder
+// Änderung eines Mitglieds (anlegen/bearbeiten/löschen, siehe
+// CreateShooterFull/UpdateShooterFull/DeleteShooterFull) automatisch
+// aufgerufen, damit member_count nie veraltet.
+func (s *Store) RecalculateClubMemberCount(ctx context.Context, clubID string) error {
+	if clubID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE clubs SET member_count = (SELECT COUNT(*) FROM shooters WHERE club_id = clubs.id)
+		WHERE id = $1`, clubID)
+	return err
+}
+
+// RecalculateAllClubMemberCounts setzt member_count bei ALLEN Vereinen neu -
+// für den "Mitgliederzahlen neu berechnen"-Button in der Vereinsübersicht
+// (Stammdaten) und nach einem CSV-Mitgliederimport (siehe ImportMembers).
+func (s *Store) RecalculateAllClubMemberCounts(ctx context.Context) (int, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE clubs SET member_count = (SELECT COUNT(*) FROM shooters WHERE club_id = clubs.id)`)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // ImportClubs importiert Vereine per Upsert auf external_no.
@@ -1349,10 +1463,25 @@ func (s *Store) CreateShooterFull(ctx context.Context, sh ShooterFull) (string, 
 		sh.Street, sh.Zip, sh.City, sh.Phone, sh.Mobile, sh.Email,
 		sh.SportsClass, sh.AgeGroup, nullTime(ed), sh.Interests, sh.Country,
 	).Scan(&id)
+	if err == nil {
+		if rcErr := s.RecalculateClubMemberCount(ctx, sh.ClubID); rcErr != nil {
+			return id, rcErr
+		}
+	}
 	return id, err
 }
 
 func (s *Store) UpdateShooterFull(ctx context.Context, sh ShooterFull) error {
+	// Alten Verein VOR dem Update merken - falls der Schuetze den Verein
+	// wechselt, muss auch dessen Mitgliederzahl neu berechnet werden, nicht
+	// nur die des neuen Vereins.
+	var oldClubID string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(club_id::text,'') FROM shooters WHERE id=$1`, sh.ID,
+	).Scan(&oldClubID); err != nil {
+		return err
+	}
+
 	bd, _ := time.Parse("2006-01-02", sh.BirthDate)
 	ed, _ := time.Parse("2006-01-02", sh.EntryDate)
 	_, err := s.pool.Exec(ctx, `
@@ -1373,12 +1502,32 @@ func (s *Store) UpdateShooterFull(ctx context.Context, sh ShooterFull) error {
 		sh.Street, sh.Zip, sh.City, sh.Phone, sh.Mobile, sh.Email,
 		sh.SportsClass, sh.AgeGroup, nullTime(ed), sh.Interests, sh.Country, sh.ID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := s.RecalculateClubMemberCount(ctx, sh.ClubID); err != nil {
+		return err
+	}
+	if oldClubID != sh.ClubID {
+		if err := s.RecalculateClubMemberCount(ctx, oldClubID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) DeleteShooterFull(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM shooters WHERE id=$1`, id)
-	return err
+	var clubID string
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(club_id::text,'') FROM shooters WHERE id=$1`, id,
+	).Scan(&clubID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM shooters WHERE id=$1`, id); err != nil {
+		return err
+	}
+	return s.RecalculateClubMemberCount(ctx, clubID)
 }
 
 // nullTime gibt nil zurück wenn t das Zero-Value ist, sonst &t.
@@ -1481,6 +1630,15 @@ func (s *Store) ImportMembers(ctx context.Context, rows []MemberRow) (created, u
 			created++
 		} else {
 			updated++
+		}
+	}
+	// Mitgliederzahlen aller Vereine neu berechnen, sobald sich durch den
+	// Import tatsächlich etwas geändert hat - einfacher und robuster als die
+	// Menge der tatsächlich betroffenen Vereine mitzuführen (Verein kann sich
+	// je Zeile ändern, siehe selectMemberRow).
+	if created > 0 || updated > 0 {
+		if _, err := s.RecalculateAllClubMemberCounts(ctx); err != nil {
+			return created, updated, skipped, err
 		}
 	}
 	return created, updated, skipped, nil
@@ -1683,6 +1841,7 @@ type Competition struct {
 	DisciplineID     string `json:"discipline_id"`
 	DisciplineName   string `json:"discipline_name"`
 	Location         string `json:"location"`
+	Liga             string `json:"liga"`
 	Notes            string `json:"notes"`
 	Active           bool   `json:"active"`
 	StarterCount     int    `json:"starter_count"`
@@ -1722,7 +1881,7 @@ func (s *Store) ListCompetitions(ctx context.Context, compType, status string, a
 		SELECT e.id, e.name, COALESCE(e.type,''), COALESCE(e.starts_on::text,''),
 		       COALESCE(e.ends_on::text,''), e.status::text,
 		       COALESCE(e.discipline_id::text,''), COALESCE(d.name,''),
-		       COALESCE(e.location,''), COALESCE(e.notes,''),
+		       COALESCE(e.location,''), COALESCE(e.liga,''), COALESCE(e.notes,''),
 		       COALESCE(e.active,TRUE),
 		       (SELECT COUNT(*) FROM starters st WHERE st.event_id = e.id),
 		       (SELECT COUNT(*) FROM competition_participants cp WHERE cp.event_id = e.id)
@@ -1744,7 +1903,7 @@ func (s *Store) ListCompetitions(ctx context.Context, compType, status string, a
 		if err := rows.Scan(
 			&c.ID, &c.Name, &c.Type, &c.StartsOn, &c.EndsOn, &c.Status,
 			&c.DisciplineID, &c.DisciplineName,
-			&c.Location, &c.Notes, &c.Active,
+			&c.Location, &c.Liga, &c.Notes, &c.Active,
 			&c.StarterCount, &c.ParticipantCount,
 		); err != nil {
 			return nil, err
@@ -1760,7 +1919,7 @@ func (s *Store) GetCompetition(ctx context.Context, id string) (Competition, err
 		SELECT e.id, e.name, COALESCE(e.type,''), COALESCE(e.starts_on::text,''),
 		       COALESCE(e.ends_on::text,''), e.status::text,
 		       COALESCE(e.discipline_id::text,''), COALESCE(d.name,''),
-		       COALESCE(e.location,''), COALESCE(e.notes,''),
+		       COALESCE(e.location,''), COALESCE(e.liga,''), COALESCE(e.notes,''),
 		       COALESCE(e.active,TRUE),
 		       (SELECT COUNT(*) FROM starters st WHERE st.event_id = e.id),
 		       (SELECT COUNT(*) FROM competition_participants cp WHERE cp.event_id = e.id)
@@ -1770,7 +1929,7 @@ func (s *Store) GetCompetition(ctx context.Context, id string) (Competition, err
 	).Scan(
 		&c.ID, &c.Name, &c.Type, &c.StartsOn, &c.EndsOn, &c.Status,
 		&c.DisciplineID, &c.DisciplineName,
-		&c.Location, &c.Notes, &c.Active,
+		&c.Location, &c.Liga, &c.Notes, &c.Active,
 		&c.StarterCount, &c.ParticipantCount,
 	)
 	return c, err
@@ -1781,11 +1940,11 @@ func (s *Store) CreateCompetition(ctx context.Context, c Competition) (string, e
 	ed, _ := time.Parse("2006-01-02", c.EndsOn)
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO events (name, type, starts_on, ends_on, discipline_id, location, notes, active)
-		VALUES ($1, $2, $3, $4, NULLIF($5,'')::uuid, NULLIF($6,''), NULLIF($7,''), $8)
+		INSERT INTO events (name, type, starts_on, ends_on, discipline_id, location, liga, notes, active)
+		VALUES ($1, $2, $3, $4, NULLIF($5,'')::uuid, NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), $9)
 		RETURNING id`,
 		c.Name, c.Type, nullTime(sd), nullTime(ed),
-		c.DisciplineID, c.Location, c.Notes, c.Active,
+		c.DisciplineID, c.Location, c.Liga, c.Notes, c.Active,
 	).Scan(&id)
 	return id, err
 }
@@ -1798,12 +1957,12 @@ func (s *Store) UpdateCompetition(ctx context.Context, c Competition) error {
 		  name          = $1, type          = $2,
 		  starts_on     = $3, ends_on       = $4,
 		  discipline_id = NULLIF($5,'')::uuid,
-		  location      = NULLIF($6,''),  notes  = NULLIF($7,''),
-		  status        = $8::event_status,
-		  active        = $9, updated_at    = now()
-		WHERE id = $10`,
+		  location      = NULLIF($6,''),  liga = NULLIF($7,''), notes = NULLIF($8,''),
+		  status        = $9::event_status,
+		  active        = $10, updated_at    = now()
+		WHERE id = $11`,
 		c.Name, c.Type, nullTime(sd), nullTime(ed),
-		c.DisciplineID, c.Location, c.Notes, c.Status,
+		c.DisciplineID, c.Location, c.Liga, c.Notes, c.Status,
 		c.Active, c.ID,
 	)
 	return err

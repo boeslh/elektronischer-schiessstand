@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func (s *Store) GetStandpcDevMode(ctx context.Context) (bool, error) {
@@ -129,6 +131,103 @@ func (a *APIServer) pushFontSizes(w http.ResponseWriter, r *http.Request) (any, 
 		}
 		res := fontSizesPushResult{LaneNo: l.LaneNo}
 		req, err := http.NewRequest(http.MethodPut, l.StandPCURL+"/api/font-sizes", bytes.NewReader(data))
+		if err != nil {
+			res.Error = err.Error()
+			results = append(results, res)
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			res.Error = fmt.Sprintf("nicht erreichbar: %v", err)
+			results = append(results, res)
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			res.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		} else {
+			res.OK = true
+		}
+		results = append(results, res)
+	}
+	return results, nil
+}
+
+// ----------------------------------------------------------------------------
+// Admin-GUI-Passwort der Stand-PCs (Firmware Rev 4.9.0 Interaktions-Funktionen:
+// Kalibrierung/Konfiguration lokal am Stand-PC, siehe protokoll-referenz.md).
+// Analog zu den Schriftgroessen oben wird nur der Server-seitige bcrypt-Hash
+// gespeichert und per Push an alle Staende verteilt - das Klartext-Passwort
+// verlaesst den Server-Prozess nie in persistenter Form (siehe roles.go fuer
+// dasselbe Muster bei ui_roles.password_hash).
+// ----------------------------------------------------------------------------
+
+func (s *Store) SetStandpcAdminPassword(ctx context.Context, plaintext string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx,
+		`UPDATE app_settings SET standpc_admin_password_hash=$1 WHERE id=1`, string(hash))
+	return err
+}
+
+func (s *Store) GetStandpcAdminPasswordHash(ctx context.Context) (string, error) {
+	var h *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT standpc_admin_password_hash FROM app_settings WHERE id=1`).Scan(&h)
+	if err != nil {
+		return "", err
+	}
+	if h == nil {
+		return "", nil
+	}
+	return *h, nil
+}
+
+func (a *APIServer) setStandpcAdminPassword(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[struct {
+		Password string `json:"password"`
+	}](r)
+	if err != nil {
+		return nil, err
+	}
+	if body.Password == "" {
+		return nil, errBadRequest("Passwort darf nicht leer sein")
+	}
+	if err := a.store.SetStandpcAdminPassword(r.Context(), body.Password); err != nil {
+		return nil, err
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
+// pushStandpcAdminPasswordHash verteilt den zuletzt gesetzten Passwort-Hash an
+// alle Staende mit konfigurierter standpc_url - identisches Muster wie
+// pushFontSizes oben, der Stand-PC persistiert den Hash lokal
+// (admin_password_hash.json) fuer den Offline-Betrieb.
+func (a *APIServer) pushStandpcAdminPasswordHash(w http.ResponseWriter, r *http.Request) (any, error) {
+	hash, err := a.store.GetStandpcAdminPasswordHash(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	if hash == "" {
+		return nil, errBadRequest("noch kein Admin-Passwort gesetzt")
+	}
+	lanes, err := a.store.ListLanes(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(map[string]string{"hash": hash})
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	var results []fontSizesPushResult
+	for _, l := range lanes {
+		if !l.Active || l.StandPCURL == "" {
+			continue
+		}
+		res := fontSizesPushResult{LaneNo: l.LaneNo}
+		req, err := http.NewRequest(http.MethodPut, l.StandPCURL+"/api/admin-password-hash", bytes.NewReader(data))
 		if err != nil {
 			res.Error = err.Error()
 			results = append(results, res)

@@ -7,6 +7,9 @@
   "baud_rate": 115200,
   "tcp_listen": ":9201",
 
+  "_kommentar_psk": "Anlagenweiter Pre-Shared Key fuer die HMAC-Authentifizierung der TCP-Verbindung zum ESP32 (64 Hex-Zeichen = 32 Byte, z.B. per 'openssl rand -hex 32' erzeugen). Muss mit AUTH_PSK_DEFAULT_HEX/SET PSK= in der Firmware UND in allen anderen config*.json dieser Anlage uebereinstimmen. Leer lassen = Signieren aus (nur fuer den Rollout-Uebergang, siehe standpc/devicelink.go).",
+  "esp32_psk_hex": "",
+
   "_kommentar_sensoren": "Positionen auf dem Blech in mm, Reihenfolge = ESP32-Sensorindex (GPIO 34,35,32,33). Beispiel: 250x250mm Blech, Sensoren in den Ecken.",
   "sensors": [
     { "x_mm": 0,   "y_mm": 0   },

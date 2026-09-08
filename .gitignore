@@ -24,6 +24,7 @@
 /standpc/config-lane02.json
 /standpc/config-lane03.json
 /standpc/font_sizes.json
+/standpc/admin_password_hash.json
 /standpc/shotlog/
 /standpc/firmware/Config1.txt
 /standpc/firmware/Config2.txt

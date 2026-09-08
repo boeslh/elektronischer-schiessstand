@@ -45,6 +45,9 @@
   .state.assigned{background:#3a4a8a;color:#cdd8ff}
   .state.sighting{background:var(--sighting);color:#fff6d8}
   .state.match{background:var(--match);color:#d8ffe8}
+  .state.ps{background:#3a2a5a;color:#e0d0ff}
+  .lane.ps-locked{cursor:default}
+  .lane.ps-locked:hover{border-color:var(--line)}
 
 
   /* Detail-Panel */
@@ -210,6 +213,7 @@ const STATUS_CSS = {
 };
 
 function laneStatus(l) {
+  if (l.ps_selfservice_name) return {cls: 'ps', label: 'Preisschießen'};
   if (!l.session_id) return {cls: 'frei', label: 'Frei'};
   if (l.live_mode === 'probe')   return {cls: 'sighting', label: 'Probe'};
   if (l.live_mode === 'wertung') return {cls: 'match',    label: 'Wertung'};
@@ -277,11 +281,11 @@ async function refreshLanes() {
   for (const l of visible) {
     const {cls, label} = laneStatus(l);
     const d = document.createElement('div');
-    d.className = 'lane';
+    d.className = 'lane' + (l.ps_selfservice_name ? ' ps-locked' : '');
     d.innerHTML = `<div class="conn-dot ${connDotClass(l)}" data-lane-status="${l.lane_no}"></div>
       <div class="no">Stand ${l.lane_no}</div>
-      <div class="who">${l.shooter_name || (l.session_id ? 'anonym' : '—')}</div>
-      <div class="disc">${l.discipline || ''}</div>
+      <div class="who">${l.ps_selfservice_name ? esc(l.ps_selfservice_name) : (l.shooter_name || (l.session_id ? 'anonym' : '—'))}</div>
+      <div class="disc">${l.ps_selfservice_name ? 'wartet auf Teilnehmerwahl am Stand' : (l.discipline || '')}</div>
       <div class="event">${eventLabel(l)}</div>
       <div class="score">${laneScore(l)}</div>
       <div class="state ${cls}">${label}</div>`;
@@ -295,6 +299,10 @@ async function refreshLanes() {
 }
 
 async function openLane(l) {
+  if (l.ps_selfservice_name) {
+    alert(`Stand ${l.lane_no} ist im Preisschießen-Selbstbedienungsmodus für "${l.ps_selfservice_name}" reserviert und wartet auf die Teilnehmerwahl am Stand-PC. Eine reguläre Belegung ist erst möglich, nachdem der Preisschießmodus am Stand verlassen wurde.`);
+    return;
+  }
   current = l;
   document.getElementById('detail').style.display = 'block';
   renderDetail();
@@ -468,7 +476,7 @@ function renderWKView() {
     if (l.shooter_id) assignedMap[l.shooter_id] = l;
   }
   const freeLanes = lanes.filter(l =>
-    !l.session_id && l.lane_no >= laneFrom && l.lane_no <= laneTo);
+    !l.session_id && !l.ps_selfservice_name && l.lane_no >= laneFrom && l.lane_no <= laneTo);
 
   const pending  = wkStarters.filter(s => !assignedMap[s.shooter_id]);
   const assigned = wkStarters.filter(s =>  assignedMap[s.shooter_id]);
@@ -581,6 +589,19 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
   await loadWKCompetitions();
   setInterval(refreshLanes, 10000);   // Fallback-Poll
   setInterval(updateConnDots, 1000);  // Dots ohne API-Aufruf aktualisieren
+
+  // Direktsprung aus der Wettkampf-Bearbeitung (?wettkampf=<id>, siehe dortigen
+  // "Standbelegung"-Link): Schnellbelegung aufklappen und den Wettkampf gleich
+  // vorauswählen, statt ihn erneut aus der Liste suchen zu muessen.
+  const wkParam = new URLSearchParams(location.search).get('wettkampf');
+  if (wkParam) {
+    const wkSel = document.getElementById('wk-comp-sel');
+    if ([...wkSel.options].some(o => o.value === wkParam)) {
+      wkSel.value = wkParam;
+      if (!wkOpen) toggleWK();
+      await loadWKStarters();
+    }
+  }
 })();
 // role.js laedt die Korrektur-Berechtigung asynchron nach - Schussliste
 // neu rendern, sobald sie feststeht (fuer den annullieren-Button).

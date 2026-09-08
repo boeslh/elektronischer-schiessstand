@@ -54,24 +54,36 @@ type WebServer struct {
 	devSeq        int32                     // fortlaufende Seq-Nummer fuer Klick-Schuesse (atomic)
 	fontSizesFile string                    // Zieldatei fuer Persistenz eines Pushs (offline-robust)
 
-	mu             sync.Mutex
-	clients        map[chan sseMsg]struct{}
-	history        []*Shot // Sitzungsverlauf fuer neu verbundene Clients (UNVERAENDERTE Werte, siehe maskShot)
-	historyGen     int     // wird bei ResetHistory inkrementiert
-	decimalScoring bool    // gecacht aus letztem BroadcastStatus; unter mu
-	anzeige        string  // gecacht aus letztem BroadcastStatus; unter mu - siehe maskShot
-	fontSizes      FontSizes
+	cmds              *CommandManager // Befehlsversand an den ESP32 (siehe devicelink.go)
+	deviceState       *DeviceState    // zuletzt bekannter status/config/confignet/cal (siehe devicestate.go)
+	adminPasswordFile string          // Zieldatei fuer Persistenz des vom Server gepushten Passwort-Hash
+
+	mu                sync.Mutex
+	clients           map[chan sseMsg]struct{}
+	history           []*Shot // Sitzungsverlauf fuer neu verbundene Clients (UNVERAENDERTE Werte, siehe maskShot)
+	historyGen        int     // wird bei ResetHistory inkrementiert
+	decimalScoring    bool    // gecacht aus letztem BroadcastStatus; unter mu
+	anzeige           string  // gecacht aus letztem BroadcastStatus; unter mu - siehe maskShot
+	fontSizes         FontSizes
+	adminPasswordHash string               // bcrypt-Hash, leer = Admin-GUI noch nie vom Server initialisiert
+	adminSessions     map[string]time.Time // Cookie-Wert -> Ablaufzeit (siehe admin.go)
 }
 
 func NewWebServer(cfg *Config, disciplines []DisciplineDef, targets map[string]TargetGeometry,
-	fontSizes FontSizes, fontSizesFile string) *WebServer {
+	fontSizes FontSizes, fontSizesFile string,
+	cmds *CommandManager, deviceState *DeviceState, adminPasswordHash string, adminPasswordFile string) *WebServer {
 	ws := &WebServer{
-		cfg:           cfg,
-		disciplines:   disciplines,
-		targets:       targets,
-		clients:       make(map[chan sseMsg]struct{}),
-		fontSizes:     fontSizes,
-		fontSizesFile: fontSizesFile,
+		cfg:               cfg,
+		disciplines:       disciplines,
+		targets:           targets,
+		clients:           make(map[chan sseMsg]struct{}),
+		fontSizes:         fontSizes,
+		fontSizesFile:     fontSizesFile,
+		cmds:              cmds,
+		deviceState:       deviceState,
+		adminPasswordHash: adminPasswordHash,
+		adminPasswordFile: adminPasswordFile,
+		adminSessions:     make(map[string]time.Time),
 	}
 	ws.announceURL = resolveAnnounceURL(cfg)
 	if ws.announceURL != "" {
@@ -131,11 +143,16 @@ func (ws *WebServer) Run(ctx context.Context) {
 	mux.HandleFunc("POST /preisschiessen/buchen", ws.handleBuchenPreisschiessen)
 	mux.HandleFunc("POST /preisschiessen/freigeben", ws.handleFreeLanePreisschiessen)
 	mux.HandleFunc("POST /preisschiessen/scheibe-abschliessen", ws.handleScheibeAbschliessenPreisschiessen)
+	mux.HandleFunc("GET /preisschiessen/teilnehmer-suche", ws.handleSearchTeilnehmerPreisschiessen)
+	mux.HandleFunc("POST /preisschiessen/teilnehmer", ws.handleSelectTeilnehmerPreisschiessen)
+	mux.HandleFunc("POST /preisschiessen/verlassen", ws.handleLeaveSelfServicePreisschiessen)
 	mux.HandleFunc("GET /api/local-sessions", ws.handleLocalSessions)
 	mux.HandleFunc("GET /api/local-sessions/{id}/shots", ws.handleLocalSessionShots)
 	mux.HandleFunc("PUT /api/disciplines/config", ws.handlePutDisciplinesConfig)
 	mux.HandleFunc("GET /font-sizes", ws.handleFontSizes)
 	mux.HandleFunc("PUT /api/font-sizes", ws.handlePutFontSizes)
+	mux.HandleFunc("PUT /api/admin-password-hash", ws.handlePutAdminPasswordHash)
+	ws.registerAdminRoutes(mux)
 
 	srv := &http.Server{Addr: ws.cfg.HTTPListen, Handler: mux}
 	go func() {
@@ -570,6 +587,38 @@ func (ws *WebServer) handleScheibeAbschliessenPreisschiessen(w http.ResponseWrit
 	ws.forwardPreisschiessen(w, r, "scheibe-abschliessen")
 }
 
+func (ws *WebServer) handleSelectTeilnehmerPreisschiessen(w http.ResponseWriter, r *http.Request) {
+	ws.forwardPreisschiessen(w, r, "teilnehmer")
+}
+
+func (ws *WebServer) handleLeaveSelfServicePreisschiessen(w http.ResponseWriter, r *http.Request) {
+	ws.forwardPreisschiessen(w, r, "verlassen")
+}
+
+// handleSearchTeilnehmerPreisschiessen: Teilnehmer-Selbstauswahl-Suche fuer
+// einen fuer Selbstbedienung reservierten Stand - GET-Pendant zu
+// forwardPreisschiessen (das nur POST mit Body kann), reicht stattdessen die
+// Query-String durch.
+func (ws *WebServer) handleSearchTeilnehmerPreisschiessen(w http.ResponseWriter, r *http.Request) {
+	if ws.cfg.ServerURL == "" {
+		http.Error(w, "kein server_url konfiguriert", http.StatusServiceUnavailable)
+		return
+	}
+	url := fmt.Sprintf("%s/api/lanes/%d/preisschiessen/teilnehmer-suche?%s",
+		ws.cfg.ServerURL, ws.cfg.LaneNo, r.URL.RawQuery)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		http.Error(w, "Server nicht erreichbar: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody)
+}
+
 func (ws *WebServer) handleLocalSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := ListLocalSessions(ws.cfg.ShotLogDir, ws.cfg.LaneNo)
 	if err != nil {
@@ -666,4 +715,38 @@ func (ws *WebServer) handlePutFontSizes(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"written": ws.fontSizesFile != ""})
+}
+
+// handlePutAdminPasswordHash empfaengt einen Admin-Passwort-Hash-Push vom
+// Server (Einstellungen) und persistiert ihn lokal (admin_password_hash.json
+// - bleibt auch nach einem Neustart ohne Serververbindung erhalten, siehe
+// Plan Phase C). Es wird ausschliesslich der bcrypt-Hash entgegengenommen,
+// nie ein Klartext-Passwort.
+func (ws *WebServer) handlePutAdminPasswordHash(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Hash string `json:"hash"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "ungueltiger Body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Hash == "" {
+		http.Error(w, "hash darf nicht leer sein", http.StatusBadRequest)
+		return
+	}
+
+	if ws.adminPasswordFile != "" {
+		data, _ := json.MarshalIndent(AdminPasswordHash{Hash: body.Hash}, "", "  ")
+		if err := os.WriteFile(ws.adminPasswordFile, data, 0o644); err != nil {
+			http.Error(w, "Datei schreiben: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	ws.mu.Lock()
+	ws.adminPasswordHash = body.Hash
+	ws.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"written": ws.adminPasswordFile != ""})
 }

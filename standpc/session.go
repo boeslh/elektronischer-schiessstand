@@ -89,12 +89,17 @@ type sensorXY struct {
 // PSLaneInfo im zentralen Server (server/preisschiessen.go). nil/absent
 // bedeutet: an diesem Stand laeuft aktuell kein Preisschiessen.
 type PSLaneInfoLocal struct {
-	PreisschiessenName string         `json:"preisschiessen_name"`
-	TeilnehmerID       string         `json:"teilnehmer_id"`
-	TeilnehmerNr       int            `json:"teilnehmer_nr"`
-	ShooterName        string         `json:"shooter_name"`
-	Guthaben           float64        `json:"guthaben"`
-	Pending            bool           `json:"pending"`
+	PreisschiessenName string  `json:"preisschiessen_name"`
+	TeilnehmerID       string  `json:"teilnehmer_id"`
+	TeilnehmerNr       int     `json:"teilnehmer_nr"`
+	ShooterName        string  `json:"shooter_name"`
+	Guthaben           float64 `json:"guthaben"`
+	Pending            bool    `json:"pending"`
+	// NeedsTeilnehmer: Stand ist fuer Preisschiessen-Selbstbedienung
+	// reserviert und wartet auf die Selbstauswahl eines Teilnehmers (siehe
+	// server/preisschiessen.go PSLaneInfo.NeedsTeilnehmer) - alle
+	// Teilnehmer-Felder oben sind dann leer.
+	NeedsTeilnehmer    bool           `json:"needs_teilnehmer,omitempty"`
 	CurrentScheibeName string         `json:"current_scheibe_name,omitempty"`
 	CurrentTargetColor string         `json:"current_target_color,omitempty"`
 	ScheibenTypen      []PSScheibeTyp `json:"scheiben_typen"`

@@ -55,6 +55,11 @@
   .flash.show{opacity:1}
 
   #status{color:var(--dim);font-size:13px;margin-bottom:12px}
+
+  .new-role-row{display:flex;gap:8px;margin-bottom:16px;max-width:400px}
+  .new-role-row input{flex:1;background:var(--bg);color:var(--text);border:1px solid var(--line);
+                       border-radius:5px;padding:6px 10px;font-size:13px}
+  .new-role-row input:focus{outline:none;border-color:var(--acc)}
 </style>
 </head>
 <body>
@@ -66,15 +71,21 @@
 
 <main>
   <p class="hint">
-    4 feste Rollen mit je einem optionalen, gemeinsamen Passwort (kein individuelles Login).
+    Rollenbasiert, mit je einem optionalen, gemeinsamen Passwort (kein individuelles Login).
     Ohne gesetztes Passwort ist der Rollenwechsel frei möglich. Ist für "Anwender" ein Passwort
     gesetzt, ist es auch beim allerersten Aufruf ohne aktive Rolle nötig. Änderungen an Kacheln,
-    Korrekturrecht, Preisschießen-Recht und Passwort werden sofort gespeichert.
+    Korrekturrecht, Preisschießen-Recht und Passwort werden sofort gespeichert. Die 4 fest
+    eingebauten Rollen (Admin, Entwickler, Anwender, Revisor) können nicht gelöscht werden;
+    zusätzliche Rollen lassen sich hier anlegen und wieder entfernen.
   </p>
+  <div class="new-role-row">
+    <input type="text" id="new-role-name" placeholder="Name der neuen Rolle…">
+    <button type="button" class="btn" onclick="createRole()">+ Neue Rolle</button>
+  </div>
   <div id="status"></div>
   <div class="scroll">
     <table id="tbl">
-      <thead><tr id="thead-row"><th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th><th>Preisschießen verwalten</th></tr></thead>
+      <thead><tr id="thead-row"><th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th><th>Preisschießen verwalten</th><th></th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
@@ -120,17 +131,21 @@ async function load() {
   }
 }
 
+// Die 4 fest eingebauten Rollen (siehe protectedRoleKeys in server/roles.go) -
+// deren Löschen-Button bleibt deaktiviert.
+const PROTECTED_ROLES = ['admin', 'developer', 'anwender', 'revisor'];
+
 function renderHead() {
   const row = document.getElementById('thead-row');
   row.innerHTML = '<th>Rolle</th><th>Passwort</th><th>Ergebnisse korrigieren</th><th>Preisschießen verwalten</th>' +
-    knownTiles.map(t => `<th class="tile-col">${esc(TILE_LABELS[t] || t)}</th>`).join('');
+    knownTiles.map(t => `<th class="tile-col">${esc(TILE_LABELS[t] || t)}</th>`).join('') + '<th></th>';
 }
 
 function renderRows(roles) {
   const tbody = document.getElementById('tbody');
   tbody.innerHTML = roles.map(r => {
     const tileCells = knownTiles.map(t => {
-      const checked = r.tiles.indexOf(t) !== -1 ? 'checked' : '';
+      const checked = (r.tiles || []).indexOf(t) !== -1 ? 'checked' : '';
       return `<td class="tile-cell"><input type="checkbox" ${checked}
         onchange="toggleTile('${r.role_key}',this)"></td>`;
     }).join('');
@@ -159,6 +174,10 @@ function renderRows(roles) {
           onchange="toggleManagePreisschiessen('${r.role_key}',this)">
       </td>
       ${tileCells}
+      <td>
+        <button type="button" class="btn-del" ${PROTECTED_ROLES.includes(r.role_key) ? 'disabled title="Fest eingebaute Rolle"' : ''}
+          onclick="deleteRole('${r.role_key}','${esc(r.display_name)}')">Löschen</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -234,6 +253,32 @@ async function savePassword(roleKey) {
     document.getElementById('pwdel-' + roleKey).disabled = false;
     togglePwForm(roleKey);
     flash(roleKey);
+  } catch (e) {
+    alert('Fehler: ' + e.message);
+  }
+}
+
+async function createRole() {
+  const input = document.getElementById('new-role-name');
+  const displayName = input.value.trim();
+  if (!displayName) { alert('Bitte einen Namen für die neue Rolle eingeben.'); return; }
+  try {
+    await api('/api/roles', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({display_name: displayName}),
+    });
+    input.value = '';
+    await load();
+  } catch (e) {
+    alert('Fehler: ' + e.message);
+  }
+}
+
+async function deleteRole(roleKey, displayName) {
+  if (!confirm(`Rolle "${displayName}" wirklich löschen? Wer gerade in dieser Rolle angemeldet ist, fällt danach automatisch auf "Anwender" zurück.`)) return;
+  try {
+    await api(`/api/roles/${roleKey}`, {method: 'DELETE'});
+    await load();
   } catch (e) {
     alert('Fehler: ' + e.message);
   }

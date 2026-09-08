@@ -13,6 +13,7 @@
 //   - Gleiches zeilenbasiertes JSON-Protokoll wie Serial -> identischer
 //     Dispatch ueber dispatchLine() (transport.go).
 //   - TCP-Keepalive erkennt tote Verbindungen (WLAN-Abriss) nach ~30s.
+//
 // ============================================================================
 package main
 
@@ -25,7 +26,7 @@ import (
 	"time"
 )
 
-func runTCPReader(ctx context.Context, cfg *Config, out chan<- RawShot) {
+func runTCPReader(ctx context.Context, cfg *Config, out chan<- RawShot, link *DeviceLink, cmds *CommandManager, state *DeviceState) {
 	lc := net.ListenConfig{}
 	ln, err := lc.Listen(ctx, "tcp", cfg.TCPListen)
 	if err != nil {
@@ -65,6 +66,9 @@ func runTCPReader(ctx context.Context, cfg *Config, out chan<- RawShot) {
 		}
 		current = conn
 		mu.Unlock()
+		if link != nil {
+			link.SetActive(conn, true)
+		}
 
 		if tc, ok := conn.(*net.TCPConn); ok {
 			tc.SetKeepAlive(true)
@@ -81,13 +85,27 @@ func runTCPReader(ctx context.Context, cfg *Config, out chan<- RawShot) {
 					current = nil
 				}
 				mu.Unlock()
+				if link != nil {
+					link.Clear(c)
+				}
 				log.Printf("TCP: Verbindung %s beendet", c.RemoteAddr())
 			}()
 
 			scanner := bufio.NewScanner(c)
 			scanner.Buffer(make([]byte, 4096), 4096)
 			for scanner.Scan() {
-				dispatchLine(scanner.Bytes(), out)
+				line := scanner.Bytes()
+				// Signaturpruefung nur, wenn ein PSK konfiguriert ist (siehe
+				// devicelink.go Dateikopf) - sonst unveraendertes Verhalten.
+				if link != nil && len(link.psk) > 0 {
+					payload, ok := verifyAndStripLine(line, link.psk)
+					if !ok {
+						log.Printf("TCP: Signatur ungueltig, Zeile verworfen: %.80s", line)
+						continue
+					}
+					line = payload
+				}
+				dispatchLine(line, out, cmds, state)
 			}
 		}(conn)
 	}

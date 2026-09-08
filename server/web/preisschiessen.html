@@ -1561,8 +1561,11 @@ async function stLoadLaneOverview() {
     let teilnehmerCell = '<span style="color:var(--dim)">– frei –</span>';
     let scheibeCell = '–';
     let schuesseCell = '–';
-    let actionCell = '';
-    if (l.shooter_name) {
+    let actionCell = `<button class="btn-edit" style="padding:4px 10px" onclick="stAssignSelfService(${l.lane_no})">Selbstbedienung</button>`;
+    if (l.needs_teilnehmer) {
+      teilnehmerCell = '<span style="color:var(--dim)">Selbstbedienung – wartet auf Teilnehmer</span>';
+      actionCell = `<button class="btn-cancel" style="padding:4px 10px" onclick="stLeaveSelfServiceFromOverview(${l.lane_no})">Verlassen</button>`;
+    } else if (l.shooter_name) {
       teilnehmerCell = `#${l.teilnehmer_nr} ${esc(l.shooter_name)}`;
       if (l.pending) {
         scheibeCell = '<span style="color:var(--dim)">wartet auf Scheibenwahl</span>';
@@ -1582,6 +1585,21 @@ async function stFreeLaneFromOverview(laneNo) {
     await stLoadLaneOverview();
     if (stCurrentTeilnehmerId) await stRefreshDetail();
     await tnLoadTeilnehmerList();
+  } catch(err) { alert('Fehler: ' + err.message); }
+}
+
+async function stAssignSelfService(laneNo) {
+  try {
+    await api(`/preisschiessen/${currentPS.id}/lane-selfservice`, jsonOpts('POST', {lane_no: laneNo}));
+    await stLoadLaneOverview();
+  } catch(err) { alert('Fehler: ' + err.message); }
+}
+
+async function stLeaveSelfServiceFromOverview(laneNo) {
+  if (!confirm(`Selbstbedienung an Stand ${laneNo} beenden?`)) return;
+  try {
+    await api(`/lanes/${laneNo}/preisschiessen/verlassen`, {method:'POST'});
+    await stLoadLaneOverview();
   } catch(err) { alert('Fehler: ' + err.message); }
 }
 
@@ -2588,6 +2606,11 @@ async function vwDeleteSet(id, name) {
       await kaOpenTeilnehmer(pendingTid);
     }
   }
+  // Stände-Übersicht lebt vom Live-Geschehen am Stand-PC (Schusszahlen,
+  // Selbstbedienungs-Status) - ohne Polling sieht man Änderungen erst nach
+  // der nächsten eigenen Aktion oder einem Tab-Wechsel, siehe lanes.html
+  // (dort dasselbe Fallback-Poll-Muster).
+  setInterval(stLoadLaneOverview, 3000);
 })();
 </script>
 <script src="/role.js"></script>

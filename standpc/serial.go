@@ -6,6 +6,7 @@
 //   - Unbekannte Telegrammtypen (status, pong, reject...) werden geloggt,
 //     aber nicht als Schuss verarbeitet
 //   - Zeilenpuffer-Limit gegen Muellzeilen
+//
 // ============================================================================
 package main
 
@@ -18,7 +19,7 @@ import (
 	"go.bug.st/serial"
 )
 
-func runSerialReader(ctx context.Context, cfg *Config, out chan<- RawShot) {
+func runSerialReader(ctx context.Context, cfg *Config, out chan<- RawShot, link *DeviceLink, cmds *CommandManager, state *DeviceState) {
 	mode := &serial.Mode{BaudRate: cfg.BaudRate}
 
 	for {
@@ -39,11 +40,17 @@ func runSerialReader(ctx context.Context, cfg *Config, out chan<- RawShot) {
 		}
 		log.Printf("Serial: verbunden mit %s @ %d Baud",
 			cfg.SerialPort, cfg.BaudRate)
+		if link != nil {
+			link.SetActive(port, false)
+		}
 
 		// Lesetimeout, damit ctx-Abbruch regelmaessig geprueft werden kann
 		_ = port.SetReadTimeout(500 * time.Millisecond)
 
-		readLoop(ctx, port, out)
+		readLoop(ctx, port, out, cmds, state)
+		if link != nil {
+			link.Clear(port)
+		}
 		port.Close()
 
 		select {
@@ -55,7 +62,7 @@ func runSerialReader(ctx context.Context, cfg *Config, out chan<- RawShot) {
 	}
 }
 
-func readLoop(ctx context.Context, port serial.Port, out chan<- RawShot) {
+func readLoop(ctx context.Context, port serial.Port, out chan<- RawShot, cmds *CommandManager, state *DeviceState) {
 	scanner := bufio.NewScanner(port)
 	scanner.Buffer(make([]byte, 4096), 4096)
 
@@ -65,7 +72,7 @@ func readLoop(ctx context.Context, port serial.Port, out chan<- RawShot) {
 			return
 		default:
 		}
-		dispatchLine(scanner.Bytes(), out)
+		dispatchLine(scanner.Bytes(), out, cmds, state)
 	}
 	// scanner.Err() == nil bei Timeout; Schleife endet bei echtem Fehler/EOF
 	if err := scanner.Err(); err != nil {

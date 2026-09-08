@@ -153,6 +153,7 @@ form input:focus, form select:focus { outline: none; border-color: #e94560; }
       <div class="search-row">
         <input type="search" id="club-search" placeholder="Suchen…" oninput="filterClubs()">
         <button class="btn-new" onclick="newClub()">+ Neuer Verein</button>
+        <button class="btn-new" onclick="recalculateAllMemberCounts()" title="Mitgliederzahl bei allen Vereinen neu aus den tatsächlich eingetragenen Mitgliedern ermitteln">Mitgliederzahlen neu berechnen</button>
       </div>
       <table>
         <thead><tr><th>Nr.</th><th>Name</th><th>Gau</th><th>Mitglieder</th><th></th></tr></thead>
@@ -620,6 +621,15 @@ function renderClubs(list) {
       </td>`;
     tbody.appendChild(tr);
   }
+}
+
+async function recalculateAllMemberCounts() {
+  try {
+    const res = await api('/clubs/recalculate-member-counts', {method:'POST'});
+    await loadClubs();
+    filterClubs();
+    alert(`Mitgliederzahlen bei ${res.count} Verein${res.count === 1 ? '' : 'en'} neu berechnet.`);
+  } catch(err) { alert('Fehler: ' + err.message); }
 }
 
 function filterClubs() {
@@ -1477,6 +1487,15 @@ async function runShooterClassImport() {
   await loadShooters();
   await loadTeams();
   await loadShooterClasses();
+
+  // Direktsprung auf einen Tab (z.B. aus der Wettkampf-Bearbeitung heraus,
+  // "→ Stammdaten"-Link bei Mannschaften/Starter) - ?tab=mannschaften.
+  const tabOrder = ['gaue', 'vereine', 'mitglieder', 'mannschaften', 'sportklassen'];
+  const wantedTab = new URLSearchParams(location.search).get('tab');
+  const tabIdx = tabOrder.indexOf(wantedTab);
+  if (tabIdx !== -1) {
+    switchTab(wantedTab, document.querySelectorAll('.tab-btn')[tabIdx]);
+  }
 })();
 </script>
 <script src="/role.js"></script>

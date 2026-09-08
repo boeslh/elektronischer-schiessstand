@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stand-PC Admin</title>
+<style>
+  :root {
+    --bg:#11151a; --panel:#1a2028; --line:#2a3340; --text:#d8e0e8;
+    --dim:#6a7888; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+  }
+  * { box-sizing:border-box; margin:0; padding:0 }
+  body { background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; min-height:100vh }
+  header { border-bottom:1px solid var(--line); padding:14px 24px; display:flex; align-items:center; gap:12px }
+  header h1 { font-size:18px; font-weight:700 }
+  header .mac { color:var(--dim); font-size:12px; font-family:monospace; margin-left:auto }
+  main { max-width:820px; margin:0 auto; padding:24px }
+
+  .section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:18px }
+  .section h2 { font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--dim); margin-bottom:14px }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px }
+  .kv { display:grid; grid-template-columns:1fr; gap:2px; font-size:13px; margin-bottom:6px }
+  .kv b { color:var(--dim); font-weight:500 }
+
+  input[type=text], input[type=password] {
+    background:#0d1117; border:1px solid var(--line); border-radius:6px;
+    color:var(--text); font-size:14px; padding:8px 12px;
+  }
+  input:focus { outline:none; border-color:var(--acc) }
+
+  button {
+    background:var(--acc); border:none; border-radius:6px; color:#0d1a16;
+    font-size:13px; font-weight:600; padding:9px 16px; cursor:pointer;
+  }
+  button:hover { opacity:.85 }
+  button.secondary { background:none; border:1px solid var(--line); color:var(--text) }
+  button.danger { background:var(--err); color:#2a0d0d }
+
+  table { width:100%; border-collapse:collapse; font-size:13px }
+  table td { padding:6px 4px; border-bottom:1px solid var(--line); vertical-align:middle }
+  table td.key { font-family:monospace; color:var(--acc); white-space:nowrap }
+  table td.desc { color:var(--dim); font-size:12px }
+  table input[type=text] { width:110px; padding:5px 8px; font-size:12px }
+  table button { padding:5px 10px; font-size:12px }
+  .reboot-tag { font-size:10px; background:#3a2a10; color:var(--warn); padding:1px 6px; border-radius:3px; margin-left:6px }
+
+  .msg { font-size:13px; padding:8px 12px; border-radius:6px; display:none; margin-top:8px }
+  .msg.ok { background:#1a3a2a; color:var(--acc) }
+  .msg.err { background:#3a1a1a; color:var(--err) }
+
+  #login-screen { display:flex; align-items:center; justify-content:center; min-height:100vh }
+  #login-box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:32px; width:320px }
+  #login-box h1 { font-size:16px; margin-bottom:16px }
+  #login-box input { width:100%; margin-bottom:12px }
+  #login-box button { width:100% }
+
+  #app { display:none }
+  .warn-box { background:#3a2a10; color:var(--warn); font-size:12px; padding:10px 12px; border-radius:6px; margin-bottom:12px }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div id="login-box">
+    <h1>Stand-PC Admin-Anmeldung</h1>
+    <input type="password" id="login-pw" placeholder="Passwort" autofocus>
+    <button onclick="login()">Anmelden</button>
+    <div id="login-msg" class="msg"></div>
+  </div>
+</div>
+
+<div id="app">
+<header>
+  <h1>Stand-PC Admin</h1>
+  <button class="secondary" onclick="logout()" style="margin-left:8px">Abmelden</button>
+  <span class="mac" id="hdr-mac"></span>
+</header>
+<main>
+
+  <div class="section">
+    <h2>Status</h2>
+    <div id="status-body"><div class="kv" style="color:var(--dim)">Noch nicht abgerufen.</div></div>
+    <div class="row" style="margin-top:12px">
+      <button onclick="refreshStatus()">Aktualisieren</button>
+      <div id="msg-status" class="msg"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Kalibrierung</h2>
+    <div class="row">
+      <button onclick="calAction('START')">Start</button>
+      <button class="secondary" onclick="calAction('ABORT')">Abbrechen</button>
+      <button class="secondary" onclick="calAction('RESET')">Zuruecksetzen</button>
+      <button class="secondary" onclick="calRestore()">Vom Server wiederherstellen</button>
+    </div>
+    <div id="msg-cal" class="msg"></div>
+  </div>
+
+  <div class="section">
+    <h2>Aktionen</h2>
+    <div class="row">
+      <button onclick="action('LIGHT=ON')">Licht an</button>
+      <button onclick="action('LIGHT=OFF')">Licht aus</button>
+      <button class="secondary" onclick="action('LIGHT=AUTO')">Licht automatisch</button>
+      <button onclick="action('TARGETCHANGE')">Scheibenwechsel</button>
+    </div>
+    <div id="msg-action" class="msg"></div>
+  </div>
+
+  <div class="section">
+    <h2>Konfiguration</h2>
+    <table id="config-table"></table>
+    <div id="msg-config" class="msg"></div>
+  </div>
+
+  <div class="section">
+    <h2>Netzwerk</h2>
+    <div class="warn-box">
+      Aenderungen an einem der unten markierten Felder loesen einen Neustart
+      des ESP32 aus. Nach dem Neustart bleiben 3 Minuten Zeit, die neue
+      Konfiguration ueber "Bestaetigen" zu uebernehmen - sonst wird
+      automatisch auf die vorherige Konfiguration zurueckgesetzt.
+    </div>
+    <div id="net-status" class="kv" style="margin-bottom:10px"></div>
+    <div class="row" style="margin-bottom:12px">
+      <button class="secondary" onclick="netCmd('STATUS')">Status abfragen</button>
+      <button onclick="netCmd('CONFIRM')">Bestaetigen</button>
+    </div>
+    <table id="network-table"></table>
+    <div id="msg-network" class="msg"></div>
+  </div>
+
+</main>
+</div>
+
+<script>
+let configKeys = [];
+let networkKeys = [];
+
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body||{}),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function login() {
+  const password = document.getElementById('login-pw').value;
+  try {
+    await fetch('/admin/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password}),
+    }).then(async r => { if (!r.ok) throw new Error(await r.text()); });
+    showApp();
+  } catch(e) {
+    showMsg('login-msg', 'Anmeldung fehlgeschlagen.', 'err');
+  }
+}
+
+async function logout() {
+  await fetch('/admin/logout', {method:'POST'});
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+async function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  await loadKeys();
+  await refreshStatus();
+}
+
+async function loadKeys() {
+  const r = await fetch('/admin/api/keys').then(r => r.json());
+  configKeys = r.config || [];
+  networkKeys = r.network || [];
+  renderTable('config-table', configKeys, 'msg-config');
+  renderTable('network-table', networkKeys, 'msg-network');
+}
+
+function renderTable(tableId, keys, msgId) {
+  const table = document.getElementById(tableId);
+  table.innerHTML = keys.map(k => `
+    <tr>
+      <td class="key">${k.key}${k.reboot ? '<span class="reboot-tag">Reboot</span>' : ''}</td>
+      <td class="desc">${esc(k.desc)}<br>${esc(k.range)} (Default ${esc(k.default)})</td>
+      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}"></td>
+      <td><button onclick="setKey('${k.key}', '${msgId}')">Speichern</button></td>
+    </tr>`).join('');
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+async function setKey(key, msgId) {
+  const value = document.getElementById(`cfg-${key}`).value;
+  if (!value) { showMsg(msgId, 'Bitte einen Wert eingeben.', 'err'); return; }
+  try {
+    await api('/admin/api/set', {key, value});
+    showMsg(msgId, `${key} gespeichert.`, 'ok');
+  } catch(e) {
+    showMsg(msgId, 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function refreshStatus() {
+  try {
+    const s = await fetch('/admin/api/status').then(r => r.json());
+    renderStatus(s);
+  } catch(e) {
+    showMsg('msg-status', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+function renderStatus(s) {
+  const st = s.status, cfg = s.config, cn = s.confignet, cal = s.cal;
+  const mac = (st && st.mac) || (cfg && cfg.mac) || (cn && cn.mac) || '';
+  document.getElementById('hdr-mac').textContent = mac;
+  let html = '';
+  if (st) {
+    html += `<div class="kv"><b>Geraet</b>${esc(mac)} · Firmware ${esc(st.version)} · Bahn ${st.lane} · Laufzeit ${Math.floor(st.uptime_s/60)} min</div>`;
+    html += `<div class="kv"><b>Schuesse seit Start</b>${st.shots}</div>`;
+  }
+  if (cal) {
+    html += `<div class="kv"><b>Kalibrierung</b>${esc(cal.state)}${cal.state==='running' ? ` (${cal.progress}/${cal.need})` : ''}</div>`;
+  }
+  if (cn) {
+    html += `<div class="kv"><b>Netzwerk</b>${esc(cn.wifi_ip||'-')} · Verbunden mit Stand-PC: ${cn.tcp_connected ? 'ja' : 'nein'}${cn.net_pending ? ' <span style="color:var(--warn)">- Netzwerkaenderung schwebend</span>' : ''}</div>`;
+    document.getElementById('net-status').innerHTML =
+      `<b>Aktuelle Netzwerkkonfiguration</b>SSID ${esc(cn.ssid||'-')}, Host ${esc(cn.host)}:${cn.port}, ` +
+      `${cn.static_ip ? 'statisch ' + esc(cn.ip) : 'DHCP'}`;
+  }
+  if (!st && !cfg && !cn && !cal) {
+    html = '<div class="kv" style="color:var(--dim)">Kein Geraet verbunden.</div>';
+  }
+  document.getElementById('status-body').innerHTML = html;
+}
+
+async function calAction(action) {
+  try {
+    await api('/admin/api/cal', {action});
+    showMsg('msg-cal', `CAL ${action} gesendet.`, 'ok');
+    refreshStatus();
+  } catch(e) {
+    showMsg('msg-cal', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function calRestore() {
+  try {
+    await api('/admin/api/cal/restore', {});
+    showMsg('msg-cal', 'Kalibrierung vom Server wiederhergestellt.', 'ok');
+    refreshStatus();
+  } catch(e) {
+    showMsg('msg-cal', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function action(cmd) {
+  try {
+    await api('/admin/api/action', {cmd});
+    showMsg('msg-action', `${cmd} gesendet.`, 'ok');
+  } catch(e) {
+    showMsg('msg-action', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function netCmd(cmd) {
+  try {
+    const r = await api('/admin/api/net', {cmd});
+    showMsg('msg-network', `NET ${cmd} gesendet.`, 'ok');
+    refreshStatus();
+  } catch(e) {
+    showMsg('msg-network', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+document.getElementById('login-pw').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+
+// Falls die Session noch gueltig ist (Seite neu geladen) direkt einsteigen.
+fetch('/admin/api/status').then(r => { if (r.ok) showApp(); });
+</script>
+</body>
+</html>

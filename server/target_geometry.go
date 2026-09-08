@@ -5,13 +5,41 @@
 // Die DB (targets/target_rings) kennt nur Ring-Durchmesser, keine visuelle
 // "gefuellt/nicht gefuellt"-Information (schwarzer Spiegel vs. nur Kontur).
 // Diese Daten sind 1:1 aus standpc/targets.json uebernommen (identische
-// Werte, siehe standpc/targets.go builtinTargets) und werden ueber die
-// Bruecke disciplines.standpc_target_no (Migration 010) einer Session
-// zugeordnet.
+// Werte, siehe standpc/targets.go builtinTargets) und werden einer Session
+// ueber matchTargetNoByName (Abgleich des Scheibennamens mit einem der
+// bekannten Kuerzel LG/ZS/SP/LP) zugeordnet - das frueher dafuer manuell
+// gepflegte Feld disciplines.standpc_target_no (Migration 010) wurde bewusst
+// abgeschafft, siehe store.go ActiveSessionForLane.
 // ============================================================================
 package main
 
-import "strings"
+import (
+	"context"
+	"strings"
+)
+
+// resolveTargetGeometry loest die visuelle Scheibengeometrie einer Session
+// auf (identische Logik wie der /target-geometry-Endpunkt fuer die
+// Web-Ansicht, siehe api.go sessionTargetGeometry) - wiederverwendet fuer das
+// Einzelergebnis-PDF (pdf_einzelergebnis.go), damit dort exakt dieselbe
+// "echte" Scheibe (gefuellter Spiegel, Ringfarben) gezeichnet wird.
+func (s *Store) resolveTargetGeometry(ctx context.Context, sessionID string) (TargetGeometry, error) {
+	targetID, _, _, standpcTargetNo, err := s.SessionTargets(ctx, sessionID)
+	if err != nil {
+		return TargetGeometry{}, err
+	}
+	if geo, ok := targetGeometries[standpcTargetNo]; ok {
+		return geo, nil
+	}
+	target, err := s.LoadTargetDef(ctx, targetID)
+	if err != nil {
+		return TargetGeometry{}, err
+	}
+	if geo, ok := matchTargetGeometryByName(target.Name); ok {
+		return geo, nil
+	}
+	return targetGeometryFromRings(target), nil
+}
 
 // TargetGeometry: visuelle Scheibenbeschreibung fuer den Browser - Feldnamen
 // identisch zu standpc/targets.go, damit dasselbe Frontend-Rendering
@@ -78,13 +106,27 @@ var targetGeometries = map[int]TargetGeometry{
 // jeweilige Nummer in targetGeometries ab.
 var nameToTargetNo = map[string]int{"LG": 1, "ZS": 2, "SP": 4, "LP": 7}
 
+// matchTargetNoByName sucht eines der bekannten Scheibenkuerzel als
+// eigenstaendiges Wort im Scheibennamen (Gross-/Kleinschreibung egal) - die
+// einzige Quelle fuer die StandPC-Scheibennummer (siehe store.go
+// ActiveSessionForLane): das frueher manuell gepflegte Feld
+// disciplines.standpc_target_no ist entfallen, da die Scheibe selbst schon
+// ein Auswahlfeld ist und daher keine "exotischen" Namen mehr vorkommen
+// koennen, die diese Zuordnung nicht treffen wuerden.
+func matchTargetNoByName(name string) (int, bool) {
+	for _, word := range strings.Fields(strings.ToUpper(name)) {
+		if no, ok := nameToTargetNo[word]; ok {
+			return no, true
+		}
+	}
+	return 0, false
+}
+
 // matchTargetGeometryByName sucht eines der bekannten Scheibenkuerzel als
 // eigenstaendiges Wort im Scheibennamen (Gross-/Kleinschreibung egal).
 func matchTargetGeometryByName(name string) (TargetGeometry, bool) {
-	for _, word := range strings.Fields(strings.ToUpper(name)) {
-		if no, ok := nameToTargetNo[word]; ok {
-			return targetGeometries[no], true
-		}
+	if no, ok := matchTargetNoByName(name); ok {
+		return targetGeometries[no], true
 	}
 	return TargetGeometry{}, false
 }

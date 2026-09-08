@@ -144,6 +144,23 @@
     border: 1px solid #5a1a1a; border-radius: 6px; color: #ff5c5c;
   }
   .ps-close-btn:hover { background: #2a1010; }
+  .ps-search-input {
+    display: block; width: calc(100% - 28px); margin: 4px 14px 8px;
+    padding: 9px 12px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; color: var(--text); font-size: var(--fs-menu-ps);
+  }
+  .ps-search-input:focus { outline: none; border-color: var(--acc); }
+
+  /* "Preisschießmodus verlassen": bewusst unauffällig - kein Button-Look,
+     eigener Abschnitt am Ende, klein und gedimmt, damit ein Teilnehmer ihn
+     nicht mit "Stand freigeben" verwechselt oder aus Versehen antippt. */
+  .ps-danger-zone { margin-top: 16px; padding-top: 10px; border-top: 1px dashed var(--line); }
+  .ps-leave-link {
+    display: block; margin: 0 14px; padding: 6px 2px; background: none; border: none;
+    color: var(--dim); font-size: calc(var(--fs-menu-ps) - 3px); cursor: pointer;
+    text-decoration: underline; text-align: left;
+  }
+  .ps-leave-link:hover { color: var(--text); }
 
   .panel { background: var(--panel); border: 1px solid var(--line);
            border-radius: 8px; overflow: hidden; }
@@ -243,20 +260,32 @@
       <button class="menu-close" onclick="closeMenu('psOverlay')">✕</button>
     </div>
     <div class="menu-section" id="psSection">
-      <div class="ps-header">
-        <div class="ps-name" id="psName"></div>
-        <div class="ps-guthaben" id="psGuthaben"></div>
+      <div id="psSelfServiceBlock" style="display:none">
+        <div class="ps-subhead">Teilnehmer suchen</div>
+        <input type="text" id="psSelfServiceQuery" class="ps-search-input"
+               placeholder="Teilnehmernummer oder Name…" autocomplete="off">
+        <div id="psSelfServiceResults"><!-- wird per JS befüllt --></div>
+        <div id="psSelfServiceEmpty" class="ps-empty" style="display:none">Keine Treffer.</div>
       </div>
-      <div id="psScheibeBlock">
-        <div class="ps-subhead">Scheibe wählen</div>
-        <div id="psScheibeList"><!-- wird per JS befüllt --></div>
-        <div id="psNoScheibeHint" class="ps-empty" style="display:none">Keine weitere Scheibe verfügbar.</div>
+      <div id="psNormalBlock">
+        <div class="ps-header">
+          <div class="ps-name" id="psName"></div>
+          <div class="ps-guthaben" id="psGuthaben"></div>
+        </div>
+        <div id="psScheibeBlock">
+          <div class="ps-subhead">Scheibe wählen</div>
+          <div id="psScheibeList"><!-- wird per JS befüllt --></div>
+          <div id="psNoScheibeHint" class="ps-empty" style="display:none">Keine weitere Scheibe verfügbar.</div>
+        </div>
+        <div class="ps-subhead">Weitere Scheibe/Set buchen</div>
+        <div id="psAngebotList"><!-- wird per JS befüllt --></div>
+        <button type="button" class="ps-item ps-free-btn" id="psFreeBtn">Stand freigeben</button>
+        <div id="psActiveBlock" style="display:none">
+          <button type="button" class="ps-item ps-close-btn" id="psAbschliessenBtn">Scheibe abschließen</button>
+        </div>
       </div>
-      <div class="ps-subhead">Weitere Scheibe/Set buchen</div>
-      <div id="psAngebotList"><!-- wird per JS befüllt --></div>
-      <button type="button" class="ps-item ps-free-btn" id="psFreeBtn">Stand freigeben</button>
-      <div id="psActiveBlock" style="display:none">
-        <button type="button" class="ps-item ps-close-btn" id="psAbschliessenBtn">Scheibe abschließen</button>
+      <div class="ps-danger-zone">
+        <button type="button" class="ps-leave-link" id="psLeaveBtn">Preisschießmodus verlassen</button>
       </div>
     </div>
   </div>
@@ -788,7 +817,13 @@ modeBtn.addEventListener('click', () => {
     body: JSON.stringify({mode: next}),
   })
   .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
-  .then(st => applyStatus(st))
+  // NICHT applyStatus() direkt aufrufen: das wuerde currentHistoryGen schon
+  // hier auf den neuen Stand setzen, sodass das nachfolgende SSE-'status'-
+  // Echo keine Abweichung mehr sieht und der Reload (siehe
+  // applyOrReloadOnHistoryChange) ausbleibt - die Anzeige behaelt dann die
+  // alten Probeschuesse und zaehlt Wertungsschuesse einfach weiter (Bugfix:
+  // "Schuesse werden am Stand nach Probe->Wertung weitergezaehlt").
+  .then(st => applyOrReloadOnHistoryChange(st))
   .catch(err => { alert('Umschalten nicht möglich:\n' + err.message); modeBtn.disabled = false; });
 });
 
@@ -814,6 +849,7 @@ svg.addEventListener('click', e => {
 let allDisciplines = [];
 let psInfo = null; // Preisschiessen-Zustand des Stands (null = keins), via SSE-Event "preisschiessen"
 let psWasPending = false; // fuer Aufsteigende-Flanke-Erkennung (Menue nur EINMAL automatisch oeffnen)
+let psWasNeedsTeilnehmer = false; // dito, fuer den Selbstbedienungs-Suchzustand
 let buchenConfirmedFor = null; // teilnehmer_id, fuer die "Buchen" schon einmal bestaetigt wurde (Schutz vor Fehlklick)
 let lastSessionShooter = ''; // Schuetze aus der aktiven Session (leer, solange nur "pending")
 
@@ -822,6 +858,7 @@ let lastSessionShooter = ''; // Schuetze aus der aktiven Session (leer, solange 
 function updateShooterHeader() {
   const el = document.getElementById('shooter');
   if (lastSessionShooter) { el.textContent = lastSessionShooter; return; }
+  if (psInfo && psInfo.needs_teilnehmer) { el.textContent = 'Teilnehmer wählen…'; return; }
   if (psInfo) { el.textContent = `#${psInfo.teilnehmer_nr} ${psInfo.shooter_name}`; return; }
   el.textContent = 'Schützenanzeige';
 }
@@ -908,6 +945,60 @@ document.getElementById('psAbschliessenBtn').addEventListener('click', () => {
     .catch(err => alert('Fehler: ' + err.message));
 });
 
+// "Preisschießmodus verlassen": beendet die Selbstbedienungs-Reservierung
+// des Stands komplett (nicht nur den aktuellen Teilnehmer) - bewusst
+// unauffällig platziert (siehe .ps-danger-zone), Formulierung im
+// confirm()-Dialog absichtlich anders als bei "Stand freigeben", damit
+// beides nicht verwechselt wird.
+document.getElementById('psLeaveBtn').addEventListener('click', () => {
+  if (!confirm('Preisschießmodus für diesen Stand komplett verlassen?\nDas beendet nicht nur den aktuellen Teilnehmer, sondern die gesamte Selbstbedienungs-Reservierung dieses Stands.')) return;
+  fetch('/preisschiessen/verlassen', {method: 'POST'})
+    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+    .then(() => { clearDisplay(); closeMenu('psOverlay'); })
+    .catch(err => alert('Fehler: ' + err.message));
+});
+
+// ── Preisschießen-Selbstbedienung: Teilnehmer sucht sich selbst aus ────────
+let psSearchTimer = null;
+document.getElementById('psSelfServiceQuery').addEventListener('input', () => {
+  clearTimeout(psSearchTimer);
+  const q = document.getElementById('psSelfServiceQuery').value.trim();
+  const results = document.getElementById('psSelfServiceResults');
+  const empty = document.getElementById('psSelfServiceEmpty');
+  // Mind. 1 Zeichen: Teilnehmernummern sind exakte Treffer (auch einstellig
+  // sinnvoll durchsuchbar), anders als eine ILIKE-Namenssuche.
+  if (q.length < 1) { results.innerHTML = ''; empty.style.display = 'none'; return; }
+  psSearchTimer = setTimeout(() => {
+    fetch('/preisschiessen/teilnehmer-suche?q=' + encodeURIComponent(q))
+      .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+      .then(list => {
+        results.innerHTML = '';
+        empty.style.display = (list && list.length) ? 'none' : 'block';
+        (list || []).forEach(t => {
+          const btn = document.createElement('button');
+          btn.className = 'ps-item';
+          btn.innerHTML = `<span>#${t.teilnehmer_nr} ${t.shooter_name}</span>`;
+          btn.addEventListener('click', () => {
+            fetch('/preisschiessen/teilnehmer', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({teilnehmer_id: t.teilnehmer_id}),
+            })
+            .then(r => r.ok ? r.json() : r.text().then(t2 => { throw new Error(t2); }))
+            .then(() => {
+              document.getElementById('psSelfServiceQuery').value = '';
+              results.innerHTML = '';
+              empty.style.display = 'none';
+            })
+            .catch(err => alert('Fehler: ' + err.message));
+          });
+          results.appendChild(btn);
+        });
+      })
+      .catch(err => alert('Fehler: ' + err.message));
+  }, 300);
+});
+
 // Zeigt/befüllt die Preisschießen-Sektion im Menü anhand von psInfo (kommt
 // per SSE-Event "preisschiessen" bzw. initial per GET /preisschiessen).
 function renderPSMenu() {
@@ -921,6 +1012,25 @@ function renderPSMenu() {
     applyTargetColor('');
     return;
   }
+
+  const selfServiceBlock = document.getElementById('psSelfServiceBlock');
+  const normalBlock = document.getElementById('psNormalBlock');
+  if (psInfo.needs_teilnehmer) {
+    document.getElementById('psPreisschiessenName').textContent = psInfo.preisschiessen_name || '';
+    selfServiceBlock.style.display = 'block';
+    normalBlock.style.display = 'none';
+    applyTargetColor('');
+    psWasPending = false;
+    // Nur bei der aufsteigenden Flanke automatisch öffnen (wie beim
+    // Scheibenwahl-Menü unten) - sonst würde jeder Poll-Tick ein bewusst
+    // geschlossenes Menü bzw. eine laufende Suche erneut aufreißen.
+    if (!psWasNeedsTeilnehmer) openMenu('psOverlay');
+    psWasNeedsTeilnehmer = true;
+    return;
+  }
+  psWasNeedsTeilnehmer = false;
+  selfServiceBlock.style.display = 'none';
+  normalBlock.style.display = 'block';
 
   document.getElementById('psPreisschiessenName').textContent = psInfo.preisschiessen_name || '';
   document.getElementById('psName').textContent =
@@ -1039,24 +1149,34 @@ fetch('/font-sizes').then(r => r.json()).then(applyFontSizes);
 
 const es     = new EventSource('/events');
 const connEl = document.getElementById('connStatus');
-es.onopen  = () => { connEl.textContent = '● live'; connEl.className = 'live'; };
-es.onerror = () => { connEl.textContent = 'Verbindung unterbrochen – reconnect…'; connEl.className = ''; };
 
-es.addEventListener('shot',   ev => addShot(JSON.parse(ev.data), true));
-es.addEventListener('status', ev => {
-  const st = JSON.parse(ev.data);
-  // history_gen aendert sich bei JEDEM Sessionwechsel (auch ohne Moduswechsel,
-  // z.B. Neubelegung waehrend beide Male "probe") - Modusvergleich allein
-  // reicht nicht, um die Anzeige zuverlaessig zurueckzusetzen. Ein echter
-  // Seiten-Reload statt eines reinen JS-Neuaufbaus stellt sicher, dass eine
-  // laenger offene Kiosk-Anzeige nach jedem Sessionwechsel garantiert den
-  // aktuellen Stand zeigt (inkl. bereits geschossener Schuesse bei einer
-  // wiederaufgenommenen Scheibe) - unabhaengig davon, wie lange die Seite
-  // schon offen ist bzw. welcher Auslieferungsstand ihr JS gerade hat.
+// history_gen aendert sich bei JEDEM Sessionwechsel und bei jedem Probe/
+// Wertung-Moduswechsel (siehe standpc/web.go ResetHistory) - Modusvergleich
+// allein reicht nicht, um die Anzeige zuverlaessig zurueckzusetzen. Ein
+// echter Seiten-Reload statt eines reinen JS-Neuaufbaus stellt sicher, dass
+// eine laenger offene Kiosk-Anzeige nach jedem Wechsel garantiert den
+// aktuellen Stand zeigt (inkl. bereits geschossener Schuesse bei einer
+// wiederaufgenommenen Scheibe) - unabhaengig davon, wie lange die Seite
+// schon offen ist bzw. welcher Auslieferungsstand ihr JS gerade hat.
+function applyOrReloadOnHistoryChange(st) {
   const changed = currentHistoryGen !== null && st.history_gen !== currentHistoryGen;
   if (changed) { location.reload(); return; }
   applyStatus(st);
-});
+}
+
+es.onopen  = () => {
+  connEl.textContent = '● live'; connEl.className = 'live';
+  // Nach jedem (Re-)Connect (auch nach einer kurzen Netzwerkunterbrechung)
+  // den Status frisch abgleichen: ein waehrend der Verbindungsluecke
+  // gesendetes 'status'-Event (z.B. ein Moduswechsel) wuerde sonst nie
+  // ankommen und die Anzeige bliebe unbemerkt auf altem Stand (Bugfix:
+  // "Schuesse werden am Stand nach Probe->Wertung einfach weitergezaehlt").
+  fetch('/status').then(r => r.json()).then(applyOrReloadOnHistoryChange);
+};
+es.onerror = () => { connEl.textContent = 'Verbindung unterbrochen – reconnect…'; connEl.className = ''; };
+
+es.addEventListener('shot',   ev => addShot(JSON.parse(ev.data), true));
+es.addEventListener('status', ev => applyOrReloadOnHistoryChange(JSON.parse(ev.data)));
 es.addEventListener('preisschiessen', ev => {
   psInfo = JSON.parse(ev.data);
   renderPSMenu();

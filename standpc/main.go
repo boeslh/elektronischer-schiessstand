@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -49,6 +50,12 @@ type Config struct {
 	SerialPort string `json:"serial_port"` // z.B. "/dev/ttyUSB0"
 	BaudRate   int    `json:"baud_rate"`   // 115200
 	TCPListen  string `json:"tcp_listen"`  // z.B. ":9000"
+
+	// Anlagenweiter Pre-Shared Key (64 Hex-Zeichen = 32 Byte) fuer die
+	// HMAC-Authentifizierung der TCP-Verbindung zum ESP32 (identisch zu
+	// AUTH_PSK_DEFAULT_HEX/SET PSK= in der Firmware) - leer lassen, um das
+	// Feature auszuschalten (Rueckwaertskompatibel, siehe standpc/devicelink.go).
+	ESP32PSKHex string `json:"esp32_psk_hex"`
 
 	// Kalibrierung: Positionen der Sensoren auf dem Blech (Blech-Koordinaten,
 	// mm). Reihenfolge = Sensorindex im ESP32-Telegramm!
@@ -89,6 +96,8 @@ type Config struct {
 	TargetsFile string `json:"targets_file"`
 	// Schriftgroessen der Anzeige, vom Server gepusht (leer = font_sizes.json im Arbeitsverzeichnis)
 	FontSizesFile string `json:"font_sizes_file"`
+	// Admin-GUI-Passwort-Hash, vom Server gepusht (leer = admin_password_hash.json im Arbeitsverzeichnis)
+	AdminPasswordFile string `json:"admin_password_file"`
 
 	// Hybrid: Luft-TOA-Feinmessung (Firmware: SET HYBRID=1)
 	Hybrid HybridConfig `json:"hybrid"`
@@ -150,6 +159,25 @@ func loadFontSizes(path string) (*FontSizes, error) {
 		return nil, fmt.Errorf("font_sizes.json parsen: %w", err)
 	}
 	return &f, nil
+}
+
+// AdminPasswordHash: Persistenzformat fuer admin_password_hash.json (siehe
+// FontSizes/loadFontSizes oben - identisches Muster fuer einen vom Server
+// gepushten, offline-robust gecachten Wert).
+type AdminPasswordHash struct {
+	Hash string `json:"hash"`
+}
+
+func loadAdminPasswordHash(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var h AdminPasswordHash
+	if err := json.Unmarshal(data, &h); err != nil {
+		return "", fmt.Errorf("admin_password_hash.json parsen: %w", err)
+	}
+	return h.Hash, nil
 }
 
 // DisciplinesConfig: Inhalt der disciplines.json
@@ -401,6 +429,36 @@ func main() {
 		fontSizes = &fs
 	}
 
+	// --- Admin-GUI-Passwort-Hash laden (zuletzt vom Server gepushter Stand) ---
+	// Kein Hash vorhanden (erster Start, nie gepusht) -> Login bleibt gesperrt,
+	// bis der Server einmal SetStandpcAdminPassword ausgefuehrt hat - bewusst
+	// kein Default-Passwort ("leerer Hash" scheitert an bcrypt.CompareHashAndPassword).
+	adminPasswordFile := cfg.AdminPasswordFile
+	if adminPasswordFile == "" {
+		adminPasswordFile = "admin_password_hash.json"
+	}
+	adminPasswordHash, err := loadAdminPasswordHash(adminPasswordFile)
+	if err != nil {
+		log.Printf("Admin-Passwort: %v – Admin-GUI gesperrt bis Server-Push", err)
+	}
+
+	// --- Kommando-Infrastruktur zum ESP32 (Firmware Rev 4.9.0) ---
+	// PSK fuer die TCP-Authentifizierung laden (siehe devicelink.go
+	// Dateikopf) - leer = Feature aus, klarer Fatal-Fehler bei ungueltigem
+	// Hex statt stillem Fehlverhalten beim Signieren/Pruefen zur Laufzeit.
+	var esp32PSK []byte
+	if cfg.ESP32PSKHex == "" {
+		log.Printf("WARNUNG: esp32_psk_hex nicht konfiguriert – TCP-Verbindung zum ESP32 ungesichert!")
+	} else {
+		esp32PSK, err = hex.DecodeString(cfg.ESP32PSKHex)
+		if err != nil {
+			log.Fatalf("FATAL: esp32_psk_hex ungueltig (muss Hex sein): %v", err)
+		}
+	}
+	link := NewDeviceLink(esp32PSK)
+	cmds := NewCommandManager(link)
+	deviceState := NewDeviceState()
+
 	// Scorer-Map: je Scheibe einen eigenen Scorer
 	scorers := make(map[int]*Scorer)
 	for key, tg := range targets {
@@ -429,7 +487,9 @@ func main() {
 		log.Fatalf("FATAL: Keine Scheibendefinition verfuegbar")
 	}
 
-	web := NewWebServer(cfg, dc.Disciplines, targets, *fontSizes, fontFile)
+	web := NewWebServer(cfg, dc.Disciplines, targets, *fontSizes, fontFile,
+		cmds, deviceState, adminPasswordHash, adminPasswordFile)
+	deviceState.SetCalDoneHandler(web.uploadCalibrationBackup)
 
 	// Session + Kalibrierung vom zentralen Server (oder statisch/lokal)
 	sessions := NewSessionManager(cfg, web, dc.Disciplines)
@@ -526,12 +586,12 @@ func main() {
 	// --- Transport(e) starten: liefern RawShots in rawCh ---
 	switch cfg.Transport {
 	case "serial":
-		runSerialReader(ctx, cfg, rawCh) // blockiert bis ctx-Ende
+		runSerialReader(ctx, cfg, rawCh, link, cmds, deviceState) // blockiert bis ctx-Ende
 	case "tcp":
-		runTCPReader(ctx, cfg, rawCh) // blockiert bis ctx-Ende
+		runTCPReader(ctx, cfg, rawCh, link, cmds, deviceState) // blockiert bis ctx-Ende
 	case "both":
-		go runTCPReader(ctx, cfg, rawCh)
-		runSerialReader(ctx, cfg, rawCh)
+		go runTCPReader(ctx, cfg, rawCh, link, cmds, deviceState)
+		runSerialReader(ctx, cfg, rawCh, link, cmds, deviceState)
 	}
 
 	close(rawCh)
