@@ -292,3 +292,54 @@ einer Kalibrierungskorrektur neu berechnen und bei DB-Ausfall nachweisen.
 | `standpc/firmware/schiessstand_firmware.ino` | Firmware Rev 3.4 (Befehle im Dateikopf) |
 | `server/migrations/001_schema.sql` | Datenmodell inkl. Workflow-Doku am Dateiende |
 | `datenmodell.sql` | identisch, Standalone-Version |
+
+---
+
+## 9. Hardware-Dimensionierung (großes Preisschießen)
+
+Lastabschätzung für ein großes Preisschießen (Stand 2026-09-09), zugrunde
+gelegtes Szenario: 20 gleichzeitig belegte Stände, ca. 1 Schuss/15s je Stand,
+3 Standanzeige-Displays (`/anzeige/{id}`), Preisschießen-Kioskseite alle
+30s aufgerufen, Neuauswertung des Preisschießens alle 5 Minuten (Default im
+Code sogar alle 30s), ca. 1 Neuanmeldung/Scheibenkauf pro Minute.
+
+### Lastabschätzung
+
+| Quelle | Rate | Was passiert |
+|---|---|---|
+| Schüsse (20 Stände × 1/15s) | ~1,3/s | Stand-PC schreibt **direkt** über eigene Postgres-Verbindung (`standpc/db.go`) – umgeht den zentralen `server`-Prozess vollständig |
+| Session-/Kalibrierungs-Poll (20 Stände, alle 3s) | ~6,7 Anfragen/s | `GET /api/lanes/{no}/session`, einfacher indizierter Read |
+| Livestate-Heartbeat (20 Stände, alle 3s) | ~6,7 Anfragen/s | `PUT /api/lanes/{no}/livestate`, inkl. 1 kleinem UPDATE je Aufruf |
+| 3 Anzeige-Displays (Standanzeige, Reload ~8s Standard) | ~20-25 einfache Queries/s | pro Kachel: Session, Ergebnis-View, aktuelle Serie, Ringgeometrie |
+| Preisschießen-Kiosk-Seite (alle 30s) | <1 Anfrage/s | liest nur den bereits vorberechneten Cache |
+| Neuauswertung Preisschießen | alle 5 Min. (Default-Ticker: 30s) | einzige "schwerere" Aufgabe, Aggregation über wenige tausend Zeilen |
+| Neuanmeldung/Scheibenkauf | ~1/Min. | vernachlässigbar |
+
+Insgesamt ca. **30-40 einfache, indizierte Datenbankzugriffe pro Sekunde**
+beim Server – für Postgres eine triviale Last, keine der Aufgaben ist
+rechenintensiv (kein Video, keine Aggregation über Millionen Zeilen).
+
+**Realer Referenzwert** (gemessen am 2026-09-09, Datenbestand nach
+regelmäßigem Aufräumen "wie bei einem mittleren Verein"): 1.918 Schützen,
+6.178 Sessions, **55.065 Schüsse**, 1.008 Preisschießen-Teilnehmer,
+Datenbankgröße insgesamt **38 MB**. Dieser Rechner (4 Kerne, 4 GB RAM) lief
+zu diesem Zeitpunkt bereits mit Server + Preisanzeige + 8 Stand-PC-Instanzen
++ Postgres gleichzeitig, ohne spürbare Verzögerung.
+
+### Variante A – alles auf einem System
+
+Stand-PCs bleiben in jedem Fall pro Stand ein eigenes Gerät (physische
+Verkabelung zum Blech) – "alles zusammen" heißt hier: Server, Datenbank und
+Display-Server (`preisanzeige`) auf einer Maschine.
+
+| Komponente | Empfehlung | Begründung |
+|---|---|---|
+| CPU | 4 Kerne (z.B. Intel N100/N305, beliebiger moderner i3/Ryzen 3) | Reserve für die Neuauswertung parallel zum Normalbetrieb |
+| RAM | 8 GB | Postgres + 2 Go-Binaries sind klein; 8 GB gibt Puffer statt Minimalbetrieb |
+| Storage | SSD (auch klein, 60 GB+) | kein Kapazitätsproblem (DB bleibt im MB-Bereich), sondern fsync-Latenz/Zuverlässigkeit – keine SD-Karte |
+| Ausfallsicherheit | USV empfehlenswert | ein Rechner trägt jetzt Anzeigen UND Wertung UND zentrale DB gleichzeitig |
+
+Ein Raspberry Pi 5 (8 GB) würde diese Last rechnerisch ebenfalls schaffen;
+für einen großen/wichtigen Wettkampftag empfiehlt sich trotzdem ein
+günstiger x86-Mini-PC mit SSD statt SD-Karte (Haltbarkeit unter Dauerlast an
+einem einzelnen wichtigen Tag), nicht wegen fehlender Rechenleistung.

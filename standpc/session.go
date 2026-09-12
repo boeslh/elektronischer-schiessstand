@@ -265,6 +265,14 @@ func (m *SessionManager) CurrentMode() string {
 	return m.mode
 }
 
+// CurrentSessionID liefert die ID der aktuell vom Server zugewiesenen Session
+// ("" = keine) - fuer web.go handleReleaseLane ("Stand freigeben").
+func (m *SessionManager) CurrentSessionID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessionID
+}
+
 // CurrentDiscipline liefert die aktuelle Disziplin (nil wenn keine).
 func (m *SessionManager) CurrentDiscipline() *DisciplineDef {
 	m.mu.RLock()

@@ -156,6 +156,16 @@ func (s *Store) SetLaneStandpcURL(ctx context.Context, laneNo int, url string) e
 	return err
 }
 
+// SetLaneLastSeen persistiert den StandPC-Herzschlag (siehe api.go
+// setLiveState) - ergaenzend zum In-Memory-Zustand des Servers, damit auch
+// andere Prozesse ohne Zugriff darauf (z.B. preisanzeige) erkennen koennen,
+// welche Staende gerade online sind.
+func (s *Store) SetLaneLastSeen(ctx context.Context, laneNo int) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE lanes SET live_last_seen_at=now() WHERE lane_no=$1`, laneNo)
+	return err
+}
+
 // TransferSession verschiebt eine Session von ihrer aktuellen Lane auf eine andere.
 // Die Ziel-Lane darf keine aktive Session haben.
 func (s *Store) TransferSession(ctx context.Context, sessionID string, toLaneNo int) error {
@@ -317,6 +327,22 @@ type DisciplineFull struct {
 	// aber Ring/Zehntel/Teiler als "-"), "verdeckt" (auch kein Trefferbild,
 	// nur "-") - siehe standpc/web.go maskShot.
 	Anzeige string `json:"anzeige"`
+	// ScoringMode: "elektronisch" (Standard, Stand-PC/TDOA) oder "papier"
+	// (Papierscheibe, wird per Disag-Wertmaschine oder manuell erfasst -
+	// siehe migrations/055, manual_result.go). WertmaschineCaliberMM fuellt
+	// das "KAL="-Feld im RM-IV-Konfigstring, nur fuer Zentralfeuer-Scheiben
+	// relevant, sonst nil.
+	ScoringMode           string   `json:"scoring_mode"`
+	WertmaschineCaliberMM *float64 `json:"wertmaschine_caliber_mm"`
+	// RMIIIConfigOverride: fest hinterlegter 9-stelliger RM-III-Einstellungs-
+	// string, der die automatische Berechnung (wertmaschine_config.go
+	// computeRMIIIConfig) ersetzt, wenn nicht leer - siehe migrations/058.
+	// Grund: die automatische Berechnung war mit echter Hardware mehrfach
+	// nachweislich fehlerhaft (falsche Ziffernbedeutung/Geraete-Eigenheiten),
+	// ein manuelles Override ist daher der zuverlaessigere Weg fuer den
+	// produktiven Einsatz. Leer = automatische Berechnung wird weiter
+	// verwendet.
+	RMIIIConfigOverride string `json:"rmiii_config_override"`
 }
 
 // TargetRef wird fuer Auswahlfelder in der Disziplin-Verwaltung benoetigt.
@@ -350,7 +376,9 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 		       d.match_shot_count, d.max_sighting_shots,
 		       d.shots_per_series, d.decimal_scoring,
 		       d.match_time_s, d.active, COALESCE(d.notes,''),
-		       d.standpc_target_no, d.anzeige
+		       d.standpc_target_no, d.anzeige,
+		       d.scoring_mode, d.wertmaschine_caliber_mm,
+		       COALESCE(d.rmiii_config_override,'')
 		FROM disciplines d
 		LEFT JOIN targets t ON t.id = d.target_id
 		ORDER BY d.active DESC, d.name`)
@@ -368,6 +396,8 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 			&d.ShotsPerSeries, &d.DecimalScoring,
 			&d.MatchTimeS, &d.Active, &d.Notes,
 			&d.StandPCTargetNo, &d.Anzeige,
+			&d.ScoringMode, &d.WertmaschineCaliberMM,
+			&d.RMIIIConfigOverride,
 		); err != nil {
 			return nil, err
 		}
@@ -381,18 +411,24 @@ func (s *Store) CreateDiscipline(ctx context.Context, d DisciplineFull) (string,
 	if anzeige == "" {
 		anzeige = "voll"
 	}
+	scoringMode := d.ScoringMode
+	if scoringMode == "" {
+		scoringMode = "elektronisch"
+	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO disciplines
 		  (name, rule_no, distance_m, target_id,
 		   match_shot_count, max_sighting_shots, shots_per_series,
-		   decimal_scoring, match_time_s, active, notes, anzeige)
+		   decimal_scoring, match_time_s, active, notes, anzeige,
+		   scoring_mode, wertmaschine_caliber_mm, rmiii_config_override)
 		VALUES ($1, NULLIF($2,''), $3, $4,
-		        $5, $6, $7, $8, $9, $10, NULLIF($11,''), $12)
+		        $5, $6, $7, $8, $9, $10, NULLIF($11,''), $12, $13, $14, NULLIF($15,''))
 		RETURNING id`,
 		d.Name, d.RuleNo, d.DistanceM, d.TargetID,
 		d.MatchShotCount, d.MaxSightingShots, d.ShotsPerSeries,
 		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, anzeige,
+		scoringMode, d.WertmaschineCaliberMM, d.RMIIIConfigOverride,
 	).Scan(&id)
 	return id, err
 }
@@ -402,25 +438,33 @@ func (s *Store) UpdateDiscipline(ctx context.Context, d DisciplineFull) error {
 	if anzeige == "" {
 		anzeige = "voll"
 	}
+	scoringMode := d.ScoringMode
+	if scoringMode == "" {
+		scoringMode = "elektronisch"
+	}
 	_, err := s.pool.Exec(ctx, `
 		UPDATE disciplines SET
-		  name               = $1,
-		  rule_no            = NULLIF($2,''),
-		  distance_m         = $3,
-		  target_id          = $4,
-		  match_shot_count   = $5,
-		  max_sighting_shots = $6,
-		  shots_per_series   = $7,
-		  decimal_scoring    = $8,
-		  match_time_s       = $9,
-		  active             = $10,
-		  notes              = NULLIF($11,''),
-		  standpc_target_no  = $13,
-		  anzeige            = $14
+		  name                    = $1,
+		  rule_no                 = NULLIF($2,''),
+		  distance_m              = $3,
+		  target_id               = $4,
+		  match_shot_count        = $5,
+		  max_sighting_shots      = $6,
+		  shots_per_series        = $7,
+		  decimal_scoring         = $8,
+		  match_time_s            = $9,
+		  active                  = $10,
+		  notes                   = NULLIF($11,''),
+		  standpc_target_no       = $13,
+		  anzeige                 = $14,
+		  scoring_mode            = $15,
+		  wertmaschine_caliber_mm = $16,
+		  rmiii_config_override   = NULLIF($17,'')
 		WHERE id = $12`,
 		d.Name, d.RuleNo, d.DistanceM, d.TargetID,
 		d.MatchShotCount, d.MaxSightingShots, d.ShotsPerSeries,
 		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, d.ID, d.StandPCTargetNo, anzeige,
+		scoringMode, d.WertmaschineCaliberMM, d.RMIIIConfigOverride,
 	)
 	return err
 }
@@ -437,12 +481,34 @@ func (s *Store) DeleteDiscipline(ctx context.Context, id string) error {
 
 var ErrLaneBusy = errors.New("Stand ist bereits belegt")
 var ErrLaneInSelfService = errors.New("Stand ist im Preisschießen-Selbstbedienungsmodus")
+var ErrDisciplinePaperOnly = errors.New("Papierscheiben-Disziplin darf nicht auf eine echte Stand-PC-Bahn zugewiesen werden")
 
 // AssignLane belegt einen Stand: legt eine Session an (Status 'assigned').
 // Nutzt die aktuell gueltige Kalibrierung des Stands; existiert keine,
-// wird eine Default-Kalibrierung angelegt (Inbetriebnahme-Komfort).
+// wird eine Default-Kalibrierung angelegt (Inbetriebnahme-Komfort). Fuer
+// eine normale (Buero-/Admin-seitige) Zuweisung ist ein im Preisschiessen-
+// Selbstbedienungsmodus reservierter Stand tabu (ErrLaneInSelfService).
 func (s *Store) AssignLane(ctx context.Context, laneNo int,
 	shooterID, disciplineID, eventID string) (string, error) {
+	return s.assignLane(ctx, laneNo, shooterID, disciplineID, eventID, false)
+}
+
+// AssignLaneSelfService ist die Preisschiessen-interne Variante von
+// AssignLane: wird von AssignTeilnehmerLane aufgerufen, NACHDEM sich ein
+// Teilnehmer am Selbstbedienungs-Stand selbst eine Scheibe ausgewaehlt hat -
+// der Stand ist zu diesem Zeitpunkt bereits (und bleibt laut
+// ps_lane_selfservice-Design ueber mehrere Teilnehmer-Durchgaenge hinweg)
+// im Selbstbedienungsmodus reserviert. Der Selbstbedienungs-Check in
+// assignLane wuerde diesen ganz normalen, erwarteten Ablauf sonst
+// faelschlich mit ErrLaneInSelfService blockieren - Bugfix: "Fehler: Stand
+// ist im Preisschießen-Selbstbedienungsmodus" beim Scheibe-Auswaehlen.
+func (s *Store) AssignLaneSelfService(ctx context.Context, laneNo int,
+	shooterID, disciplineID, eventID string) (string, error) {
+	return s.assignLane(ctx, laneNo, shooterID, disciplineID, eventID, true)
+}
+
+func (s *Store) assignLane(ctx context.Context, laneNo int,
+	shooterID, disciplineID, eventID string, allowSelfService bool) (string, error) {
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -451,10 +517,30 @@ func (s *Store) AssignLane(ctx context.Context, laneNo int,
 	defer tx.Rollback(ctx)
 
 	var laneID string
+	var laneVirtual bool
 	if err := tx.QueryRow(ctx,
-		`SELECT id FROM lanes WHERE lane_no=$1 AND active FOR UPDATE`,
-		laneNo).Scan(&laneID); err != nil {
+		`SELECT id, virtual FROM lanes WHERE lane_no=$1 AND active FOR UPDATE`,
+		laneNo).Scan(&laneID, &laneVirtual); err != nil {
 		return "", fmt.Errorf("Stand %d: %w", laneNo, err)
+	}
+
+	// Papierscheiben-Disziplinen (scoring_mode='papier', siehe migrations/055)
+	// duerfen nur auf eine virtuelle Bahn (migrations/057) zugewiesen werden -
+	// eine echte Stand-PC-Bahn fuer eine Disziplin zu belegen, die gar nicht
+	// elektronisch geschossen wird, ergibt physisch keinen Sinn. Umgekehrt
+	// bleibt eine elektronische Disziplin auch auf einer virtuellen Bahn
+	// erlaubt (z.B. manuelle Nacherfassung eines an anderer Anlage
+	// vorgeschossenen Rundenwettkampf-Ergebnisses).
+	if !laneVirtual {
+		var scoringMode string
+		if err := tx.QueryRow(ctx,
+			`SELECT scoring_mode FROM disciplines WHERE id=$1`, disciplineID,
+		).Scan(&scoringMode); err != nil {
+			return "", fmt.Errorf("Disziplin: %w", err)
+		}
+		if scoringMode == "papier" {
+			return "", ErrDisciplinePaperOnly
+		}
 	}
 
 	// Schon belegt?
@@ -481,7 +567,7 @@ func (s *Store) AssignLane(ctx context.Context, laneNo int,
 		laneID).Scan(&inSelfService); err != nil {
 		return "", err
 	}
-	if inSelfService {
+	if inSelfService && !allowSelfService {
 		return "", ErrLaneInSelfService
 	}
 
@@ -670,11 +756,20 @@ func (s *Store) SessionShots(ctx context.Context, sessionID string) ([]map[strin
 	var out []map[string]any
 	for rows.Next() {
 		var (
-			no, ring       int
-			kind, status   string
-			x, y, dec, div float64
-			innerTen       bool
-			firedAt        time.Time
+			no           int
+			kind, status string
+			innerTen     bool
+			firedAt      time.Time
+
+			// x_mm/y_mm/ring/decimal_value/center_distance sind in der DB
+			// nullable (shots-Schema) - bei manuellen/Wertmaschinen-Schuessen
+			// real NULL: Sammelzeilen (Serie/Gesamt, siehe manual_result.go)
+			// haben keine Einzelposition, und ein vom Geraet als unlesbar
+			// gemeldeter Schuss (RM III Ring "?.?") hat weder Ring noch
+			// Position. Frueher hier als nicht-Pointer gescannt, was bei
+			// solchen Zeilen mit "cannot scan NULL into *float64" abbrach.
+			x, y, dec, div *float64
+			ring           *int
 
 			cX, cY, cDec, cDiv *float64
 			cRing              *int

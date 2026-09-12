@@ -1,0 +1,7 @@
+{
+  "server_url": "http://localhost:8090",
+  "server_psk_hex": "",
+  "com_port": "/dev/ttyUSB0",
+  "protocol": "rmiii",
+  "http_listen": ":8092"
+}

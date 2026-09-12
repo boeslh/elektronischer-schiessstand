@@ -507,6 +507,7 @@ function computeViewR() {
   let maxR = 0;
   for (const s of visible) {
     const x = effX(s), y = effY(s);
+    if (x == null || y == null) continue; // Sammelzeile (Serie/Gesamt) o.ae. ohne Einzelposition
     const d = Math.sqrt(x * x + y * y);
     maxR = Math.max(maxR, d);
   }
@@ -627,8 +628,9 @@ function renderShots(list) {
   if (!shotLayer) return;
   while (shotLayer.firstChild) shotLayer.removeChild(shotLayer.firstChild);
   for (const s of list) {
-    const fillColor = shotColorByRing(s);
     const x = effX(s), y = effY(s);
+    if (x == null || y == null) continue; // Sammelzeile (Serie/Gesamt) o.ae. ohne Einzelposition - kein Punkt im Trefferbild
+    const fillColor = shotColorByRing(s);
     const shown = useCorrection(s);
     const g = document.createElementNS(NS, 'g');
     if (s.status !== 'valid') g.setAttribute('opacity', '0.6');

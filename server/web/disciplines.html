@@ -108,18 +108,68 @@ form textarea { resize: vertical; min-height: 56px; }
       </div>
 
       <label for="f-target">Scheibe *</label>
-      <select id="f-target" required>
+      <select id="f-target" required onchange="autoUpdateRMIIIString()">
         <option value="">– bitte wählen –</option>
       </select>
+
+      <label for="f-scoring-mode">Wertungsart</label>
+      <select id="f-scoring-mode" onchange="updateScoringModeFields()">
+        <option value="elektronisch">Elektronisch (Stand-PC)</option>
+        <option value="papier">Papierscheibe (Wertmaschine/manuell)</option>
+      </select>
+      <div class="hint" id="scoring-mode-hint" style="display:none">
+        Diese Disziplin darf nicht auf eine echte Stand-PC-Bahn zugewiesen werden -
+        Erfassung erfolgt über die Disag-Wertmaschine oder manuelle Eingabe.
+      </div>
+      <div id="caliber-field" style="display:none">
+        <label for="f-caliber">Kaliber (mm, nur Zentralfeuer)</label>
+        <input type="number" id="f-caliber" step="0.01" min="0" placeholder="leer = nicht relevant">
+      </div>
+      <div id="rmiii-override-field" style="display:none">
+        <label for="f-rmiii-override">RM-III Einstellungsstring</label>
+        <div class="form-row2">
+          <input type="text" id="f-rmiii-override" placeholder="leer = automatisch berechnet" maxlength="30" oninput="syncRMIIISelectsFromString()">
+          <button type="button" class="btn-cancel" id="f-rmiii-default-btn" onclick="fillRMIIIDefault()">Standard einsetzen</button>
+        </div>
+        <div class="hint">Fest hinterlegter 9-stelliger Code für die RM-III-Wertmaschine - überschreibt die automatische Berechnung. "Standard einsetzen" berechnet einen Vorschlagswert aus den aktuellen Formularwerten (auch vor dem Speichern nutzbar).</div>
+
+        <div class="form-row2" style="margin-top:8px">
+          <div>
+            <label for="f-rmiii-band">Scheibenlänge (Ziffer 2)</label>
+            <select id="f-rmiii-band" onchange="applyRMIIIDigit(1, this)" disabled>
+              <option value="1">Einzelscheibe</option>
+              <option value="2">5er Band</option>
+              <option value="3">10er Band</option>
+            </select>
+          </div>
+          <div>
+            <label for="f-rmiii-percard">Schuss/Scheibe (Ziffer 9)</label>
+            <select id="f-rmiii-percard" onchange="applyRMIIIDigit(8, this)" disabled>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="5">5 (nur Einzelscheibe)</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label for="f-rmiii-printer">Drucker/Aufdruck (Ziffer 8)</label>
+          <select id="f-rmiii-printer" onchange="applyRMIIIDigit(7, this)" disabled>
+            <option value="1">Drucker eingeschaltet</option>
+            <option value="2">Drucker ausgeschaltet</option>
+            <option value="3">Teilerwert nicht aufdrucken</option>
+          </select>
+        </div>
+        <div class="hint">Diese Auswahlfelder lesen/ändern die entsprechende Ziffer direkt im Einstellungsstring oben - nur aktiv, wenn dort ein gültiger (mind. 9-stelliger) String steht.</div>
+      </div>
 
       <div class="form-row2">
         <div>
           <label for="f-scoring">Wertungsschüsse *</label>
-          <input type="number" id="f-scoring" value="40" min="1" max="999" required>
+          <input type="number" id="f-scoring" value="40" min="1" max="999" required oninput="autoUpdateRMIIIString()">
         </div>
         <div>
           <label for="f-series">Schüsse/Serie</label>
-          <input type="number" id="f-series" value="10" min="1" max="100">
+          <input type="number" id="f-series" value="10" min="1" max="100" oninput="autoUpdateRMIIIString()">
         </div>
       </div>
 
@@ -131,7 +181,7 @@ form textarea { resize: vertical; min-height: 56px; }
       <input type="number" id="f-time" placeholder="leer = keine Begrenzung" min="1" max="9999">
 
       <div class="check-row">
-        <input type="checkbox" id="f-decimal">
+        <input type="checkbox" id="f-decimal" onchange="autoUpdateRMIIIString()">
         <label for="f-decimal">Zehntelwertung</label>
       </div>
       <div class="check-row">
@@ -197,7 +247,7 @@ function renderTable() {
     tr.innerHTML = `
       <td><strong>${esc(d.name)}</strong>${d.rule_no ? `<br><small>${esc(d.rule_no)}</small>` : ''}</td>
       <td style="font-size:.8rem">${esc(d.target_name)}</td>
-      <td>${d.match_shot_count}${d.decimal_scoring ? ' <span class="badge decimal">Z</span>' : ''}${d.anzeige && d.anzeige !== 'voll' ? ` <span class="badge decimal" title="Anzeige: ${esc(d.anzeige)}">${d.anzeige === 'verdeckt' ? 'V' : 'TV'}</span>` : ''}</td>
+      <td>${d.match_shot_count}${d.decimal_scoring ? ' <span class="badge decimal">Z</span>' : ''}${d.anzeige && d.anzeige !== 'voll' ? ` <span class="badge decimal" title="Anzeige: ${esc(d.anzeige)}">${d.anzeige === 'verdeckt' ? 'V' : 'TV'}</span>` : ''}${d.scoring_mode === 'papier' ? ' <span class="badge decimal" title="Papierscheibe">P</span>' : ''}</td>
       <td>${probe}</td>
       <td>${d.shots_per_series}</td>
       <td>
@@ -237,9 +287,105 @@ function editRow(id) {
   document.getElementById('f-decimal').checked = d.decimal_scoring;
   document.getElementById('f-active').checked = d.active;
   document.getElementById('f-anzeige').value = d.anzeige || 'voll';
+  document.getElementById('f-scoring-mode').value = d.scoring_mode || 'elektronisch';
+  document.getElementById('f-caliber').value = d.wertmaschine_caliber_mm != null ? d.wertmaschine_caliber_mm : '';
+  document.getElementById('f-rmiii-override').value = d.rmiii_config_override || '';
+  syncRMIIISelectsFromString();
+  updateScoringModeFields();
   document.getElementById('f-notes').value = d.notes || '';
   hideMsg();
   document.getElementById('form-card').scrollIntoView({behavior:'smooth'});
+}
+
+// Wertungsart "papier": zeigt Hinweis + optionales Kaliber-Feld (nur fuer
+// Zentralfeuer-Scheiben relevant, siehe server/wertmaschine_config.go KAL=).
+function updateScoringModeFields() {
+  const papier = document.getElementById('f-scoring-mode').value === 'papier';
+  document.getElementById('scoring-mode-hint').style.display = papier ? 'block' : 'none';
+  document.getElementById('caliber-field').style.display = papier ? 'block' : 'none';
+  document.getElementById('rmiii-override-field').style.display = papier ? 'block' : 'none';
+}
+
+// fetchRMIIIPreview berechnet den RM-III-Einstellungsstring aus den
+// aktuellen Formularwerten (Scheibe/Wertungsschuesse/Schuesse-pro-Serie/
+// Zehntelwertung) - funktioniert auch bei einer neuen bzw. noch
+// ungespeicherten Disziplin, da nicht von der gespeicherten DB-Zeile,
+// sondern direkt vom Formular gelesen wird. Wirft bei fehlender Scheibe.
+async function fetchRMIIIPreview() {
+  const targetId = document.getElementById('f-target').value;
+  if (!targetId) throw new Error('Bitte zuerst eine Scheibe auswählen.');
+  const res = await fetch('/api/disciplines/rmiii-config-preview', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      target_id: targetId,
+      match_shot_count: parseInt(document.getElementById('f-scoring').value) || 40,
+      shots_per_series: parseInt(document.getElementById('f-series').value) || 10,
+      decimal_scoring: document.getElementById('f-decimal').checked,
+    }),
+  });
+  const j = await res.json();
+  if (!res.ok) throw new Error(j.error || res.status);
+  return j.config_string;
+}
+
+// fillRMIIIDefault setzt den kompletten berechneten Vorschlagswert ein
+// (ueberschreibt auch bereits per Auswahlfeld gesetzte Ziffern 2/8/9) - fuer
+// den "Standard einsetzen"-Button, ein bewusster harter Reset.
+async function fillRMIIIDefault() {
+  try {
+    document.getElementById('f-rmiii-override').value = await fetchRMIIIPreview();
+    syncRMIIISelectsFromString();
+  } catch (err) {
+    showMsg('Standard konnte nicht ermittelt werden: ' + err.message, 'err');
+  }
+}
+
+// autoUpdateRMIIIString haelt Ziffer 1 (Scheibentyp), 3 (Serie) und 4
+// (Ringformat) automatisch mit Scheibe/Wertungsschuessen/Zehntelwertung
+// synchron, sobald sich diese Formularfelder aendern (z.B. loest eine
+// Aenderung der Wertungsschuesse auf >=10 bei LG automatisch den Wechsel auf
+// 10er-Band in Ziffer 2 aus, siehe computeRMIIIConfig-Heuristik) - Ziffer 8
+// (Drucker) und 9 (Schuss/Scheibe) bleiben dabei unangetastet, da das reine
+// Bedienerpraeferenzen sind, die nichts mit der Schusszahl zu tun haben.
+// Greift nur, wenn bereits ein (mind. 9-stelliger) String im Feld steht -
+// ohne bestehenden String gibt es nichts automatisch zu aktualisieren, dafuer
+// dient weiterhin der "Standard einsetzen"-Button.
+async function autoUpdateRMIIIString() {
+  if (document.getElementById('f-scoring-mode').value !== 'papier') return;
+  const cur = document.getElementById('f-rmiii-override').value.trim();
+  if (cur.length < 9) return;
+  try {
+    const fresh = await fetchRMIIIPreview();
+    document.getElementById('f-rmiii-override').value = fresh.slice(0, 7) + cur[7] + cur[8] + fresh.slice(9);
+    syncRMIIISelectsFromString();
+  } catch (err) {
+    // Scheibe (noch) nicht gewaehlt o.ae. - still bleiben, kein showMsg-Spam
+    // bei jedem Tastendruck.
+  }
+}
+
+// Die Ziffern 2 (Scheibenlaenge), 8 (Drucker) und 9 (Schuss/Scheibe) des
+// RM-III-Einstellungsstrings werden NICHT separat gespeichert (siehe
+// computeRMIIIConfig/rmiii_config_override) - stattdessen lesen/schreiben
+// diese Auswahlfelder direkt die entsprechende Stelle im Textfeld.
+function syncRMIIISelectsFromString() {
+  const s = document.getElementById('f-rmiii-override').value.trim();
+  const valid = s.length >= 9;
+  document.getElementById('f-rmiii-band').disabled = !valid;
+  document.getElementById('f-rmiii-printer').disabled = !valid;
+  document.getElementById('f-rmiii-percard').disabled = !valid;
+  if (valid) {
+    document.getElementById('f-rmiii-band').value = s[1];
+    document.getElementById('f-rmiii-printer').value = s[7];
+    document.getElementById('f-rmiii-percard').value = s[8];
+  }
+}
+
+function applyRMIIIDigit(index, selectEl) {
+  const field = document.getElementById('f-rmiii-override');
+  const s = field.value.trim();
+  if (s.length < 9) return;
+  field.value = s.slice(0, index) + selectEl.value + s.slice(index + 1);
 }
 
 function clearForm() {
@@ -251,6 +397,11 @@ function clearForm() {
   document.getElementById('f-series').value = '10';
   document.getElementById('f-active').checked = true;
   document.getElementById('f-anzeige').value = 'voll';
+  document.getElementById('f-scoring-mode').value = 'elektronisch';
+  document.getElementById('f-caliber').value = '';
+  document.getElementById('f-rmiii-override').value = '';
+  syncRMIIISelectsFromString();
+  updateScoringModeFields();
   renderTargetSelect('');
   hideMsg();
 }
@@ -286,6 +437,10 @@ async function saveForm(e) {
     decimal_scoring:    document.getElementById('f-decimal').checked,
     active:             document.getElementById('f-active').checked,
     anzeige:            document.getElementById('f-anzeige').value,
+    scoring_mode:       document.getElementById('f-scoring-mode').value,
+    wertmaschine_caliber_mm: document.getElementById('f-caliber').value !== ''
+      ? parseFloat(document.getElementById('f-caliber').value) : null,
+    rmiii_config_override: document.getElementById('f-rmiii-override').value.trim(),
     notes:              document.getElementById('f-notes').value.trim(),
   };
 

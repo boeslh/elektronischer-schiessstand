@@ -146,6 +146,7 @@ func (ws *WebServer) Run(ctx context.Context) {
 	mux.HandleFunc("GET /preisschiessen/teilnehmer-suche", ws.handleSearchTeilnehmerPreisschiessen)
 	mux.HandleFunc("POST /preisschiessen/teilnehmer", ws.handleSelectTeilnehmerPreisschiessen)
 	mux.HandleFunc("POST /preisschiessen/verlassen", ws.handleLeaveSelfServicePreisschiessen)
+	mux.HandleFunc("POST /freigeben", ws.handleReleaseLane)
 	mux.HandleFunc("GET /api/local-sessions", ws.handleLocalSessions)
 	mux.HandleFunc("GET /api/local-sessions/{id}/shots", ws.handleLocalSessionShots)
 	mux.HandleFunc("PUT /api/disciplines/config", ws.handlePutDisciplinesConfig)
@@ -581,6 +582,48 @@ func (ws *WebServer) handleBuchenPreisschiessen(w http.ResponseWriter, r *http.R
 
 func (ws *WebServer) handleFreeLanePreisschiessen(w http.ResponseWriter, r *http.Request) {
 	ws.forwardPreisschiessen(w, r, "freigeben")
+}
+
+// handleReleaseLane beendet die AKTUELLE Session normal (Status "finished"),
+// unabhaengig davon ob Preisschiessen aktiv ist. Bugfix: bisher gab es "Stand
+// freigeben" am Stand-PC selbst nur innerhalb des Preisschiessen-Menues
+// (handleFreeLanePreisschiessen/Store.FreeLane) - fuer eine normale, nicht
+// ueber Preisschiessen laufende Session war das dort ein Nop (kein
+// Preisschiessen-Teilnehmer vorhanden). Nutzt denselben Server-Endpunkt wie
+// die Buero-Standsteuerung (server/web/lanes.html setStatus('finished')).
+func (ws *WebServer) handleReleaseLane(w http.ResponseWriter, r *http.Request) {
+	if ws.cfg.ServerURL == "" {
+		http.Error(w, "kein server_url konfiguriert", http.StatusServiceUnavailable)
+		return
+	}
+	sessionID := ws.sessions.CurrentSessionID()
+	if sessionID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+		return
+	}
+	body, _ := json.Marshal(map[string]string{"status": "finished"})
+	url := fmt.Sprintf("%s/api/sessions/%s/status", ws.cfg.ServerURL, sessionID)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Server nicht erreichbar: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusOK {
+		ws.sessions.PollNow()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody)
 }
 
 func (ws *WebServer) handleScheibeAbschliessenPreisschiessen(w http.ResponseWriter, r *http.Request) {

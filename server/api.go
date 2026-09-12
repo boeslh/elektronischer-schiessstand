@@ -46,16 +46,17 @@ import (
 var webFS embed.FS
 
 type APIServer struct {
-	store      *Store
-	live       *LiveHub
-	listen     string
-	dsn        string // fuer pg_dump/pg_restore (Import/Export-Kachel, siehe backup.go)
-	backupDir  string
-	liveStates sync.Map // key=laneNo(int) → LaneLiveState
+	store           *Store
+	live            *LiveHub
+	listen          string
+	dsn             string // fuer pg_dump/pg_restore (Import/Export-Kachel, siehe backup.go)
+	backupDir       string
+	liveStates      sync.Map // key=laneNo(int) → LaneLiveState
+	wertmaschinePSK []byte   // siehe wertmaschine_auth.go
 }
 
-func NewAPIServer(store *Store, live *LiveHub, listen, dsn, backupDir string) *APIServer {
-	return &APIServer{store: store, live: live, listen: listen, dsn: dsn, backupDir: backupDir}
+func NewAPIServer(store *Store, live *LiveHub, listen, dsn, backupDir string, wertmaschinePSK []byte) *APIServer {
+	return &APIServer{store: store, live: live, listen: listen, dsn: dsn, backupDir: backupDir, wertmaschinePSK: wertmaschinePSK}
 }
 
 func serveHTML(fsys fs.FS, name string) http.HandlerFunc {
@@ -127,6 +128,12 @@ func (a *APIServer) Run(ctx context.Context) error {
 	})
 	mux.HandleFunc("POST /api/admin/testdaten/generate", a.h(a.generateTestdatenHandler))
 	mux.HandleFunc("POST /api/admin/testdaten/cleanup", a.h(a.cleanupTestdatenHandler))
+
+	mux.HandleFunc("GET /api/wertmaschine/config", a.h(a.requireWertmaschinePSK(a.wertmaschineConfig)))
+	mux.HandleFunc("GET /api/wertmaschine/preisschiessen-liste", a.h(a.requireWertmaschinePSK(a.wertmaschinePreisschiessenListe)))
+	mux.HandleFunc("GET /api/wertmaschine/scheibe-lookup", a.h(a.requireWertmaschinePSK(a.wertmaschineScheibeLookup)))
+	mux.HandleFunc("POST /api/wertmaschine/preisschiessen-scheibe", a.h(a.requireWertmaschinePSK(a.wertmaschinePreisschiessenScheibe)))
+	mux.HandleFunc("POST /api/wertmaschine/rundenwettkampf", a.h(a.requireWertmaschinePSK(a.wertmaschineRundenwettkampf)))
 
 	mux.HandleFunc("GET /api/lanes", a.h(a.listLanes))
 	mux.HandleFunc("POST /api/lanes/init", a.h(a.initLanes))
@@ -204,6 +211,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/competitions/{id}/starters/import-team", a.h(a.importTeamStarters))
 	mux.HandleFunc("PUT /api/competitions/{id}/starters/{sid}/role", a.h(a.setStarterRole))
 	mux.HandleFunc("DELETE /api/competitions/{id}/starters/{sid}", a.h(a.removeStarter))
+	mux.HandleFunc("POST /api/competitions/{id}/starters/{sid}/manual-result", a.h(a.manualResultStarter))
 
 	mux.HandleFunc("GET /preisschiessen", a.serveHTMLGated(webSub, "preisschiessen.html", "preisschiessen"))
 	mux.HandleFunc("GET /preisschiessen-liste", a.serveHTMLGated(webSub, "preisschiessen-liste.html", "preisschiessen"))
@@ -214,6 +222,8 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/preisschiessen/{id}", a.h(a.updatePreisschiessen))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}", a.h(a.deletePreisschiessen))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/clone", a.h(a.clonePreisschiessen))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/scheiben-einheiten/by-physical-serial", a.h(a.scheibeEinheitByPhysicalSerial))
+	mux.HandleFunc("POST /api/preisschiessen/{id}/scheiben-einheiten/{unit}/manual-result", a.h(a.manualResultScheibeEinheit))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/scheiben", a.h(a.listScheiben))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/scheiben", a.h(a.createScheibe))
 	mux.HandleFunc("PUT /api/preisschiessen/{id}/scheiben/{sid}", a.h(a.updateScheibe))
@@ -279,6 +289,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/disciplines", a.h(a.createDiscipline))
 	mux.HandleFunc("PUT /api/disciplines/{id}", a.h(a.updateDiscipline))
 	mux.HandleFunc("DELETE /api/disciplines/{id}", a.h(a.deleteDiscipline))
+	mux.HandleFunc("POST /api/disciplines/rmiii-config-preview", a.h(a.disciplineRMIIIConfigPreview))
 	mux.HandleFunc("POST /api/sessions/{id}/status", a.h(a.setSessionStatus))
 	mux.HandleFunc("GET /api/sessions/{id}/shots", a.h(a.sessionShots))
 	mux.HandleFunc("GET /api/sessions/{id}/pdf", a.getSessionPDF)
@@ -352,6 +363,12 @@ func (a *APIServer) h(fn handlerFunc) http.HandlerFunc {
 				status = http.StatusConflict
 			}
 			if errors.Is(err, ErrLaneInSelfService) {
+				status = http.StatusConflict
+			}
+			if errors.Is(err, ErrDisciplinePaperOnly) {
+				status = http.StatusConflict
+			}
+			if errors.Is(err, ErrResultExists) {
 				status = http.StatusConflict
 			}
 			if errors.Is(err, ErrWrongPassword) {
@@ -431,6 +448,14 @@ func (a *APIServer) setLiveState(w http.ResponseWriter, r *http.Request) (any, e
 		body.LaneLiveState.StandPCURL = body.StandPCURL
 	}
 	a.liveStates.Store(no, body.LaneLiveState)
+
+	// Zusaetzlich in der DB persistieren (siehe store.go SetLaneLastSeen) -
+	// asynchron, damit ein langsamer/haengender DB-Zugriff den Heartbeat
+	// des Stand-PCs nicht verzoegert.
+	go func(laneNo int) {
+		_ = a.store.SetLaneLastSeen(context.Background(), laneNo)
+	}(no)
+
 	return map[string]any{"ok": true}, nil
 }
 
@@ -545,6 +570,36 @@ func (a *APIServer) deleteDiscipline(w http.ResponseWriter, r *http.Request) (an
 		return nil, err
 	}
 	return map[string]any{"ok": true}, nil
+}
+
+type rmiiiConfigPreviewBody struct {
+	TargetID       string `json:"target_id"`
+	MatchShotCount int    `json:"match_shot_count"`
+	ShotsPerSeries int    `json:"shots_per_series"`
+	DecimalScoring bool   `json:"decimal_scoring"`
+}
+
+// disciplineRMIIIConfigPreview liefert den automatisch berechneten RM-III-
+// Einstellungsstring aus den uebergebenen (noch nicht gespeicherten)
+// Formularwerten - fuer den "Standard einsetzen"-Button in disciplines.html,
+// der so auch bei einer neuen bzw. noch ungespeicherten Disziplin
+// funktioniert.
+func (a *APIServer) disciplineRMIIIConfigPreview(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[rmiiiConfigPreviewBody](r)
+	if err != nil || body.TargetID == "" {
+		return nil, errBadRequest("target_id erforderlich")
+	}
+	if body.MatchShotCount <= 0 {
+		body.MatchShotCount = 40
+	}
+	if body.ShotsPerSeries <= 0 {
+		body.ShotsPerSeries = 10
+	}
+	cfg, err := a.store.ComputeRMIIIConfigPreview(r.Context(), body.TargetID, body.MatchShotCount, body.ShotsPerSeries, body.DecimalScoring)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"config_string": cfg}, nil
 }
 
 func (a *APIServer) setSessionStatus(w http.ResponseWriter, r *http.Request) (any, error) {

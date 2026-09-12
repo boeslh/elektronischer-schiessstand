@@ -3,11 +3,15 @@
 //
 // Admin-only Werkzeug (wie Import/Export), um ein Preisschießen mit
 // plausiblen Testteilnehmern durchzuspielen, ohne echte Mitglieder zu
-// verwenden: legt Schützen mit Nachname "Testuser" an (verteilt auf
-// bestehende Vereine), meldet einen Teil davon im gewählten Preisschießen
-// an, kauft je Teilnehmer ein zur Altersklasse passendes Set plus einige
-// zusätzliche Einzelscheiben desselben Scheiben-Typs und "beschießt" jede
-// gekaufte Scheibe mit Zufallstreffern.
+// verwenden: legt Schützen mit konfigurierbarem Nachnamen an (Default
+// "Testuser", je Durchlauf frei waehlbar - so lassen sich mehrere Durchlaeufe
+// anhand des Nachnamens auseinanderhalten), verteilt auf die fuer DIESES
+// Preisschießen markierten Vereine (ps_verein_teilnahme, siehe
+// preisschiessen_vereine.go - sonst wuerden Vereine in der Vereinsauswertung
+// auftauchen, die gar nicht antreten), meldet einen Teil davon im gewählten
+// Preisschießen an, kauft je Teilnehmer ein zur Altersklasse passendes Set
+// plus einige zusätzliche Einzelscheiben desselben Scheiben-Typs und
+// "beschießt" jede gekaufte Scheibe mit Zufallstreffern.
 //
 // Markierung/Aufräumen: alle erzeugten Schützen bekommen shooters.notes mit
 // dem Präfix testdatenMarker - darüber findet CleanupTestdaten alles wieder,
@@ -29,6 +33,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -60,6 +65,7 @@ type TestdatenParams struct {
 	Anmelden         int
 	MinScheiben      int
 	MaxScheiben      int
+	LastName         string // leer = "Testuser" (default) - je Durchlauf frei waehlbar, siehe validate()
 }
 
 type TestdatenResult struct {
@@ -92,6 +98,9 @@ func (p TestdatenParams) validate() error {
 	}
 	if p.MinScheiben < 0 || p.MaxScheiben < p.MinScheiben || p.MaxScheiben > 50 {
 		return errBadRequest("ungültiger Scheiben-Bereich")
+	}
+	if len(p.LastName) > 60 {
+		return errBadRequest("Nachname zu lang (max. 60 Zeichen)")
 	}
 	return nil
 }
@@ -213,6 +222,10 @@ func (s *Store) GenerateTestdaten(ctx context.Context, p TestdatenParams) (Testd
 	if err := p.validate(); err != nil {
 		return res, err
 	}
+	lastName := strings.TrimSpace(p.LastName)
+	if lastName == "" {
+		lastName = "Testuser"
+	}
 
 	var psName string
 	var shootingType int
@@ -227,9 +240,12 @@ func (s *Store) GenerateTestdaten(ctx context.Context, p TestdatenParams) (Testd
 		refYear = endsOn.Year()
 	}
 
-	// Vereine
+	// Vereine - nur die fuer DIESES Preisschiessen markierten (ps_verein_teilnahme,
+	// siehe preisschiessen_vereine.go), sonst wuerden Testteilnehmer auf Vereine
+	// verteilt, die im Preisschiessen gar nicht antreten (verzerrt Vereinsauswertung).
 	var clubIDs []string
-	rows, err := s.pool.Query(ctx, `SELECT id FROM clubs`)
+	rows, err := s.pool.Query(ctx,
+		`SELECT club_id FROM ps_verein_teilnahme WHERE preisschiessen_id=$1`, p.PreisschiessenID)
 	if err != nil {
 		return res, err
 	}
@@ -243,7 +259,7 @@ func (s *Store) GenerateTestdaten(ctx context.Context, p TestdatenParams) (Testd
 	}
 	rows.Close()
 	if len(clubIDs) == 0 {
-		return res, errBadRequest("keine Vereine vorhanden – erst unter Stammdaten anlegen")
+		return res, errBadRequest("keine Vereine für dieses Preisschießen markiert – siehe Preisschießen-Bearbeitung > Vereine")
 	}
 
 	// Altersklassen-Pool: nur Klassen, die auch an mindestens ein Set dieses
@@ -290,13 +306,21 @@ func (s *Store) GenerateTestdaten(ctx context.Context, p TestdatenParams) (Testd
 		var shooterID string
 		if err := s.pool.QueryRow(ctx, `
 			INSERT INTO shooters (last_name, first_name, birth_date, gender, club_id, notes)
-			VALUES ('Testuser', $1, $2, $3, $4, $5) RETURNING id`,
-			firstName, birth, gender, clubID, marker,
+			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			lastName, firstName, birth, gender, clubID, marker,
 		).Scan(&shooterID); err != nil {
 			return res, fmt.Errorf("Schütze anlegen: %w", err)
 		}
 		shooterIDs = append(shooterIDs, shooterID)
 		res.ShootersCreated++
+	}
+
+	// Die Schuetzen wurden per Rohschema (nicht ueber Store.CreateShooter)
+	// angelegt - dessen automatischer Aufruf von RecalculateClubMemberCount
+	// greift hier also nicht, clubs.member_count wuerde sonst veraltet bleiben
+	// (Bugfix: "Anzahl der Mitglieder" aendert sich nach dem Generieren nicht).
+	if _, err := s.RecalculateAllClubMemberCounts(ctx); err != nil {
+		return res, fmt.Errorf("Mitgliederzahlen aktualisieren: %w", err)
 	}
 
 	if p.Anmelden == 0 {
@@ -779,6 +803,14 @@ func (s *Store) CleanupTestdaten(ctx context.Context) (TestdatenCleanupResult, e
 	if err := tx.Commit(ctx); err != nil {
 		return res, err
 	}
+
+	// Wie beim Anlegen (GenerateTestdaten) wurden die Schuetzen per Rohschema
+	// geloescht - clubs.member_count muss daher hier ebenso manuell
+	// nachgezogen werden, sonst bleibt die Mitgliederzahl nach dem Aufraeumen
+	// faelschlich erhoeht.
+	if _, err := s.RecalculateAllClubMemberCounts(ctx); err != nil {
+		return res, fmt.Errorf("Mitgliederzahlen aktualisieren: %w", err)
+	}
 	return res, nil
 }
 
@@ -796,6 +828,7 @@ func (a *APIServer) generateTestdatenHandler(w http.ResponseWriter, r *http.Requ
 		Anmelden         int    `json:"anmelden"`
 		MinScheiben      int    `json:"min_scheiben"`
 		MaxScheiben      int    `json:"max_scheiben"`
+		LastName         string `json:"last_name"`
 	}](r)
 	if err != nil {
 		return nil, errBadRequest("ungültiger Body: " + err.Error())
@@ -806,6 +839,7 @@ func (a *APIServer) generateTestdatenHandler(w http.ResponseWriter, r *http.Requ
 		Anmelden:         body.Anmelden,
 		MinScheiben:      body.MinScheiben,
 		MaxScheiben:      body.MaxScheiben,
+		LastName:         body.LastName,
 	})
 }
 

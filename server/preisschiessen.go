@@ -68,6 +68,10 @@ type PSScheibe struct {
 	AuswertungUnsichtbar bool     `json:"auswertung_unsichtbar"`
 	ClassIDs             []string `json:"class_ids"`
 	RequiredSetIDs       []string `json:"required_set_ids"`
+	// ScoringMode der zugehoerigen Disziplin ("elektronisch"/"papier") -
+	// bei "papier" verlangt der Kauf-Dialog eine physische Seriennummer
+	// (ps_kauf_scheiben.physical_serial_no, siehe migrations/056).
+	ScoringMode string `json:"scoring_mode"`
 }
 
 type PSSetItem struct {
@@ -111,7 +115,12 @@ type PSKaufScheibeEinheit struct {
 	ScheibeName   string  `json:"scheibe_name"`
 	TargetColor   string  `json:"target_color"`
 	SerialNo      int     `json:"serial_no"`
-	SessionID     *string `json:"session_id"`
+	// PhysicalSerialNo: die beim Verkauf einer Papierscheibe eingetippte
+	// Seriennummer der physischen Scheibe (migrations/056) - unterscheidet
+	// sich von SerialNo (rein intern, automatisch fortlaufend). Leer bei
+	// elektronischen Scheiben.
+	PhysicalSerialNo string  `json:"physical_serial_no"`
+	SessionID        *string `json:"session_id"`
 	LaneNo        *int    `json:"lane_no"`
 	ShotCount     int     `json:"shot_count"`
 	RequiredShots int     `json:"required_shots"`
@@ -137,6 +146,12 @@ type CartItem struct {
 	Typ       string `json:"typ"` // scheibe | set
 	ScheibeID string `json:"scheibe_id"`
 	SetID     string `json:"set_id"`
+	// PhysicalSerial: Seriennummer der physischen Papierscheibe (nur bei
+	// Papier-Disziplinen, siehe migrations/056) - vom Verkaeufer beim Kauf
+	// eingetippt, da vorgedruckte Scheiben aus einem Vorrat mit nicht-
+	// fortlaufenden Nummern verwendet werden. Bei "set" gilt sie fuer die
+	// (einzige) darin enthaltene Papierscheibe, falls vorhanden.
+	PhysicalSerial string `json:"physical_serial"`
 }
 
 // PSScheibeTyp ist eine wählbare Scheiben-ART (nicht die einzelne
@@ -324,7 +339,8 @@ func (s *Store) ListScheiben(ctx context.Context, preisschiessenID string) ([]PS
 		       sc.price, COALESCE(sc.target_color,''), sc.standalone_erlaubt,
 		       sc.active, sc.sort_order, sc.max_pro_teilnehmer, sc.max_pro_tag, sc.auswertung_unsichtbar,
 		       COALESCE((SELECT array_agg(class_id::text) FROM ps_scheibe_classes WHERE scheibe_id = sc.id), '{}'),
-		       COALESCE((SELECT array_agg(required_set_id::text) FROM ps_scheibe_requires_set WHERE scheibe_id = sc.id), '{}')
+		       COALESCE((SELECT array_agg(required_set_id::text) FROM ps_scheibe_requires_set WHERE scheibe_id = sc.id), '{}'),
+		       d.scoring_mode
 		FROM ps_scheiben sc
 		JOIN disciplines d ON d.id = sc.discipline_id
 		WHERE sc.preisschiessen_id = $1
@@ -338,7 +354,7 @@ func (s *Store) ListScheiben(ctx context.Context, preisschiessenID string) ([]PS
 		var x PSScheibe
 		if err := rows.Scan(&x.ID, &x.PreisschiessenID, &x.Name, &x.DisciplineID, &x.DisciplineName,
 			&x.Price, &x.TargetColor, &x.StandaloneErlaubt, &x.Active, &x.SortOrder, &x.MaxProTeilnehmer,
-			&x.MaxProTag, &x.AuswertungUnsichtbar, &x.ClassIDs, &x.RequiredSetIDs); err != nil {
+			&x.MaxProTag, &x.AuswertungUnsichtbar, &x.ClassIDs, &x.RequiredSetIDs, &x.ScoringMode); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -731,7 +747,7 @@ func (s *Store) GetTeilnehmer(ctx context.Context, id string) (PSTeilnehmer, err
 func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID string) ([]PSKaufScheibeEinheit, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT ks.id, ks.kauf_id, ks.scheibe_id, sc.name, COALESCE(sc.target_color,''),
-		       ks.serial_no, ks.session_id::text,
+		       ks.serial_no, COALESCE(ks.physical_serial_no,''), ks.session_id::text,
 		       l.lane_no, COALESCE(se.status::text, ''),
 		       (SELECT COUNT(*) FROM shots sh WHERE sh.session_id = ks.session_id AND sh.status <> 'rejected'),
 		       COALESCE(sr.shot_count, 0), d.match_shot_count
@@ -753,7 +769,7 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 		var x PSKaufScheibeEinheit
 		var anyShots, matchShots, required int
 		var sessionStatus string
-		if err := rows.Scan(&x.ID, &x.KaufID, &x.ScheibeID, &x.ScheibeName, &x.TargetColor, &x.SerialNo, &x.SessionID,
+		if err := rows.Scan(&x.ID, &x.KaufID, &x.ScheibeID, &x.ScheibeName, &x.TargetColor, &x.SerialNo, &x.PhysicalSerialNo, &x.SessionID,
 			&x.LaneNo, &sessionStatus, &anyShots, &matchShots, &required); err != nil {
 			return nil, err
 		}
@@ -782,10 +798,19 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 // gekaufter Scheibe, bei Sets entsprechend der Stückzahl je enthaltener
 // Scheibe. Muss innerhalb derselben Transaktion wie der ps_kaeufe-Insert
 // laufen (atomarer Seriennummern-Zähler auf preisschiessen).
-func (s *Store) createKaufEinheiten(ctx context.Context, tx pgx.Tx, preisschiessenID, kaufID string, scheibeIDs []string) error {
+// createKaufEinheiten legt je gekaufter Scheibe eine ps_kauf_scheiben-Zeile
+// an. physicalSerial (siehe migrations/056, CartItem.PhysicalSerial) wird
+// nur gesetzt, wenn genau EINE Scheibe gekauft wird - bei einem Set mit
+// mehreren Scheiben waere nicht eindeutig, welche der physischen Karte
+// entspricht (Papier-Disziplinen sollten daher einzeln, nicht als Teil
+// eines Mehrfach-Sets verkauft werden).
+func (s *Store) createKaufEinheiten(ctx context.Context, tx pgx.Tx, preisschiessenID, kaufID string, scheibeIDs []string, physicalSerial string) error {
 	n := len(scheibeIDs)
 	if n == 0 {
 		return nil
+	}
+	if physicalSerial != "" && n != 1 {
+		return errBadRequest("physische Seriennummer nur bei Einzelkauf einer Scheibe möglich (nicht bei Sets mit mehreren Scheiben)")
 	}
 	var startSerial int
 	if err := tx.QueryRow(ctx, `
@@ -796,10 +821,17 @@ func (s *Store) createKaufEinheiten(ctx context.Context, tx pgx.Tx, preisschiess
 		return err
 	}
 	for i, scheibeID := range scheibeIDs {
+		var physSerialArg any
+		if physicalSerial != "" {
+			physSerialArg = physicalSerial
+		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO ps_kauf_scheiben (preisschiessen_id, kauf_id, scheibe_id, serial_no)
-			VALUES ($1,$2,$3,$4)`,
-			preisschiessenID, kaufID, scheibeID, startSerial+i); err != nil {
+			INSERT INTO ps_kauf_scheiben (preisschiessen_id, kauf_id, scheibe_id, serial_no, physical_serial_no)
+			VALUES ($1,$2,$3,$4,$5)`,
+			preisschiessenID, kaufID, scheibeID, startSerial+i, physSerialArg); err != nil {
+			if isUniqueViolation(err) {
+				return errBadRequest(fmt.Sprintf("Seriennummer %q wurde bereits vergeben", physicalSerial))
+			}
 			return err
 		}
 	}
@@ -982,7 +1014,8 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 		SELECT sc.id, sc.preisschiessen_id, sc.name, sc.discipline_id, d.name, sc.price,
 		       COALESCE(sc.target_color,''), sc.standalone_erlaubt, sc.active, sc.sort_order,
 		       sc.max_pro_teilnehmer,
-		       COALESCE((SELECT array_agg(required_set_id::text) FROM ps_scheibe_requires_set WHERE scheibe_id = sc.id), '{}')
+		       COALESCE((SELECT array_agg(required_set_id::text) FROM ps_scheibe_requires_set WHERE scheibe_id = sc.id), '{}'),
+		       d.scoring_mode
 		FROM ps_scheiben sc
 		JOIN disciplines d ON d.id = sc.discipline_id
 		WHERE sc.preisschiessen_id = $1
@@ -1014,7 +1047,7 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 		var x PSScheibe
 		if err := scheibenRows.Scan(&x.ID, &x.PreisschiessenID, &x.Name, &x.DisciplineID, &x.DisciplineName,
 			&x.Price, &x.TargetColor, &x.StandaloneErlaubt, &x.Active, &x.SortOrder, &x.MaxProTeilnehmer,
-			&x.RequiredSetIDs); err != nil {
+			&x.RequiredSetIDs, &x.ScoringMode); err != nil {
 			scheibenRows.Close()
 			return nil, nil, err
 		}
@@ -1221,7 +1254,22 @@ func (s *Store) purchaseItem(ctx context.Context, tx pgx.Tx, teilnehmerID, preis
 		return "", 0, err
 	}
 
-	if err := s.createKaufEinheiten(ctx, tx, preisschiessenID, kaufID, scheibeIDs); err != nil {
+	// Papier-Disziplin verlangt zwingend die physische Seriennummer -
+	// serverseitig durchgesetzt, nicht nur als UI-Hinweis (siehe
+	// migrations/055/056, Konzept .claude/plans/wise-scribbling-abelson.md).
+	if item.Typ == "scheibe" && item.PhysicalSerial == "" {
+		var scoringMode string
+		if err := tx.QueryRow(ctx, `
+			SELECT d.scoring_mode FROM ps_scheiben sc JOIN disciplines d ON d.id = sc.discipline_id
+			WHERE sc.id = $1`, item.ScheibeID).Scan(&scoringMode); err != nil {
+			return "", 0, err
+		}
+		if scoringMode == "papier" {
+			return "", 0, errBadRequest("Seriennummer der Papierscheibe erforderlich")
+		}
+	}
+
+	if err := s.createKaufEinheiten(ctx, tx, preisschiessenID, kaufID, scheibeIDs, item.PhysicalSerial); err != nil {
 		return "", 0, err
 	}
 	return kaufID, preis, nil
@@ -1456,7 +1504,7 @@ func (s *Store) AssignTeilnehmerLane(ctx context.Context, teilnehmerID, scheibeI
 		return "", err
 	}
 
-	sessionID, err := s.AssignLane(ctx, laneNo, shooterID, disciplineID, "")
+	sessionID, err := s.AssignLaneSelfService(ctx, laneNo, shooterID, disciplineID, "")
 	if err != nil {
 		return "", err
 	}

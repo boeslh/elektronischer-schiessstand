@@ -5,6 +5,7 @@
 !/server/
 !/standpc/
 !/preisanzeige/
+!/wertmaschine/
 !/README.md
 !/datenmodell.sql
 !/install-services.sh
@@ -21,8 +22,7 @@
 /standpc/standpc_bin
 /standpc/simulator/simulator
 /standpc/config.json
-/standpc/config-lane02.json
-/standpc/config-lane03.json
+/standpc/config-lane*.json
 /standpc/font_sizes.json
 /standpc/admin_password_hash.json
 /standpc/shotlog/
@@ -33,6 +33,12 @@
 # ---- preisanzeige/ ----
 /preisanzeige/preisanzeige
 /preisanzeige/config.json
+
+# ---- wertmaschine/ ----
+/wertmaschine/wertmaschine
+/wertmaschine/wertmaschine_bin
+/wertmaschine/config.json
+/wertmaschine/cmd_test_manual/
 
 # Go-Build-Artefakte allgemein
 *.test

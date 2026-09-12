@@ -20,6 +20,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"flag"
 	"log"
 	"os/signal"
@@ -48,6 +49,9 @@ func main() {
 		"Nur Preisschiessen-Auswertung im Hintergrund berechnen, kein HTTP-Server/UI/Standverwaltung. "+
 			"Zum horizontalen Skalieren der Auswertungslast: beliebig viele Instanzen mit derselben -dsn "+
 			"auf verschiedenen Rechnern starten, siehe preisschiessen_wertungen.go.")
+	wertmaschinePSKHex := flag.String("wertmaschine-psk-hex", "",
+		"Pre-Shared-Key (Hex) fuer die /api/wertmaschine/*-Endpunkte, gleiches HMAC-Schema wie "+
+			"ESP32<->StandPC (standpc/devicelink.go). Leer = Feature aus (Endpunkte lehnen jede Anfrage ab).")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(),
@@ -71,7 +75,15 @@ func main() {
 	go live.RunListener(ctx, *dsn) // pg LISTEN shot_fired -> SSE
 	go RunAuswertungScheduler(ctx, store.pool)
 
-	srv := NewAPIServer(store, live, *listen, *dsn, *backupDir)
+	wertmaschinePSK, err := hex.DecodeString(*wertmaschinePSKHex)
+	if err != nil {
+		log.Fatalf("FATAL: -wertmaschine-psk-hex ungueltig (muss Hex sein): %v", err)
+	}
+	if len(wertmaschinePSK) == 0 {
+		log.Printf("WARNUNG: wertmaschine_psk_hex nicht konfiguriert - /api/wertmaschine/* lehnt jede Anfrage ab")
+	}
+
+	srv := NewAPIServer(store, live, *listen, *dsn, *backupDir, wertmaschinePSK)
 	log.Printf("Server: http://localhost%s", *listen)
 	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("FATAL HTTP: %v", err)

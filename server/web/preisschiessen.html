@@ -1147,7 +1147,7 @@ async function kaRenderAngebot() {
     <div class="offer-row">
       <span class="name">${esc(sc.name)}</span>
       <div><span class="price">${eur(sc.price)}</span>
-      <button class="btn-buy" onclick='kaAddToCart("scheibe","${sc.id}",${JSON.stringify(sc.name)},${sc.price},${sc.max_pro_teilnehmer ?? 'null'})'>In Warenkorb</button></div>
+      <button class="btn-buy" onclick='kaAddToCart("scheibe","${sc.id}",${JSON.stringify(sc.name)},${sc.price},${sc.max_pro_teilnehmer ?? 'null'},${JSON.stringify(sc.scoring_mode)})'>In Warenkorb</button></div>
     </div>`).join('') : '<p class="hint">Keine einzelnen Scheiben verfügbar.</p>';
 }
 
@@ -1165,7 +1165,7 @@ async function kaRenderKonto() {
 }
 
 // ── Warenkorb (2-stufiger Kauf) ─────────────────────────────────────────
-function kaAddToCart(typ, id, name, price, maxProTeilnehmer) {
+function kaAddToCart(typ, id, name, price, maxProTeilnehmer, scoringMode) {
   if (maxProTeilnehmer != null) {
     const countInCart = kaCart.filter(c => c.typ === typ && c.id === id).length;
     if (countInCart >= maxProTeilnehmer) {
@@ -1173,7 +1173,10 @@ function kaAddToCart(typ, id, name, price, maxProTeilnehmer) {
       return;
     }
   }
-  kaCart.push({typ, id, name, price});
+  // papier: Papierscheiben-Disziplin - verlangt beim Kauf die Seriennummer
+  // der physischen Karte (siehe migrations/056, Konzept
+  // .claude/plans/wise-scribbling-abelson.md).
+  kaCart.push({typ, id, name, price, papier: scoringMode === 'papier', physicalSerial: ''});
   kaRenderCart();
   if (typ === 'set') kaRenderAngebot(); // evtl. davon abhängige Scheiben jetzt freischalten
 }
@@ -1186,7 +1189,15 @@ function kaRemoveFromCart(i) {
 }
 
 function kaCartTotal() { return kaCart.reduce((s, c) => s + c.price, 0); }
-function kaCartPayload() { return kaCart.map(c => c.typ === 'set' ? {typ:'set', set_id:c.id} : {typ:'scheibe', scheibe_id:c.id}); }
+function kaCartPayload() {
+  return kaCart.map(c => c.typ === 'set'
+    ? {typ:'set', set_id:c.id}
+    : {typ:'scheibe', scheibe_id:c.id, physical_serial: c.physicalSerial || ''});
+}
+// Fehlt bei einer Papierscheiben-Position noch die Seriennummer, darf noch
+// nicht bezahlt werden (Server lehnt es zwar ohnehin ab, aber erst nach dem
+// Klick - hier direkt verhindern und anzeigen, welche Zeile betroffen ist).
+function kaCartMissingSerial() { return kaCart.some(c => c.papier && !c.physicalSerial); }
 
 function kaRenderCart() {
   const el = document.getElementById('ka-tk-cart');
@@ -1195,11 +1206,35 @@ function kaRenderCart() {
       <span class="name">${esc(c.name)}</span>
       <div><span class="price">${eur(c.price)}</span>
       <button class="btn-ret" onclick="kaRemoveFromCart(${i})">Entfernen</button></div>
-    </div>`).join('') + `
+    </div>` + (c.papier ? `
+    <div class="offer-row" style="padding-top:0">
+      <input type="text" placeholder="Seriennummer Papierscheibe *" value="${esc(c.physicalSerial)}"
+             oninput="kaSetCartSerial(${i}, this.value)" style="flex:1">
+      <span id="ka-serial-check-${i}" class="hint"></span>
+    </div>` : '')).join('') + `
     <div class="offer-row" style="font-weight:700"><span>Summe</span><span>${eur(kaCartTotal())}</span></div>`
     : '<p class="hint">Warenkorb ist leer.</p>';
 
   if (document.getElementById('ka-bezahlen-panel').style.display !== 'none') kaUpdatePayPreview();
+}
+
+let kaSerialCheckTimer = null;
+function kaSetCartSerial(i, value) {
+  if (!kaCart[i]) return;
+  kaCart[i].physicalSerial = value.trim();
+  const checkEl = document.getElementById(`ka-serial-check-${i}`);
+  clearTimeout(kaSerialCheckTimer);
+  if (!kaCart[i].physicalSerial) { if (checkEl) checkEl.textContent = ''; return; }
+  kaSerialCheckTimer = setTimeout(async () => {
+    try {
+      const res = await api(`/preisschiessen/${currentPS.id}/scheiben-einheiten/by-physical-serial?serial=`
+        + encodeURIComponent(kaCart[i].physicalSerial));
+      if (checkEl) {
+        checkEl.textContent = res.taken ? 'bereits vergeben!' : 'frei';
+        checkEl.style.color = res.taken ? 'var(--err)' : 'var(--acc)';
+      }
+    } catch (e) { /* Live-Check ist nur eine Vorab-Hilfe, Fehler hier ignorieren */ }
+  }, 300);
 }
 
 // ── Bezahlen (bewusst getrennter Schritt, schließt den Warenkorb mit ein;
@@ -1231,6 +1266,10 @@ function kaUpdatePayPreview() {
   document.getElementById('ka-pay-preview').textContent = `Guthaben nach Zahlung: ${eur(neu)}`;
 
   const actions = document.getElementById('ka-pay-actions');
+  if (kaCartMissingSerial()) {
+    actions.innerHTML = `<p class="hint" style="color:var(--err)">Bitte zuerst bei allen Papierscheiben im Warenkorb die Seriennummer eintragen.</p>`;
+    return;
+  }
   if (neu > 0.004) {
     actions.innerHTML = `
       <button type="button" class="btn-cancel" onclick="kaFinalizeBezahlen(false)">Rest als Guthaben behalten</button>
@@ -1406,7 +1445,7 @@ async function tnRefreshDetail() {
   const tbody = document.getElementById('tn-einheiten-tbody');
   tbody.innerHTML = (einheiten && einheiten.length) ? einheiten.map(e => `
       <tr>
-        <td>#${e.serial_no}</td>
+        <td>#${e.serial_no}${e.physical_serial_no ? ` (${esc(e.physical_serial_no)})` : ''}</td>
         <td>${esc(e.scheibe_name)}</td>
         <td><span class="badge badge-${e.status}">${TN_STATUS_LABEL[e.status]||e.status}</span></td>
         <td style="font-size:.8rem">${e.shot_count}/${e.required_shots}</td>
@@ -1522,7 +1561,7 @@ async function stRefreshDetail() {
   const tbody = document.getElementById('st-tbody');
   tbody.innerHTML = (einheiten && einheiten.length) ? einheiten.map(e => `
       <tr>
-        <td>#${e.serial_no}</td>
+        <td>#${e.serial_no}${e.physical_serial_no ? ` (${esc(e.physical_serial_no)})` : ''}</td>
         <td>${esc(e.scheibe_name)}</td>
         <td><span class="badge badge-${e.status}">${TN_STATUS_LABEL[e.status]||e.status}</span></td>
         <td style="font-size:.82rem">${e.lane_no ? `Stand ${e.lane_no}` : '–'}</td>

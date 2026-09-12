@@ -384,6 +384,10 @@ form input:focus, form select:focus { outline: none; border-color: #e94560; }
         <input type="search" id="tm-search" placeholder="Name oder Passnummer…" oninput="searchForMember()">
         <button type="button" class="btn-cancel" onclick="hideAddMember()">Abbrechen</button>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#a0a0c0;margin-top:8px;cursor:pointer">
+        <input type="checkbox" id="tm-only-club" checked onchange="searchForMember()">
+        Nur Vereinsmitglieder anzeigen
+      </label>
       <div id="tm-search-results" style="margin-top:8px"></div>
     </div>
 
@@ -1050,6 +1054,7 @@ async function runMemberImport() {
 // ──── Mannschaften ───────────────────────────────────────────────────────
 let teams = [];
 let activeTeamID = null;
+let activeTeamClubID = null; // fuer "Nur Vereinsmitglieder anzeigen" beim Mitglied-Hinzufuegen
 
 function fillTeamSelects() {
   // Verein-Filter
@@ -1160,6 +1165,7 @@ function editTeam(id) {
   document.getElementById('tf-club').value = t.club_id || '';
   document.getElementById('tf-gau').value  = t.gau_id  || '';
   hideMsg('tf-msg');
+  showTeamMembersPanel(id, t.name);
   document.getElementById('team-form').scrollIntoView({behavior:'smooth'});
 }
 async function saveTeam(e) {
@@ -1194,13 +1200,23 @@ async function deleteTeamRow(id, name) {
 }
 
 // ──── Mannschafts-Mitglieder ─────────────────────────────────────────────
-async function openTeamMembers(teamID, teamName) {
+// showTeamMembersPanel: blendet das Mitglieder-Panel ein und laedt es, OHNE
+// dorthin zu scrollen - gemeinsam genutzt von openTeamMembers (Klick auf die
+// Zeile, scrollt zum Panel) und editTeam (Klick auf "Bearb.", scrollt zum
+// Bearbeiten-Formular, das Panel soll aber trotzdem sichtbar/nutzbar sein -
+// sonst gibt es nach einem Klick auf "Bearb." keine Möglichkeit mehr, direkt
+// Mitglieder hinzuzufügen).
+function showTeamMembersPanel(teamID, teamName) {
   activeTeamID = teamID;
   const t = teams.find(x => x.id === teamID);
+  activeTeamClubID = (t && t.club_id) || null;
   document.getElementById('tm-team-name').textContent = teamName || (t && t.name) || '';
   document.getElementById('team-members-card').style.display = 'block';
   hideAddMember();
-  await loadTeamMembers();
+  return loadTeamMembers();
+}
+async function openTeamMembers(teamID, teamName) {
+  await showTeamMembersPanel(teamID, teamName);
   renderTeams(); // Zeile hervorheben
   document.getElementById('team-members-card').scrollIntoView({behavior:'smooth'});
 }
@@ -1235,6 +1251,13 @@ function renderTeamMembers(list) {
   }
 }
 
+// Geburtsjahr in Klammern hinter dem Namen - hilft, Vater/Sohn mit
+// gleichem Namen im selben Verein auseinanderzuhalten.
+function birthYearSuffix(birthDate) {
+  if (!birthDate || birthDate.length < 4) return '';
+  return ` <span style="color:#a0a0c0;font-weight:normal">(${birthDate.slice(0,4)})</span>`;
+}
+
 function showAddMember() { document.getElementById('tm-add-row').style.display = 'block'; document.getElementById('tm-search').focus(); }
 function hideAddMember() { document.getElementById('tm-add-row').style.display = 'none'; document.getElementById('tm-search').value = ''; document.getElementById('tm-search-results').innerHTML = ''; }
 
@@ -1244,7 +1267,10 @@ function searchForMember() {
   tmSearchTimer = setTimeout(async () => {
     const q = document.getElementById('tm-search').value.trim();
     if (q.length < 2) { document.getElementById('tm-search-results').innerHTML = ''; return; }
-    const data = await api(`/shooters/list?q=${encodeURIComponent(q)}&page=1`);
+    const onlyClub = document.getElementById('tm-only-club').checked;
+    let url = `/shooters/list?q=${encodeURIComponent(q)}&page=1`;
+    if (onlyClub && activeTeamClubID) url += `&club_id=${encodeURIComponent(activeTeamClubID)}`;
+    const data = await api(url);
     const list = data.shooters || [];
     const el = document.getElementById('tm-search-results');
     if (!list.length) { el.innerHTML = '<div style="font-size:.8rem;color:#a0a0c0">Keine Treffer</div>'; return; }
@@ -1252,7 +1278,7 @@ function searchForMember() {
       <div onclick="addMember('${s.id}','${esc(s.last_name+', '+s.first_name)}')"
            style="padding:6px 10px;background:#1a1a2e;border-radius:5px;margin-bottom:4px;cursor:pointer;font-size:.83rem;display:flex;justify-content:space-between;align-items:center"
            onmouseover="this.style.background='#2a2a4a'" onmouseout="this.style.background='#1a1a2e'">
-        <span><strong>${esc(s.last_name)}</strong>, ${esc(s.first_name)}</span>
+        <span><strong>${esc(s.last_name)}</strong>, ${esc(s.first_name)}${birthYearSuffix(s.birth_date)}</span>
         <span style="color:#a0a0c0">${esc(s.club_name)} ${s.pass_no ? '· '+esc(s.pass_no) : ''}</span>
       </div>`).join('');
   }, 250);

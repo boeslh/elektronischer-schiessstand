@@ -59,12 +59,12 @@
   #modeBtn:disabled { opacity: 0.35; cursor: default; }
 
   /* ── Menü-Buttons ── */
-  #psBtn, #discBtn, #zoomBtn {
+  #psBtn, #discBtn, #zoomBtn, #releaseBtn {
     font-size: 16px; padding: 3px 10px; border-radius: 4px; cursor: pointer;
     border: 1px solid var(--line); background: var(--panel); color: var(--text);
     line-height: 1;
   }
-  #psBtn:hover, #discBtn:hover, #zoomBtn:hover { background: var(--line); }
+  #psBtn:hover, #discBtn:hover, #zoomBtn:hover, #releaseBtn:hover { background: var(--line); }
 
   /* ── Menü-Modale (3 unabhängige: Preisschießen / Disziplin / Zoom) ── */
   .menu-overlay {
@@ -242,6 +242,7 @@
     <button id="modeBtn">→ Wertung</button>
   </div>
   <button id="psBtn" title="Preisschießen" style="display:none">🏆</button>
+  <button id="releaseBtn" title="Stand freigeben" style="display:none">🔓</button>
   <button id="discBtn" title="Disziplin wählen">🎯</button>
   <button id="zoomBtn" title="Zoom">🔍</button>
   <span id="devBadge" title="Klick auf die Scheibe löst einen Schuss aus">🛠 Testmodus</span>
@@ -742,6 +743,7 @@ function applyStatus(st) {
   currentMode       = st.mode || 'probe';
   currentHistoryGen = st.history_gen;
   discipline        = st.discipline || null;
+  lastWertungCount  = st.wertung_count || 0;
 
   document.getElementById('laneBadge').textContent = st.lane_no ? `Stand ${st.lane_no}` : '';
   document.body.classList.toggle('dev-mode', !!st.dev_mode);
@@ -852,6 +854,21 @@ let psWasPending = false; // fuer Aufsteigende-Flanke-Erkennung (Menue nur EINMA
 let psWasNeedsTeilnehmer = false; // dito, fuer den Selbstbedienungs-Suchzustand
 let buchenConfirmedFor = null; // teilnehmer_id, fuer die "Buchen" schon einmal bestaetigt wurde (Schutz vor Fehlklick)
 let lastSessionShooter = ''; // Schuetze aus der aktiven Session (leer, solange nur "pending")
+let lastWertungCount = 0; // fuer releaseConfirmText() - siehe applyStatus()
+
+// disciplineComplete/releaseConfirmText: die "bereits geschossene Schuesse
+// bleiben gespeichert"-Rueckversicherung im Freigeben-Dialog soll nur
+// erscheinen, wenn tatsaechlich noch nicht alle Wertungsschuesse abgegeben
+// wurden - ist die Disziplin schon fertig geschossen, gibt es dabei nichts
+// zu verlieren und der Hinweis ist nur verwirrend.
+function disciplineComplete() {
+  return !!(discipline && discipline.scoring_shots > 0 && lastWertungCount >= discipline.scoring_shots);
+}
+function releaseConfirmText() {
+  return disciplineComplete()
+    ? 'Stand freigeben?'
+    : 'Stand freigeben? Die Disziplin ist noch nicht abgeschlossen – bereits geschossene Schüsse bleiben gespeichert.';
+}
 
 // Zeigt den Schuetzen-Namen sofort an - auch bevor eine Session existiert
 // (waehrend der Preisschiessen-Teilnehmer noch seine Scheibe waehlen muss).
@@ -883,18 +900,23 @@ document.getElementById('zoomBtn').addEventListener('click', () => {
   el.addEventListener('click', e => { if (e.target === el) closeMenu(id); });
 });
 
-// Sichtbarkeit der Disziplin- und Preisschießen-Menü-Buttons: Disziplin nur
-// wenn kein Schütze über den Server zugewiesen ist (weder normale
-// Standbelegung noch Preisschießen, egal ob wartend oder bereits aktiv) -
-// Preisschießen nur solange der Stand im Preisschießen-Modus ist.
+// Sichtbarkeit der Disziplin-, Preisschießen- und Freigeben-Buttons:
+// Disziplin nur wenn kein Schütze über den Server zugewiesen ist (weder
+// normale Standbelegung noch Preisschießen, egal ob wartend oder bereits
+// aktiv) - Preisschießen nur solange der Stand im Preisschießen-Modus ist -
+// Freigeben nur bei einer normalen (NICHT über Preisschießen laufenden)
+// zugewiesenen Session, das Preisschießen-Menü hat sein eigenes "Stand
+// freigeben" (psFreeBtn).
 function updateMenuButtonVisibility() {
-  const discBtn = document.getElementById('discBtn');
-  const psBtn   = document.getElementById('psBtn');
+  const discBtn    = document.getElementById('discBtn');
+  const psBtn      = document.getElementById('psBtn');
+  const releaseBtn = document.getElementById('releaseBtn');
   const showDisc = !lastSessionShooter && !psInfo;
   discBtn.style.display = showDisc ? '' : 'none';
   if (!showDisc) closeMenu('discOverlay');
   psBtn.style.display = psInfo ? '' : 'none';
   if (!psInfo) closeMenu('psOverlay');
+  releaseBtn.style.display = (lastSessionShooter && !psInfo) ? '' : 'none';
 }
 
 function buildDiscList(currentName) {
@@ -930,10 +952,21 @@ fetch('/disciplines').then(r => r.json()).then(list => { allDisciplines = list |
 function formatEuro(v) { return (v || 0).toFixed(2).replace('.', ',') + ' €'; }
 
 document.getElementById('psFreeBtn').addEventListener('click', () => {
-  if (!confirm('Stand freigeben? Die Session wird beendet, bereits geschossene Schüsse bleiben gespeichert.')) return;
+  if (!confirm(releaseConfirmText())) return;
   fetch('/preisschiessen/freigeben', {method: 'POST'})
     .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
     .then(() => { clearDisplay(); closeMenu('psOverlay'); })
+    .catch(err => alert('Fehler: ' + err.message));
+});
+
+// "Stand freigeben" fuer die normale (nicht ueber Preisschiessen laufende)
+// Session - siehe web.go handleReleaseLane. Button nur sichtbar, solange
+// kein Preisschiessen aktiv ist (updateMenuButtonVisibility).
+document.getElementById('releaseBtn').addEventListener('click', () => {
+  if (!confirm(releaseConfirmText())) return;
+  fetch('/freigeben', {method: 'POST'})
+    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+    .then(() => { clearDisplay(); })
     .catch(err => alert('Fehler: ' + err.message));
 });
 

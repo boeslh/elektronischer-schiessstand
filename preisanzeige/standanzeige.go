@@ -36,6 +36,13 @@ type standShot struct {
 	Decimal *float64 `json:"decimal"`
 }
 
+// seriesSum: Ringsumme einer abgeschlossenen (oder laufenden) Wertungsserie.
+type seriesSum struct {
+	No      int
+	Rings   int
+	Decimal float64
+}
+
 // standTile: alles fuer eine Kachel - leere Felder = Stand frei.
 type standTile struct {
 	LaneNo         int
@@ -48,8 +55,12 @@ type standTile struct {
 	ShotCount      int
 	Shots          []standShot // Schuesse der aktuellen Serie (oder alle Probeschuesse, falls noch keine Wertungsserie)
 	LastShot       *standShot  // letzter Schuss aus Shots, fuer die Ergebniszeile
+	Series         []seriesSum // die letzten (max. 6) Serien, aelteste faellt zuerst raus
 	ProbeMode      bool        // noch kein Wertungsschuss (kind='match') in dieser Session
 }
+
+// maxDisplayedSeries: mehr Serien werden von vorne (aelteste zuerst) verworfen.
+const maxDisplayedSeries = 6
 
 func renderStandanzeige(w io.Writer, ctx context.Context, pool *pgxpool.Pool, slot anzeigeSlot) {
 	var p standParams
@@ -92,11 +103,21 @@ func renderStandanzeige(w io.Writer, ctx context.Context, pool *pgxpool.Pool, sl
 	fmt.Fprintf(w, standanzeigeFoot, reload, reload*max(len(tiles), 1))
 }
 
-// loadActiveLaneNos: leeres lane_nos in der Konfiguration = alle aktiven
-// Stände (siehe server/anzeige_config.go defaultAnzeigeSlot1) - macht Slot 1
-// ohne jede manuelle Standauswahl direkt nutzbar.
+// loadActiveLaneNos: leeres lane_nos in der Konfiguration = alle aktiven UND
+// gerade online Stände (siehe server/anzeige_config.go defaultAnzeigeSlot1) -
+// macht Slot 1 ohne jede manuelle Standauswahl direkt nutzbar. "Online" wird
+// per live_last_seen_at bestimmt, das der Stand-PC alle 3s per PUT
+// /api/lanes/{no}/livestate aktualisiert (server/api.go setLiveState,
+// server/store.go SetLaneLastSeen) - derselbe 10s-Schwellwert wie die
+// grün/rot-Anzeige in server/web/lanes.html (connDotClass). Eine explizite
+// Standauswahl (lane_nos gesetzt) wird NICHT gefiltert - dort ist die Auswahl
+// bewusst, ein gerade offline gemeldeter Stand zeigt dann seinen letzten
+// DB-Stand statt kommentarlos zu verschwinden.
 func loadActiveLaneNos(ctx context.Context, pool *pgxpool.Pool) []int {
-	rows, err := pool.Query(ctx, `SELECT lane_no FROM lanes WHERE active ORDER BY lane_no`)
+	rows, err := pool.Query(ctx, `
+		SELECT lane_no FROM lanes
+		WHERE active AND NOT virtual AND live_last_seen_at > now() - interval '10 seconds'
+		ORDER BY lane_no`)
 	if err != nil {
 		return nil
 	}
@@ -143,6 +164,37 @@ func chunkInts(list []int, size int) [][]int {
 	}
 	if len(out) == 0 {
 		out = [][]int{{}}
+	}
+	return out
+}
+
+// seriesSums fasst die Wertungsschuesse in Bloecken von shotsPerSeries
+// zusammen (die letzte Serie ggf. noch unvollstaendig) und liefert davon nur
+// die letzten maxDisplayedSeries - bei mehr Serien faellt die aelteste zuerst
+// aus der Anzeige.
+func seriesSums(match []standShot, shotsPerSeries int) []seriesSum {
+	if shotsPerSeries <= 0 {
+		shotsPerSeries = len(match)
+	}
+	var out []seriesSum
+	for i := 0; i < len(match); i += shotsPerSeries {
+		end := i + shotsPerSeries
+		if end > len(match) {
+			end = len(match)
+		}
+		sum := seriesSum{No: i/shotsPerSeries + 1}
+		for _, s := range match[i:end] {
+			if s.Ring != nil {
+				sum.Rings += *s.Ring
+			}
+			if s.Decimal != nil {
+				sum.Decimal += *s.Decimal
+			}
+		}
+		out = append(out, sum)
+	}
+	if n := len(out); n > maxDisplayedSeries {
+		out = out[n-maxDisplayedSeries:]
 	}
 	return out
 }
@@ -210,6 +262,7 @@ func loadStandTile(ctx context.Context, pool *pgxpool.Pool, laneNo int) standTil
 		}
 		seriesStart := ((len(match) - 1) / spS) * spS
 		t.Shots = match[seriesStart:]
+		t.Series = seriesSums(match, spS)
 	} else {
 		t.Shots = sighting
 	}
@@ -259,6 +312,25 @@ func fmtLastShot(t standTile) string {
 	return fmt.Sprintf("%d", *t.LastShot.Ring)
 }
 
+// fmtSeriesRow: kompakte Kette kleiner Kaesten mit den Serienwerten (ohne
+// Seriennummer), neueste Serie zuletzt - t.Series enthaelt bereits nur noch
+// maximal maxDisplayedSeries Eintraege (aelteste zuerst verworfen, siehe
+// seriesSums). Direkt hinter dem Gesamtergebnis platziert, keine eigene Zeile.
+func fmtSeriesRow(t standTile) string {
+	if len(t.Series) == 0 {
+		return ""
+	}
+	chips := ""
+	for _, sr := range t.Series {
+		val := fmt.Sprintf("%d", sr.Rings)
+		if t.DecimalScoring {
+			val = fmt.Sprintf("%.1f", sr.Decimal)
+		}
+		chips += fmt.Sprintf(`<span class="s-chip">%s</span>`, val)
+	}
+	return `<span class="tile-series">` + chips + `</span>`
+}
+
 func renderStandTile(t standTile) string {
 	if t.ShooterName == "" && t.ShotCount == 0 && len(t.Shots) == 0 && t.Discipline == "" {
 		return fmt.Sprintf(`<div class="tile"><div class="lane-no">%d</div><div class="tile-empty">Frei</div></div>`, t.LaneNo)
@@ -278,15 +350,18 @@ func renderStandTile(t standTile) string {
   %s
   <div class="tile-target"><svg id="%s" viewBox="-30 -30 60 60"></svg></div>
   <div class="tile-info">
-    <div class="tile-name">%s</div>
+    <div class="tile-name-row">
+      <span class="tile-name">%s</span>
+      <span class="tile-last"><span class="s-chip s-chip-lg">%s</span></span>
+    </div>
     <div class="tile-disc">%s</div>
-    <div class="tile-scores"><span class="tile-total">%s</span><span class="tile-last">letzter: %s</span></div>
+    <div class="tile-scores"><span class="tile-total">%s</span>%s</div>
   </div>
   <script>drawStandTarget(%q, %s, %s);</script>
 </div>`,
 		t.LaneNo, triangle, svgID,
-		html.EscapeString(t.ShooterName), html.EscapeString(t.Discipline),
-		fmtTotal(t), fmtLastShot(t),
+		html.EscapeString(t.ShooterName), fmtLastShot(t), html.EscapeString(t.Discipline),
+		fmtTotal(t), fmtSeriesRow(t),
 		svgID, geoJSON, shotsJSON)
 }
 
@@ -319,11 +394,16 @@ func standanzeigeHead(gridSize int) string {
   .tile-target{flex:1;min-height:0;width:100%%;display:flex;align-items:center;justify-content:center}
   .tile-target svg{width:100%%;height:100%%}
   .tile-info{flex-shrink:0;padding:2px 10px 8px}
-  .tile-name{font-weight:700;font-size:1.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile-name-row{display:flex;align-items:baseline;gap:6px}
+  .tile-name{flex:1;min-width:0;font-weight:700;font-size:1.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .tile-disc{font-size:.8em;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .tile-scores{display:flex;justify-content:space-between;align-items:baseline;margin-top:2px}
+  .tile-scores{display:flex;align-items:baseline;gap:6px;margin-top:2px}
   .tile-total{font-size:1.6em;font-weight:700;color:#4ab8a0}
-  .tile-last{font-size:.8em;color:var(--dim)}
+  .tile-last{flex-shrink:0;white-space:nowrap}
+  .tile-series{display:flex;flex-wrap:wrap;gap:3px;overflow:hidden;max-height:2.6em}
+  .s-chip{font-size:.85em;font-weight:700;color:var(--text);background:var(--line);
+    border-radius:4px;padding:1px 5px;white-space:nowrap}
+  .s-chip-lg{font-size:1.7em;padding:2px 10px;border-radius:6px}
   .probe-flag{position:absolute;top:0;right:0;width:0;height:0;
     border-style:solid;border-width:0 32px 32px 0;border-color:transparent #888 transparent transparent;
     opacity:.5;z-index:2}

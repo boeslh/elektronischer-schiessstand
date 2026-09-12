@@ -243,6 +243,27 @@ textarea{resize:vertical;min-height:56px}
   </div>
 </main>
 
+<!-- Manuelle Ergebniseingabe: fuer Starter, die z.B. bereits auf einer
+     anderen Anlage vorgeschossen haben (siehe Konzept
+     .claude/plans/wise-scribbling-abelson.md Abschnitt 5). -->
+<div id="mr-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center">
+  <div class="card" style="width:min(560px,92vw);max-height:88vh;overflow:auto;margin:0">
+    <h2>Ergebnis manuell erfassen: <span id="mr-name" style="color:var(--acc)"></span></h2>
+    <label for="mr-granularity">Granularität</label>
+    <select id="mr-granularity" onchange="renderManualResultInputs()">
+      <option value="shot">Einzelschüsse</option>
+      <option value="series">Serien</option>
+      <option value="total">Gesamtergebnis (eine Scheibe)</option>
+    </select>
+    <div id="mr-inputs" style="margin-top:12px;display:flex;flex-direction:column;gap:6px"></div>
+    <div id="mr-msg" class="msg" style="margin-top:10px"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button type="button" class="btn-save" onclick="saveManualResult()">Speichern</button>
+      <button type="button" class="btn-cancel" onclick="closeManualResult()">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
 <script src="/settings.js"></script>
 <script>
 const api = (path, opts) => fetch('/api'+path, opts).then(async r => {
@@ -651,6 +672,7 @@ function starterTable(list) {
         <button class="role-btn ${st.role==='AK'?'active-AK':''}" onclick="setRole('${st.id}','AK')" title="Außer Konkurrenz – nicht gewertet">AK</button>
       </td>
       <td class="row-actions">
+        <button class="btn-status" onclick="openManualResult('${st.id}','${esc(st.last_name+', '+st.first_name)}')" title="Ergebnis manuell erfassen (z.B. anderswo vorgeschossen)">✎</button>
         <button class="btn-del" onclick="removeStarter('${st.id}','${esc(st.last_name+', '+st.first_name)}')">–</button>
       </td>
     </tr>`;
@@ -659,6 +681,102 @@ function starterTable(list) {
     <thead><tr><th>Nr.</th><th>Name</th><th>Verein</th><th>Rolle</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+}
+
+// ── Manuelle Ergebniseingabe ────────────────────────────────────────────────
+let mrStarterID = null;
+let mrDiscipline = null; // {match_shot_count, shots_per_series, decimal_scoring}
+
+async function openManualResult(starterID, name) {
+  mrStarterID = starterID;
+  document.getElementById('mr-name').textContent = name;
+  const st = starters.find(s => s.id === starterID);
+  const disciplineID = (st && st.discipline_id) || activeComp.discipline_id || '';
+  mrDiscipline = { match_shot_count: 40, shots_per_series: 10, decimal_scoring: false };
+  if (disciplineID) {
+    try {
+      const all = await api('/disciplines/full');
+      const d = (all || []).find(x => x.id === disciplineID);
+      if (d) mrDiscipline = d;
+    } catch (e) { /* Fallback-Werte oben reichen aus */ }
+  }
+  document.getElementById('mr-granularity').value = 'total';
+  renderManualResultInputs();
+  document.getElementById('mr-msg').style.display = 'none';
+  document.getElementById('mr-overlay').style.display = 'flex';
+}
+function closeManualResult() {
+  document.getElementById('mr-overlay').style.display = 'none';
+  mrStarterID = null;
+}
+
+function renderManualResultInputs() {
+  const mode = document.getElementById('mr-granularity').value;
+  const box = document.getElementById('mr-inputs');
+  const dec = mrDiscipline.decimal_scoring;
+  const ringLabel = dec ? 'Ringe (z.B. 9.5)' : 'Ringe';
+  let n = 1;
+  if (mode === 'shot') n = mrDiscipline.match_shot_count;
+  else if (mode === 'series') n = Math.ceil(mrDiscipline.match_shot_count / (mrDiscipline.shots_per_series || 10));
+
+  let rows = '';
+  for (let i = 1; i <= n; i++) {
+    const label = mode === 'shot' ? `Schuss ${i}` : mode === 'series' ? `Serie ${i}` : 'Gesamtergebnis';
+    rows += `<div style="display:flex;gap:8px;align-items:center">
+      <span style="min-width:100px;font-size:.8rem;color:var(--dim)">${label}</span>
+      <input type="number" step="${dec?'0.1':'1'}" class="mr-ring" placeholder="${ringLabel}" style="flex:1">
+      <input type="number" step="0.1" class="mr-teiler" placeholder="Teiler (optional)" style="flex:1">
+    </div>`;
+  }
+  box.innerHTML = rows;
+}
+
+function manualResultShots() {
+  const mode = document.getElementById('mr-granularity').value;
+  const rings = [...document.querySelectorAll('.mr-ring')];
+  const teilers = [...document.querySelectorAll('.mr-teiler')];
+  const perEntryCount = mode === 'shot' ? 1
+    : mode === 'series' ? (mrDiscipline.shots_per_series || 10)
+    : mrDiscipline.match_shot_count;
+  const shots = [];
+  for (let i = 0; i < rings.length; i++) {
+    const ringVal = rings[i].value.trim();
+    if (ringVal === '') continue;
+    // Wie bei echten Sensor-Schuessen werden ring UND decimal immer beide
+    // gefuellt (ring gerundet) - Auswertungen, die je nach decimal_scoring
+    // eines von beiden lesen, funktionieren so unabhaengig davon.
+    const val = parseFloat(ringVal);
+    const entry = { count: perEntryCount, ring: Math.round(val), decimal: val };
+    if (teilers[i].value.trim() !== '') entry.teiler = parseFloat(teilers[i].value);
+    shots.push(entry);
+  }
+  return shots;
+}
+
+async function saveManualResult(confirmOverwrite) {
+  const granularity = document.getElementById('mr-granularity').value;
+  const shots = manualResultShots();
+  if (shots.length === 0) {
+    showMsg('mr-msg', 'Bitte mindestens einen Wert eingeben.', 'err');
+    return;
+  }
+  try {
+    await api(`/competitions/${activeComp.id}/starters/${mrStarterID}/manual-result`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ granularity, shots, confirm_overwrite: !!confirmOverwrite }),
+    });
+    closeManualResult();
+    await loadStarters();
+  } catch (err) {
+    if (String(err.message).includes('bereits ein Ergebnis') && !confirmOverwrite) {
+      if (confirm('Es liegt bereits ein Ergebnis vor. Überschreiben?')) {
+        saveManualResult(true);
+        return;
+      }
+      return;
+    }
+    showMsg('mr-msg', 'Fehler: ' + err.message, 'err');
+  }
 }
 
 async function setRole(starterID, role) {

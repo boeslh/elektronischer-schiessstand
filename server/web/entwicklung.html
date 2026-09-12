@@ -77,12 +77,14 @@
   <h2>Testdaten generieren</h2>
   <div class="section">
     <div class="hint">
-      Legt neue Mitglieder mit Nachname "Testuser" an (Vorname zufällig, verteilt
-      auf bestehende Vereine), meldet einen Teil davon im gewählten Preisschießen
-      an, kauft je Teilnehmer ein zur ermittelten Altersklasse passendes Set plus
-      einige zusätzliche Einzelscheiben desselben Typs und beschießt jede gekaufte
-      Scheibe vollständig mit Zufallswerten zwischen 6,0 und 10,9 (inkl. dazu
-      passendem Teiler/Ring). Kann beliebig oft wiederholt werden.
+      Legt neue Mitglieder mit dem unten gewählten Nachnamen an (Vorname zufällig,
+      verteilt auf die für dieses Preisschießen markierten Vereine), meldet einen
+      Teil davon im gewählten Preisschießen an, kauft je Teilnehmer ein zur
+      ermittelten Altersklasse passendes Set plus einige zusätzliche Einzelscheiben
+      desselben Typs und beschießt jede gekaufte Scheibe vollständig mit
+      Zufallswerten zwischen 6,0 und 10,9 (inkl. dazu passendem Teiler/Ring). Kann
+      beliebig oft wiederholt werden - unterschiedliche Nachnamen je Durchlauf
+      helfen, mehrere Durchläufe auseinanderzuhalten.
     </div>
     <div class="field-grid wide">
       <label class="field">Preisschießen
@@ -90,11 +92,16 @@
       </label>
     </div>
     <div class="field-grid">
-      <label class="field">Mitglieder gesamt (Testuser anlegen)
+      <label class="field">Mitglieder gesamt anlegen
         <input type="number" id="gen-members" value="100" min="1" max="1000">
       </label>
       <label class="field">davon im Preisschießen anmelden
         <input type="number" id="gen-anmelden" value="50" min="0" max="1000">
+      </label>
+    </div>
+    <div class="field-grid">
+      <label class="field">Nachname der Testschützen
+        <input type="text" id="gen-lastname" value="Testuser" maxlength="60">
       </label>
     </div>
     <div class="field-grid">
@@ -163,6 +170,7 @@ async function runGenerate() {
     anmelden: parseInt(document.getElementById('gen-anmelden').value, 10) || 0,
     min_scheiben: parseInt(document.getElementById('gen-min-scheiben').value, 10) || 0,
     max_scheiben: parseInt(document.getElementById('gen-max-scheiben').value, 10) || 0,
+    last_name: document.getElementById('gen-lastname').value.trim(),
   };
   if (body.anmelden > body.members) { msgEl.innerHTML = '<div class="msg err">Anmeldungen dürfen die Mitgliederzahl nicht übersteigen.</div>'; return; }
   if (body.max_scheiben < body.min_scheiben) { msgEl.innerHTML = '<div class="msg err">Max. Scheiben muss ≥ Min. Scheiben sein.</div>'; return; }
