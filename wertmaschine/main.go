@@ -42,6 +42,13 @@ func main() {
 	session.web = web
 	web.session = session
 	go session.pollDevMode()
+	// KEIN automatischer Fernsteuermodus-Wechsel beim Dienststart mehr -
+	// Nutzer-Feedback: das bringt nichts, wenn die Maschine schon in FEr
+	// feststeckt (ein erneutes "W" wird dann ignoriert), und der Bediener
+	// sieht am Display der Wertmaschine ohnehin besser als die Software, ob/
+	// wann ein Wechsel noetig ist. Stattdessen ausschliesslich ueber den
+	// "Fern"-Button in der Bedienoberflaeche ausloesbar (siehe session.go
+	// EnterFernMode).
 
 	log.Printf("wertmaschine: Port %s, Protokoll %s, Server %s", cfg.ComPort, cfg.Protocol, cfg.ServerURL)
 	if err := web.Run(cfg.HTTPListen); err != nil {

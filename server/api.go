@@ -216,6 +216,8 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /preisschiessen", a.serveHTMLGated(webSub, "preisschiessen.html", "preisschiessen"))
 	mux.HandleFunc("GET /preisschiessen-liste", a.serveHTMLGated(webSub, "preisschiessen-liste.html", "preisschiessen"))
 	mux.HandleFunc("GET /preisschiessen-bearbeiten", a.serveHTMLGated(webSub, "preisschiessen-bearbeiten.html", "preisschiessen"))
+	mux.HandleFunc("GET /vereinsabende-liste", a.serveHTMLGated(webSub, "vereinsabende-liste.html", "preisschiessen"))
+	mux.HandleFunc("GET /vereinsabende", a.serveHTMLGated(webSub, "vereinsabende.html", "preisschiessen"))
 	mux.HandleFunc("GET /api/preisschiessen", a.h(a.listPreisschiessen))
 	mux.HandleFunc("POST /api/preisschiessen", a.h(a.createPreisschiessen))
 	mux.HandleFunc("GET /api/preisschiessen/{id}", a.h(a.getPreisschiessen))
@@ -247,6 +249,10 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/preisschiessen/{id}/teilnehmer/{tid}/auszahlung", a.h(a.postAuszahlung))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/teilnehmer/{tid}/bezahlen", a.h(a.postBezahlen))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/kaeufe/{kid}/ruckgabe", a.h(a.postRuckgabe))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/kauf-scheiben/{ksid}/vor-nachschuss", a.h(a.putVorNachschuss))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/kauf-scheiben/{ksid}/schiesstag", a.h(a.putSchiesstagOverride))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/kauf-scheiben/{ksid}/scheibe", a.h(a.putReassignKaufScheibeType))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/abweichender-wochentag", a.h(a.getAbweichenderWochentag))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/teilnehmer/{tid}/stand", a.h(a.postAssignTeilnehmerLanePending))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}/teilnehmer/{tid}/stand", a.h(a.deleteTeilnehmerLanePending))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/lane-selfservice", a.h(a.postAssignLaneSelfService))
@@ -290,6 +296,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/disciplines/{id}", a.h(a.updateDiscipline))
 	mux.HandleFunc("DELETE /api/disciplines/{id}", a.h(a.deleteDiscipline))
 	mux.HandleFunc("POST /api/disciplines/rmiii-config-preview", a.h(a.disciplineRMIIIConfigPreview))
+	mux.HandleFunc("POST /api/disciplines/rmiv-config-preview", a.h(a.disciplineRMIVConfigPreview))
 	mux.HandleFunc("POST /api/sessions/{id}/status", a.h(a.setSessionStatus))
 	mux.HandleFunc("GET /api/sessions/{id}/shots", a.h(a.sessionShots))
 	mux.HandleFunc("GET /api/sessions/{id}/pdf", a.getSessionPDF)
@@ -596,6 +603,38 @@ func (a *APIServer) disciplineRMIIIConfigPreview(w http.ResponseWriter, r *http.
 		body.ShotsPerSeries = 10
 	}
 	cfg, err := a.store.ComputeRMIIIConfigPreview(r.Context(), body.TargetID, body.MatchShotCount, body.ShotsPerSeries, body.DecimalScoring)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"config_string": cfg}, nil
+}
+
+type rmivConfigPreviewBody struct {
+	TargetID       string   `json:"target_id"`
+	MatchShotCount int      `json:"match_shot_count"`
+	ShotsPerSeries int      `json:"shots_per_series"`
+	CaliberMM      *float64 `json:"caliber_mm"`
+	// BandType/ShotsPerCard: 0 = automatisch, siehe ComputeRMIVConfigPreview.
+	BandType     int `json:"band_type"`
+	ShotsPerCard int `json:"shots_per_card"`
+}
+
+// disciplineRMIVConfigPreview liefert den automatisch berechneten RM-IV/
+// RMIII-Win-Einstellungsstring aus den uebergebenen (noch nicht
+// gespeicherten) Formularwerten - analog disciplineRMIIIConfigPreview, fuer
+// den "Standard einsetzen"-Button beim RM-IV-Override-Feld.
+func (a *APIServer) disciplineRMIVConfigPreview(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[rmivConfigPreviewBody](r)
+	if err != nil || body.TargetID == "" {
+		return nil, errBadRequest("target_id erforderlich")
+	}
+	if body.MatchShotCount <= 0 {
+		body.MatchShotCount = 40
+	}
+	if body.ShotsPerSeries <= 0 {
+		body.ShotsPerSeries = 10
+	}
+	cfg, err := a.store.ComputeRMIVConfigPreview(r.Context(), body.TargetID, body.MatchShotCount, body.ShotsPerSeries, body.CaliberMM, body.BandType, body.ShotsPerCard)
 	if err != nil {
 		return nil, err
 	}

@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -50,6 +51,16 @@ type Preisschiessen struct {
 	// migrations/046_preisschiessen_aktuell.sql) - der Display-Server löst
 	// /ps/aktuell/... darauf auf, siehe preisanzeige/site.go.
 	Aktuell bool `json:"aktuell"`
+	// Kind: "preisschiessen" (Standard) oder "vereinsabend_saison" - siehe
+	// migrations/059 und Konzept .claude/plans/wise-scribbling-abelson.md.
+	// Eine Saison ist bewusst eine preisschiessen-Zeile (kein eigenes
+	// Datenmodell), um Scheiben/Käufe/Wertungen/Anzeige/Export komplett
+	// wiederzuverwenden.
+	Kind                 string `json:"kind"`
+	SaisonWochentage     []int  `json:"saison_wochentage"` // ISO 1=Mo..7=So
+	VorschiessenErlaubt  bool   `json:"vorschiessen_erlaubt"`
+	NachschiessenErlaubt bool   `json:"nachschiessen_erlaubt"`
+	BesteXAbende         *int   `json:"beste_x_abende"` // nil = alle zaehlenden Tage
 }
 
 type PSScheibe struct {
@@ -125,6 +136,17 @@ type PSKaufScheibeEinheit struct {
 	ShotCount     int     `json:"shot_count"`
 	RequiredShots int     `json:"required_shots"`
 	Status        string  `json:"status"` // gekauft | begonnen | beendet
+	// Effektiver Schiesstag (COALESCE(schiesstag_override, sessions.finished_at::date),
+	// siehe vereinsabend_wertungen.go) und Vor-/Nachschuss-Flag (Migration 061) -
+	// fuer die Admin-Aktionen "Datum korrigieren"/"Als Vor-/Nachschuss markieren",
+	// die fuer Preisschiessen wie Vereinsabend gleichermassen gelten.
+	Schiesstag       *string `json:"schiesstag"`
+	IstVorNachschuss bool    `json:"ist_vor_nachschuss"`
+	// ScoringMode der zugehoerigen Disziplin ("elektronisch"/"papier"/
+	// "teilnahme") - siehe PSScheibe.ScoringMode. Wird u.a. in
+	// GetLanePreisschiessenInfo genutzt, um am Stand-PC nur elektronisch
+	// gewertete Einheiten zur Auswahl anzubieten.
+	ScoringMode string `json:"scoring_mode"`
 }
 
 type PSKauf struct {
@@ -232,7 +254,8 @@ func (s *Store) ListPreisschiessen(ctx context.Context) ([]Preisschiessen, error
 	rows, err := s.pool.Query(ctx, `
 		SELECT p.id, p.name, COALESCE(p.starts_on::text,''), COALESCE(p.ends_on::text,''),
 		       p.shooting_type, p.max_negative_guthaben, p.active, p.sets_at_standpc, p.aktuell,
-		       (SELECT COUNT(*) FROM ps_teilnehmer t WHERE t.preisschiessen_id = p.id)
+		       (SELECT COUNT(*) FROM ps_teilnehmer t WHERE t.preisschiessen_id = p.id),
+		       p.kind, p.saison_wochentage, p.vorschiessen_erlaubt, p.nachschiessen_erlaubt, p.beste_x_abende
 		FROM preisschiessen p
 		ORDER BY p.starts_on DESC NULLS LAST, p.name`)
 	if err != nil {
@@ -243,7 +266,8 @@ func (s *Store) ListPreisschiessen(ctx context.Context) ([]Preisschiessen, error
 	for rows.Next() {
 		var p Preisschiessen
 		if err := rows.Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn,
-			&p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc, &p.Aktuell, &p.TeilnehmerCount); err != nil {
+			&p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc, &p.Aktuell, &p.TeilnehmerCount,
+			&p.Kind, &p.SaisonWochentage, &p.VorschiessenErlaubt, &p.NachschiessenErlaubt, &p.BesteXAbende); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -255,9 +279,11 @@ func (s *Store) GetPreisschiessen(ctx context.Context, id string) (Preisschiesse
 	var p Preisschiessen
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, name, COALESCE(starts_on::text,''), COALESCE(ends_on::text,''),
-		       shooting_type, max_negative_guthaben, active, sets_at_standpc, aktuell
+		       shooting_type, max_negative_guthaben, active, sets_at_standpc, aktuell,
+		       kind, saison_wochentage, vorschiessen_erlaubt, nachschiessen_erlaubt, beste_x_abende
 		FROM preisschiessen WHERE id=$1`, id,
-	).Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn, &p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc, &p.Aktuell)
+	).Scan(&p.ID, &p.Name, &p.StartsOn, &p.EndsOn, &p.ShootingType, &p.MaxNegativeGuthaben, &p.Active, &p.SetsAtStandpc, &p.Aktuell,
+		&p.Kind, &p.SaisonWochentage, &p.VorschiessenErlaubt, &p.NachschiessenErlaubt, &p.BesteXAbende)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, &httpError{code: 404, msg: "Preisschießen nicht gefunden"}
 	}
@@ -267,11 +293,21 @@ func (s *Store) GetPreisschiessen(ctx context.Context, id string) (Preisschiesse
 func (s *Store) CreatePreisschiessen(ctx context.Context, p Preisschiessen) (string, error) {
 	startsOn, _ := time.Parse("2006-01-02", p.StartsOn)
 	endsOn, _ := time.Parse("2006-01-02", p.EndsOn)
+	kind := p.Kind
+	if kind == "" {
+		kind = "preisschiessen"
+	}
+	wochentage := p.SaisonWochentage
+	if wochentage == nil {
+		wochentage = []int{}
+	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO preisschiessen (name, starts_on, ends_on, shooting_type, max_negative_guthaben, sets_at_standpc)
-		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+		INSERT INTO preisschiessen (name, starts_on, ends_on, shooting_type, max_negative_guthaben, sets_at_standpc,
+		  kind, saison_wochentage, vorschiessen_erlaubt, nachschiessen_erlaubt, beste_x_abende)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
 		p.Name, nullTime(startsOn), nullTime(endsOn), p.ShootingType, p.MaxNegativeGuthaben, p.SetsAtStandpc,
+		kind, wochentage, p.VorschiessenErlaubt, p.NachschiessenErlaubt, p.BesteXAbende,
 	).Scan(&id)
 	return id, err
 }
@@ -294,13 +330,20 @@ func (s *Store) UpdatePreisschiessen(ctx context.Context, p Preisschiessen) erro
 			return err
 		}
 	}
+	wochentage := p.SaisonWochentage
+	if wochentage == nil {
+		wochentage = []int{}
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE preisschiessen SET
 		  name = $1, starts_on = $2, ends_on = $3, shooting_type = $4,
-		  max_negative_guthaben = $5, active = $6, sets_at_standpc = $7, aktuell = $8, updated_at = now()
-		WHERE id = $9`,
+		  max_negative_guthaben = $5, active = $6, sets_at_standpc = $7, aktuell = $8,
+		  saison_wochentage = $9, vorschiessen_erlaubt = $10, nachschiessen_erlaubt = $11,
+		  beste_x_abende = $12, updated_at = now()
+		WHERE id = $13`,
 		p.Name, nullTime(startsOn), nullTime(endsOn), p.ShootingType,
-		p.MaxNegativeGuthaben, p.Active, p.SetsAtStandpc, p.Aktuell, p.ID,
+		p.MaxNegativeGuthaben, p.Active, p.SetsAtStandpc, p.Aktuell,
+		wochentage, p.VorschiessenErlaubt, p.NachschiessenErlaubt, p.BesteXAbende, p.ID,
 	); err != nil {
 		return err
 	}
@@ -750,7 +793,9 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 		       ks.serial_no, COALESCE(ks.physical_serial_no,''), ks.session_id::text,
 		       l.lane_no, COALESCE(se.status::text, ''),
 		       (SELECT COUNT(*) FROM shots sh WHERE sh.session_id = ks.session_id AND sh.status <> 'rejected'),
-		       COALESCE(sr.shot_count, 0), d.match_shot_count
+		       COALESCE(sr.shot_count, 0), d.match_shot_count,
+		       COALESCE(ks.schiesstag_override, se.finished_at::date)::text, ks.ist_vor_nachschuss,
+		       d.scoring_mode
 		FROM ps_kauf_scheiben ks
 		JOIN ps_kaeufe k ON k.id = ks.kauf_id
 		JOIN ps_scheiben sc ON sc.id = ks.scheibe_id
@@ -770,7 +815,8 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 		var anyShots, matchShots, required int
 		var sessionStatus string
 		if err := rows.Scan(&x.ID, &x.KaufID, &x.ScheibeID, &x.ScheibeName, &x.TargetColor, &x.SerialNo, &x.PhysicalSerialNo, &x.SessionID,
-			&x.LaneNo, &sessionStatus, &anyShots, &matchShots, &required); err != nil {
+			&x.LaneNo, &sessionStatus, &anyShots, &matchShots, &required,
+			&x.Schiesstag, &x.IstVorNachschuss, &x.ScoringMode); err != nil {
 			return nil, err
 		}
 		x.ShotCount = matchShots
@@ -791,6 +837,187 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 		out = append(out, x)
 	}
 	return out, rows.Err()
+}
+
+// PSAbweichenderWochentag ist eine Zeile der Pruefliste "abweichender
+// Wochentag" (ListScheibenAbweichenderWochentag): eine bereits geschossene
+// Kauf-Scheibe einer Vereinsabend-Saison, deren effektiver Schiesstag NICHT
+// auf einen der konfigurierten Saison-Wochentage faellt und die noch nicht
+// als Vor-/Nachschuss markiert wurde - der Admin soll sie per
+// MarkVorNachschuss (oder SetSchiesstagOverride) einem korrekten Datum
+// zuordnen, damit sie in die Jahreswertung einfliesst (oder sie bewusst so
+// belassen, dann zaehlt sie einfach nicht).
+type PSAbweichenderWochentag struct {
+	KaufScheibeID string `json:"kauf_scheibe_id"`
+	ScheibeName   string `json:"scheibe_name"`
+	TeilnehmerID  string `json:"teilnehmer_id"`
+	TeilnehmerNr  int    `json:"teilnehmer_nr"`
+	Nachname      string `json:"nachname"`
+	Vorname       string `json:"vorname"`
+	Schiesstag    string `json:"schiesstag"` // effektiver Tag, YYYY-MM-DD
+	Wochentag     int    `json:"wochentag"`  // ISO 1=Mo..7=So
+}
+
+// ListScheibenAbweichenderWochentag liefert die Pruefliste fuer eine
+// Vereinsabend-Saison (preisschiessen.kind='vereinsabend_saison') - leer bei
+// jedem anderen Preisschiessen, da das Konzept "Saison-Wochentag" dort nicht
+// existiert (saison_wochentage ist dann '{}', worueber sonst faelschlich
+// JEDE Scheibe als "abweichend" erschiene).
+func (s *Store) ListScheibenAbweichenderWochentag(ctx context.Context, preisschiessenID string) ([]PSAbweichenderWochentag, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT ks.id, sc.name, pt.id, pt.teilnehmer_nr, sh.last_name, sh.first_name,
+		       COALESCE(ks.schiesstag_override, se.finished_at::date) AS tag
+		FROM ps_kauf_scheiben ks
+		JOIN preisschiessen p ON p.id = ks.preisschiessen_id
+		JOIN ps_kaeufe k      ON k.id = ks.kauf_id
+		JOIN ps_teilnehmer pt ON pt.id = k.teilnehmer_id
+		JOIN shooters sh      ON sh.id = pt.shooter_id
+		JOIN ps_scheiben sc   ON sc.id = ks.scheibe_id
+		JOIN sessions se      ON se.id = ks.session_id
+		WHERE ks.preisschiessen_id = $1
+		  AND p.kind = 'vereinsabend_saison'
+		  AND NOT ks.ist_vor_nachschuss
+		  AND NOT sc.auswertung_unsichtbar
+		  AND (ks.schiesstag_override IS NOT NULL OR se.finished_at IS NOT NULL)
+		  AND NOT (EXTRACT(ISODOW FROM COALESCE(ks.schiesstag_override, se.finished_at::date))::int = ANY(p.saison_wochentage))
+		ORDER BY tag, pt.teilnehmer_nr`, preisschiessenID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PSAbweichenderWochentag{}
+	for rows.Next() {
+		var x PSAbweichenderWochentag
+		var tag time.Time
+		if err := rows.Scan(&x.KaufScheibeID, &x.ScheibeName, &x.TeilnehmerID, &x.TeilnehmerNr,
+			&x.Nachname, &x.Vorname, &tag); err != nil {
+			return nil, err
+		}
+		x.Schiesstag = tag.Format("2006-01-02")
+		x.Wochentag = isoWeekday(tag)
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// pgExecer wird sowohl von *pgxpool.Pool als auch von pgx.Tx erfuellt -
+// auditKaufScheibeChange kann so wahlweise direkt (autocommit) oder als Teil
+// einer bereits offenen Transaktion aufgerufen werden.
+type pgExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+// auditKaufScheibeChange schreibt einen Audit-Log-Eintrag fuer eine der
+// Admin-/Revisor-Aktionen an ps_kauf_scheiben (Migration 064) - session_id
+// wird dabei mitgeschrieben, wenn die Kauf-Scheibe bereits eine Session hat
+// (kann bei einer frisch gekauften, noch nicht geschossenen Scheibe fehlen).
+func auditKaufScheibeChange(ctx context.Context, ex pgExecer, action, kaufScheibeID, actor string, sessionID *string, extra map[string]any) error {
+	details := map[string]any{"kauf_scheibe_id": kaufScheibeID}
+	for k, v := range extra {
+		details[k] = v
+	}
+	_, err := ex.Exec(ctx, `
+		INSERT INTO audit_log (action, session_id, actor, details)
+		VALUES ($1::action_type, $2::uuid, $3, $4::jsonb)`,
+		action, sessionID, actor, details)
+	return err
+}
+
+// MarkVorNachschuss markiert eine Kauf-Scheibe als Vor-/Nachschuss fuer
+// einen anderen Vereinsabend: setzt den effektiven Schiesstag auf
+// neuerSchiesstag und deaktiviert damit fuer diesen Tag den
+// Anwesenheitsbonus (siehe vereinsabend_wertungen.go computePunkteSaison) -
+// unabhaengig davon, ob zusaetzlich ein Ring-/Teiler-Ergebnis vorliegt. Eine
+// reine Datumskorrektur ohne diese Bedeutung ist SetSchiesstagOverride.
+// UPDATE und Audit-Log-Eintrag laufen in einer Transaktion, damit kein
+// unaufgezeichneter Zustandswechsel entstehen kann.
+func (s *Store) MarkVorNachschuss(ctx context.Context, kaufScheibeID, neuerSchiesstag, actor string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var sessionID *string
+	if err := tx.QueryRow(ctx, `
+		UPDATE ps_kauf_scheiben SET schiesstag_override=$2::date, ist_vor_nachschuss=true
+		WHERE id=$1 RETURNING session_id::text`, kaufScheibeID, neuerSchiesstag,
+	).Scan(&sessionID); err != nil {
+		return err
+	}
+	if err := auditKaufScheibeChange(ctx, tx, "ps_kauf_scheibe_vor_nachschuss_marked", kaufScheibeID, actor,
+		sessionID, map[string]any{"neuer_schiesstag": neuerSchiesstag}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// SetSchiesstagOverride korrigiert (fuer einen Admin/Revisor) den
+// effektiven Schiesstag einer Kauf-Scheibe OHNE Vor-/Nachschuss-Bedeutung
+// (z.B. ein falsch erfasstes Session-Datum) - der Anwesenheitsbonus bleibt
+// dadurch unangetastet. neuerSchiesstag=nil setzt den Override zurueck (der
+// echte Session-Zeitpunkt gilt dann wieder).
+func (s *Store) SetSchiesstagOverride(ctx context.Context, kaufScheibeID string, neuerSchiesstag *string, actor string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var sessionID *string
+	if err := tx.QueryRow(ctx, `
+		UPDATE ps_kauf_scheiben SET schiesstag_override=$2::date
+		WHERE id=$1 RETURNING session_id::text`, kaufScheibeID, neuerSchiesstag,
+	).Scan(&sessionID); err != nil {
+		return err
+	}
+	tag := "(zurueckgesetzt)"
+	if neuerSchiesstag != nil {
+		tag = *neuerSchiesstag
+	}
+	if err := auditKaufScheibeChange(ctx, tx, "ps_kauf_scheibe_schiesstag_corrected", kaufScheibeID, actor,
+		sessionID, map[string]any{"neuer_schiesstag": tag}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// ReassignKaufScheibeType aendert (fuer einen Admin/Revisor) die
+// Scheiben-Zuordnung einer bereits gekauften/geschossenen Kauf-Scheibe -
+// z.B. eine faelschlich der Jahreswertung zugeordnete Scheibe einer
+// Trainings-Scheibe zuordnen oder umgekehrt. Kauf/Preis/Zahlungshistorie
+// bleiben unveraendert, nur die fachliche Zuordnung aendert sich. Gilt
+// gleichermassen fuer Preisschiessen wie Vereinsabend-Saison.
+func (s *Store) ReassignKaufScheibeType(ctx context.Context, kaufScheibeID, newScheibeID, actor string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var oldScheibeID string
+	var sessionID *string
+	if err := tx.QueryRow(ctx, `
+		SELECT scheibe_id, session_id::text FROM ps_kauf_scheiben WHERE id=$1 FOR UPDATE`,
+		kaufScheibeID).Scan(&oldScheibeID, &sessionID); err != nil {
+		return err
+	}
+	ct, err := tx.Exec(ctx, `
+		UPDATE ps_kauf_scheiben ks SET scheibe_id=$2
+		WHERE ks.id=$1 AND EXISTS (
+			SELECT 1 FROM ps_scheiben sc WHERE sc.id=$2 AND sc.preisschiessen_id = ks.preisschiessen_id
+		)`, kaufScheibeID, newScheibeID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return errBadRequest("Ziel-Scheibe gehoert nicht zu diesem Preisschiessen")
+	}
+	if err := auditKaufScheibeChange(ctx, tx, "ps_kauf_scheibe_reassigned", kaufScheibeID, actor,
+		sessionID, map[string]any{"alte_scheibe_id": oldScheibeID, "neue_scheibe_id": newScheibeID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // createKaufEinheiten legt für einen Kauf die einzelnen Scheiben-Einheiten
@@ -1906,6 +2133,21 @@ func (s *Store) GetLanePreisschiessenInfo(ctx context.Context, laneNo int) (*PSL
 	if !ps.SetsAtStandpc {
 		sets = nil
 	}
+	// Nur elektronisch gewertete Scheiben sind am Stand-PC sinnvoll
+	// auswählbar/nachkaufbar - eine Papierscheibe wird nicht am Stand
+	// erfasst (Auswertung über die Wertmaschine im Büro), und eine
+	// Teilnahme-Scheibe wird beim Kauf sofort automatisch abgeschlossen
+	// (siehe autoFinishTeilnahmeScheiben), braucht also gar keine Bahn.
+	// An der Kasse im Büro bleibt Store.ListAngebot ungefiltert nutzbar.
+	if len(scheiben) > 0 {
+		elektronisch := scheiben[:0]
+		for _, sc := range scheiben {
+			if sc.ScoringMode == "elektronisch" {
+				elektronisch = append(elektronisch, sc)
+			}
+		}
+		scheiben = elektronisch
+	}
 	// Am Stand-PC gibt es (anders als im Büro-Warenkorb) keine Möglichkeit,
 	// ein vorausgesetztes Set im selben Vorgang mitzubuchen - jede Buchung
 	// hier ist ein isolierter, sofortiger Kauf. Scheiben mit Set-Voraussetzung
@@ -1947,9 +2189,16 @@ func (s *Store) GetLanePreisschiessenInfo(ctx context.Context, laneNo int) (*PSL
 	info.Angebot.Sets = sets
 
 	if needsChoice {
+		// Nur elektronisch gewertete Einheiten stehen am Stand-PC zur Auswahl
+		// (siehe Kommentar bei der Angebot-Filterung oben) - eine bereits
+		// gekaufte Papier-/Teilnahme-Scheibe soll hier gar nicht erst
+		// auftauchen, auch wenn sie noch nicht "beendet" ist.
 		type counts struct{ gekauft, beendet int }
 		byScheibe := map[string]*counts{}
 		for _, e := range einheiten {
+			if e.ScoringMode != "elektronisch" {
+				continue
+			}
 			c := byScheibe[e.ScheibeID]
 			if c == nil {
 				c = &counts{}
@@ -1963,7 +2212,7 @@ func (s *Store) GetLanePreisschiessenInfo(ctx context.Context, laneNo int) (*PSL
 		}
 		seen := map[string]bool{}
 		for _, e := range einheiten {
-			if e.Status == "beendet" || seen[e.ScheibeID] {
+			if e.ScoringMode != "elektronisch" || e.Status == "beendet" || seen[e.ScheibeID] {
 				continue
 			}
 			seen[e.ScheibeID] = true
@@ -2261,7 +2510,93 @@ func (s *Store) Bezahlen(ctx context.Context, teilnehmerID string, items []CartI
 	if err := tx.Commit(ctx); err != nil {
 		return nil, 0, err
 	}
+	// Teilnahme-Scheiben (scoring_mode='teilnahme', Vereinsabend-Anwesenheit
+	// ohne echtes Ergebnis) erst NACH dem Commit automatisch abschliessen -
+	// bewusst ausserhalb der Kauf-Transaktion (eigene, spaeter erfolgende
+	// Transaktionen ueber AssignVirtualLane/RecordExternalResult), da ein
+	// Rollback der Kauf-Transaktion sonst eine bereits angelegte Session auf
+	// eine nie tatsaechlich existierende ps_kauf_scheiben-Zeile verwaisen
+	// liesse (gleiche Ueberlegung wie abortOnFailure in manual_result.go).
+	s.autoFinishTeilnahmeScheiben(ctx, kaufIDs)
 	return kaufIDs, rueckgeld, nil
+}
+
+// autoFinishTeilnahmeScheiben schliesst frisch gekaufte Scheiben mit
+// scoring_mode='teilnahme' sofort ab (virtuelle Bahn + ein Ergebnis-Schuss
+// mit Ring=0 als Platzhalter) - fuer reine Vereinsabend-Anwesenheit ohne
+// echtes Schiessergebnis (siehe Konzept .claude/plans/wise-scribbling-abelson.md).
+// Ein spaeter abweichender Ringwert wird ueber die bestehende
+// Einzelschuss-Korrektur (POST /api/sessions/{id}/shots/{no}/correct)
+// editiert - keine eigene Korrektur-Route noetig, da so eine Scheibe genau
+// einen Schuss hat. Best-effort: Fehler werden nur geloggt, der Kauf selbst
+// ist zu diesem Zeitpunkt bereits erfolgreich abgeschlossen.
+func (s *Store) autoFinishTeilnahmeScheiben(ctx context.Context, kaufIDs []string) {
+	if len(kaufIDs) == 0 {
+		return
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT ks.id, sc.discipline_id, k.teilnehmer_id, d.match_shot_count
+		FROM ps_kauf_scheiben ks
+		JOIN ps_kaeufe k    ON k.id = ks.kauf_id
+		JOIN ps_scheiben sc ON sc.id = ks.scheibe_id
+		JOIN disciplines d  ON d.id = sc.discipline_id
+		WHERE ks.kauf_id = ANY($1) AND d.scoring_mode = 'teilnahme' AND ks.session_id IS NULL`,
+		kaufIDs)
+	if err != nil {
+		log.Printf("autoFinishTeilnahmeScheiben: Abfrage fehlgeschlagen: %v", err)
+		return
+	}
+	type unit struct {
+		kaufScheibeID, disciplineID, teilnehmerID string
+		matchShotCount                            int
+	}
+	var units []unit
+	for rows.Next() {
+		var u unit
+		if err := rows.Scan(&u.kaufScheibeID, &u.disciplineID, &u.teilnehmerID, &u.matchShotCount); err != nil {
+			rows.Close()
+			log.Printf("autoFinishTeilnahmeScheiben: Scan fehlgeschlagen: %v", err)
+			return
+		}
+		units = append(units, u)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("autoFinishTeilnahmeScheiben: %v", err)
+		return
+	}
+
+	for _, u := range units {
+		var shooterID string
+		if err := s.pool.QueryRow(ctx,
+			`SELECT shooter_id FROM ps_teilnehmer WHERE id=$1`, u.teilnehmerID,
+		).Scan(&shooterID); err != nil {
+			log.Printf("autoFinishTeilnahmeScheiben: Teilnehmer %s: %v", u.teilnehmerID, err)
+			continue
+		}
+		sessionID, err := s.AssignVirtualLane(ctx, u.disciplineID, "", shooterID)
+		if err != nil {
+			log.Printf("autoFinishTeilnahmeScheiben: Kauf-Scheibe %s: AssignVirtualLane: %v", u.kaufScheibeID, err)
+			continue
+		}
+		ring := 0
+		decimal := 0.0
+		count := u.matchShotCount
+		if count < 1 {
+			count = 1
+		}
+		shot := ManualShotInput{Ring: &ring, Decimal: &decimal, Count: count}
+		if err := s.RecordExternalResult(ctx, sessionID, "total", []ManualShotInput{shot}, "manual", "system"); err != nil {
+			log.Printf("autoFinishTeilnahmeScheiben: Kauf-Scheibe %s: RecordExternalResult: %v", u.kaufScheibeID, err)
+			s.abortOnFailure(ctx, sessionID)
+			continue
+		}
+		if _, err := s.pool.Exec(ctx,
+			`UPDATE ps_kauf_scheiben SET session_id=$1 WHERE id=$2`, sessionID, u.kaufScheibeID,
+		); err != nil {
+			log.Printf("autoFinishTeilnahmeScheiben: Kauf-Scheibe %s: session_id verknuepfen: %v", u.kaufScheibeID, err)
+		}
+	}
 }
 
 // KasseAuswertung liefert zwei getrennte Kennzahlen: Bareinnahmen
@@ -2801,4 +3136,69 @@ func (a *APIServer) postRuckgabe(w http.ResponseWriter, r *http.Request) (any, e
 
 func (a *APIServer) psAuswertung(w http.ResponseWriter, r *http.Request) (any, error) {
 	return a.store.KasseAuswertung(r.Context(), r.PathValue("id"), r.URL.Query().Get("date"))
+}
+
+// putVorNachschuss/putSchiesstagOverride/putReassignKaufScheibeType/
+// getAbweichenderWochentag: Admin-/Revisor-Funktionen an ps_kauf_scheiben
+// (siehe .claude/plans/wise-scribbling-abelson.md Abschnitt 3/4) - gelten
+// fuer Preisschiessen wie Vereinsabend-Saison gleichermassen, deshalb wie
+// die uebrigen Konfigurations-Endpunkte nur fuer Admins (requireManagePreisschiessen),
+// anders als die alltaeglichen Kasse-Vorgaenge oben (Bezahlen/Auszahlung/Ruckgabe).
+
+func (a *APIServer) putVorNachschuss(w http.ResponseWriter, r *http.Request) (any, error) {
+	role, err := a.requireManagePreisschiessen(w, r)
+	if err != nil {
+		return nil, err
+	}
+	body, err := decodeBody[struct {
+		Schiesstag string `json:"schiesstag"`
+	}](r)
+	if err != nil || body.Schiesstag == "" {
+		return nil, errBadRequest("schiesstag erforderlich")
+	}
+	if err := a.store.MarkVorNachschuss(r.Context(), r.PathValue("ksid"), body.Schiesstag, role.RoleKey); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) putSchiesstagOverride(w http.ResponseWriter, r *http.Request) (any, error) {
+	role, err := a.requireManagePreisschiessen(w, r)
+	if err != nil {
+		return nil, err
+	}
+	body, err := decodeBody[struct {
+		Schiesstag *string `json:"schiesstag"`
+	}](r)
+	if err != nil {
+		return nil, errBadRequest("ungueltiger Body")
+	}
+	if err := a.store.SetSchiesstagOverride(r.Context(), r.PathValue("ksid"), body.Schiesstag, role.RoleKey); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) putReassignKaufScheibeType(w http.ResponseWriter, r *http.Request) (any, error) {
+	role, err := a.requireManagePreisschiessen(w, r)
+	if err != nil {
+		return nil, err
+	}
+	body, err := decodeBody[struct {
+		ScheibeID string `json:"scheibe_id"`
+	}](r)
+	if err != nil || body.ScheibeID == "" {
+		return nil, errBadRequest("scheibe_id erforderlich")
+	}
+	if err := a.store.ReassignKaufScheibeType(r.Context(), r.PathValue("ksid"), body.ScheibeID, role.RoleKey); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) getAbweichenderWochentag(w http.ResponseWriter, r *http.Request) (any, error) {
+	if _, err := a.requireManagePreisschiessen(w, r); err != nil {
+		return nil, err
+	}
+	return a.store.ListScheibenAbweichenderWochentag(r.Context(), r.PathValue("id"))
 }

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vereinsabend-Saison</title>
+<style>
+:root {
+  --bg:#12161b; --panel:#1b222b; --line:#2b3542; --text:#dce4ec;
+  --dim:#75879a; --acc:#4ab8a0; --warn:#ffb347; --err:#e05c5c;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header a{color:var(--dim);text-decoration:none;font-size:13px}
+header a:hover{color:var(--text)}
+header h1{font-size:19px;font-weight:700}
+header .sub{font-size:12px;color:var(--dim)}
+main{flex:1;padding:20px;max-width:900px;margin:0 auto;width:100%}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px;margin-bottom:16px}
+.card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+
+label{display:block;font-size:.78rem;color:var(--dim);margin-bottom:4px;margin-top:10px}
+label:first-of-type{margin-top:0}
+input[type=text],input[type=number],input[type=date],select{
+  width:100%;background:#0e1218;border:1px solid var(--line);border-radius:6px;
+  color:var(--text);font-size:.85rem;padding:7px 10px;transition:border-color .15s
+}
+input:focus,select:focus{outline:none;border-color:var(--acc)}
+.form-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-actions{display:flex;gap:8px;margin-top:14px}
+.btn-save{background:var(--acc);border:none;border-radius:6px;color:#0d1a16;font-size:.83rem;font-weight:600;padding:8px 18px;cursor:pointer}
+.btn-save:hover{opacity:.85}
+.btn-link{background:#1e2a38;border:1px solid var(--line);border-radius:6px;color:var(--acc);font-size:.83rem;padding:8px 18px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn-link:hover{background:#263545}
+.btn-cancel{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);cursor:pointer}
+.btn-cancel:hover{border-color:var(--text);color:var(--text)}
+
+.msg{font-size:.82rem;padding:7px 10px;border-radius:6px;display:none;margin-top:8px}
+.msg.ok{background:#1a3a2a;color:#4ab8a0}
+.msg.err{background:#3a1a1a;color:#e05c5c}
+.hint{color:var(--dim);font-size:.82rem;margin-top:6px}
+
+.wt-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.wt-grid label{margin:0;text-align:center;font-size:.78rem}
+
+.badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
+.badge-active{background:#1a3a2a;color:#4ab8a0}
+.badge-inactive{background:#1e2530;color:#75879a}
+
+.stub{color:var(--dim);font-size:.83rem;line-height:1.6}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/vereinsabende-liste">← Alle Saisons</a>
+  <h1 id="pg-title">Vereinsabend-Saison</h1>
+  <span class="sub" id="pg-sub"></span>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Saison <span id="pg-badge" class="badge"></span></h2>
+    <div class="form-actions" style="margin-top:0;margin-bottom:6px">
+      <a class="btn-link" id="btn-open-ps" href="#">Kasse / Teilnehmer / Scheiben / Wertungen verwalten →</a>
+    </div>
+    <p class="hint">Verkauf, Guthaben, Teilnehmerverwaltung und Wertungen werden über die
+      gemeinsame Preisschießen-Oberfläche gepflegt (identische Mechanik, nur andere Auswertelogik).</p>
+  </div>
+
+  <div class="card">
+    <h2>Saison-Einstellungen</h2>
+    <form id="saison-form" onsubmit="saveSaison(event)">
+      <label for="pf-name">Name</label>
+      <input type="text" id="pf-name" required>
+      <div class="form-row2">
+        <div><label for="pf-start">Datum von</label><input type="date" id="pf-start"></div>
+        <div><label for="pf-end">Datum bis</label><input type="date" id="pf-end"></div>
+      </div>
+      <label>Vereinsabend-Wochentag(e)</label>
+      <div class="wt-grid">
+        <label><input type="checkbox" value="1" class="pf-wt"><br>Mo</label>
+        <label><input type="checkbox" value="2" class="pf-wt"><br>Di</label>
+        <label><input type="checkbox" value="3" class="pf-wt"><br>Mi</label>
+        <label><input type="checkbox" value="4" class="pf-wt"><br>Do</label>
+        <label><input type="checkbox" value="5" class="pf-wt"><br>Fr</label>
+        <label><input type="checkbox" value="6" class="pf-wt"><br>Sa</label>
+        <label><input type="checkbox" value="7" class="pf-wt"><br>So</label>
+      </div>
+      <p class="hint">Nur Scheiben, deren tatsächlicher Schießtag auf einen dieser Wochentage fällt, gehen in die Jahreswertung ein.</p>
+      <div class="form-row2" style="margin-top:10px">
+        <div>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:0">
+            <input type="checkbox" id="pf-vorschiessen" style="width:auto"> Vorschießen erlaubt
+          </label>
+        </div>
+        <div>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:0">
+            <input type="checkbox" id="pf-nachschiessen" style="width:auto"> Nachschießen erlaubt
+          </label>
+        </div>
+      </div>
+      <label for="pf-beste-x">Beste X Abende zählen (leer = alle)</label>
+      <input type="number" id="pf-beste-x" min="1" placeholder="alle">
+      <div class="form-actions">
+        <button type="submit" class="btn-save">Speichern</button>
+      </div>
+      <div id="pf-msg" class="msg"></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Abweichender Wochentag
+      <button type="button" class="btn-link" style="padding:4px 10px;font-size:.75rem" onclick="loadAbweichenderWochentag()">↻ Neu laden</button>
+    </h2>
+    <p class="hint">Scheiben, deren tatsächlicher Schießtag nicht auf einen der Saison-Wochentage fällt -
+      hier können sie per "Vor-/Nachschuss markieren" einem korrekten Datum zugeordnet werden (die
+      Anwesenheit zählt dann für diesen Tag nicht), oder einfach ignoriert werden (sie fließen dann
+      weiterhin nicht in die Jahreswertung ein).</p>
+    <table style="width:100%;border-collapse:collapse;margin-top:10px">
+      <thead>
+        <tr style="text-align:left;font-size:.78rem;color:var(--dim)">
+          <th style="padding:5px 8px;border-bottom:1px solid var(--line)">Teilnehmer</th>
+          <th style="padding:5px 8px;border-bottom:1px solid var(--line)">Scheibe</th>
+          <th style="padding:5px 8px;border-bottom:1px solid var(--line)">Geschossen am</th>
+          <th style="padding:5px 8px;border-bottom:1px solid var(--line)"></th>
+        </tr>
+      </thead>
+      <tbody id="abw-tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="/settings.js"></script>
+<script>
+const api = (path, opts) => fetch('/api'+path, opts).then(async r => {
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+});
+const jsonOpts = (method, body) => ({method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+const id = new URLSearchParams(location.search).get('id');
+if (!id) {
+  document.body.innerHTML = '<p style="padding:20px;color:var(--dim)">Keine Saison ausgewählt. <a href="/vereinsabende-liste" style="color:var(--acc)">Zurück zur Liste</a></p>';
+  throw new Error('no id');
+}
+
+let saison = null;
+
+async function load() {
+  saison = await api('/preisschiessen/' + id);
+  document.getElementById('pg-title').textContent = saison.name;
+  document.title = saison.name + ' – Vereinsabend';
+  document.getElementById('pg-sub').textContent = saison.starts_on || saison.ends_on
+    ? `${(saison.starts_on||'').slice(0,10)} – ${(saison.ends_on||'').slice(0,10)}`
+    : '';
+  const badge = document.getElementById('pg-badge');
+  badge.textContent = saison.active ? 'Aktiv' : 'Inaktiv';
+  badge.className = 'badge ' + (saison.active ? 'badge-active' : 'badge-inactive');
+
+  document.getElementById('btn-open-ps').onclick = () => {
+    localStorage.setItem('ps_current_id', id);
+  };
+  document.getElementById('btn-open-ps').href = '/preisschiessen';
+
+  document.getElementById('pf-name').value = saison.name || '';
+  document.getElementById('pf-start').value = (saison.starts_on || '').slice(0, 10);
+  document.getElementById('pf-end').value = (saison.ends_on || '').slice(0, 10);
+  document.getElementById('pf-vorschiessen').checked = !!saison.vorschiessen_erlaubt;
+  document.getElementById('pf-nachschiessen').checked = !!saison.nachschiessen_erlaubt;
+  document.getElementById('pf-beste-x').value = saison.beste_x_abende ?? '';
+  const wt = new Set(saison.saison_wochentage || []);
+  document.querySelectorAll('.pf-wt').forEach(el => el.checked = wt.has(parseInt(el.value, 10)));
+}
+
+async function saveSaison(e) {
+  e.preventDefault();
+  const wochentage = [...document.querySelectorAll('.pf-wt:checked')].map(el => parseInt(el.value, 10));
+  if (wochentage.length === 0) {
+    showMsg('pf-msg', 'Bitte mindestens einen Wochentag wählen.', 'err');
+    return;
+  }
+  const besteX = document.getElementById('pf-beste-x').value.trim();
+  const body = {
+    name: document.getElementById('pf-name').value.trim(),
+    starts_on: document.getElementById('pf-start').value,
+    ends_on: document.getElementById('pf-end').value,
+    shooting_type: saison.shooting_type,
+    max_negative_guthaben: saison.max_negative_guthaben,
+    active: saison.active,
+    kind: 'vereinsabend_saison',
+    saison_wochentage: wochentage,
+    vorschiessen_erlaubt: document.getElementById('pf-vorschiessen').checked,
+    nachschiessen_erlaubt: document.getElementById('pf-nachschiessen').checked,
+    beste_x_abende: besteX !== '' ? parseInt(besteX, 10) : null,
+  };
+  try {
+    await api('/preisschiessen/' + id, jsonOpts('PUT', body));
+    showMsg('pf-msg', 'Gespeichert.', 'ok');
+    await load();
+  } catch (err) { showMsg('pf-msg', 'Fehler: ' + err.message, 'err'); }
+}
+
+const WOCHENTAG_LABEL = {1:'Mo',2:'Di',3:'Mi',4:'Do',5:'Fr',6:'Sa',7:'So'};
+
+async function loadAbweichenderWochentag() {
+  const tbody = document.getElementById('abw-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" style="color:var(--dim);text-align:center;padding:10px">Lade…</td></tr>';
+  try {
+    const rows = await api(`/preisschiessen/${id}/abweichender-wochentag`) || [];
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:var(--dim);text-align:center;padding:10px">Keine abweichenden Schießtage</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => `
+      <tr data-ks-id="${r.kauf_scheibe_id}">
+        <td style="padding:6px 8px;font-size:.85rem">#${r.teilnehmer_nr} ${esc(r.nachname)}, ${esc(r.vorname)}</td>
+        <td style="padding:6px 8px;font-size:.85rem">${esc(r.scheibe_name)}</td>
+        <td style="padding:6px 8px;font-size:.85rem">${r.schiesstag} (${WOCHENTAG_LABEL[r.wochentag] || r.wochentag})</td>
+        <td style="padding:6px 8px;white-space:nowrap">
+          <button type="button" class="btn-link" style="padding:4px 10px;font-size:.75rem"
+                  onclick="abwMarkVorNachschuss('${r.kauf_scheibe_id}')">Vor-/Nachschuss markieren</button>
+          <button type="button" class="btn-cancel" style="padding:4px 10px;font-size:.75rem"
+                  onclick="this.closest('tr').remove()">Ignorieren</button>
+        </td>
+      </tr>`).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--err);text-align:center;padding:10px">Fehler: ${err.message}</td></tr>`;
+  }
+}
+
+async function abwMarkVorNachschuss(ksId) {
+  const input = prompt('Diesem Vereinsabend zuordnen (JJJJ-MM-TT):');
+  if (input === null) return;
+  const val = input.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+    alert('Bitte im Format JJJJ-MM-TT eingeben.');
+    return;
+  }
+  try {
+    await api(`/preisschiessen/${id}/kauf-scheiben/${ksId}/vor-nachschuss`, jsonOpts('PUT', {schiesstag: val}));
+    await loadAbweichenderWochentag();
+  } catch (err) { alert('Fehler: ' + err.message); }
+}
+
+load().catch(err => showMsg('pf-msg', 'Fehler beim Laden: ' + err.message, 'err'));
+loadAbweichenderWochentag();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

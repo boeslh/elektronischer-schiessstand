@@ -90,6 +90,7 @@
         <select id="sf-type" onchange="renderTypeFields()">
           <option value="stand">Standanzeige (Raster)</option>
           <option value="runde">Rundenwettkampf</option>
+          <option value="preisschiessen">Preisschießen (Kiosk)</option>
         </select>
       </div>
 
@@ -129,6 +130,27 @@
         </div>
       </div>
 
+      <div id="type-fields-preisschiessen" style="display:none">
+        <div class="field">
+          <label for="sf-ps">Preisschießen</label>
+          <select id="sf-ps">
+            <option value="">– wählen –</option>
+            <option value="aktuell">Aktuell markiertes Preisschießen (automatisch)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sf-ps-kiosk">Anzeige</label>
+          <select id="sf-ps-kiosk">
+            <option value="1">Kiosk 1</option>
+            <option value="2">Kiosk 2</option>
+          </select>
+          <div class="hint" style="margin-top:6px;margin-bottom:0">Zeigt genau das, was auch unter
+            "/ps/&lt;id&gt;/kiosk" bzw. "/kiosk2" zu sehen ist - Wertungen/Vereins-Auswertungen und alle
+            Anzeigeeinstellungen (Farben, Reload, Spalten) werden dort im Preisschießen-Tab "Anzeige"
+            gepflegt, nicht hier.</div>
+        </div>
+      </div>
+
       <div class="actions">
         <button type="submit" class="btn-save">Speichern</button>
         <button type="button" class="btn-reset" onclick="newSlot()">Neu / Abbrechen</button>
@@ -157,23 +179,25 @@ function showMsg(text, type) {
   setTimeout(() => el.style.display = 'none', 4000);
 }
 
-let slots = [], lanes = [], rundenWettkaempfe = [];
+let slots = [], lanes = [], rundenWettkaempfe = [], preisschiessenListe = [];
 
 async function loadAll() {
-  [slots, lanes, rundenWettkaempfe] = await Promise.all([
+  [slots, lanes, rundenWettkaempfe, preisschiessenListe] = await Promise.all([
     api('/anzeige-config'),
     api('/lanes'),
     api('/competitions?type=runde'),
+    api('/preisschiessen'),
   ]);
   renderLaneChecks();
   renderEventSelect();
+  renderPSSelect();
   renderSlotTable();
 }
 
 function renderSlotTable() {
   const tbody = document.getElementById('slot-tbody');
   tbody.innerHTML = '';
-  const typeLabel = {stand: 'Standanzeige', runde: 'Rundenwettkampf'};
+  const typeLabel = {stand: 'Standanzeige', runde: 'Rundenwettkampf', preisschiessen: 'Preisschießen'};
   for (const s of slots) {
     const tr = document.createElement('tr');
     tr.className = 'slot-row';
@@ -204,10 +228,18 @@ function renderEventSelect() {
     rundenWettkaempfe.map(c => `<option value="${c.id}">${esc(c.name)}${c.starts_on ? ' ('+c.starts_on+')' : ''}</option>`).join('');
 }
 
+function renderPSSelect() {
+  const sel = document.getElementById('sf-ps');
+  sel.innerHTML = '<option value="">– wählen –</option>' +
+    '<option value="aktuell">Aktuell markiertes Preisschießen (automatisch)</option>' +
+    preisschiessenListe.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+}
+
 function renderTypeFields() {
   const type = document.getElementById('sf-type').value;
   document.getElementById('type-fields-stand').style.display = type === 'stand' ? 'block' : 'none';
   document.getElementById('type-fields-runde').style.display = type === 'runde' ? 'block' : 'none';
+  document.getElementById('type-fields-preisschiessen').style.display = type === 'preisschiessen' ? 'block' : 'none';
 }
 
 function newSlot() {
@@ -218,6 +250,8 @@ function newSlot() {
   document.getElementById('sf-grid').value = 'auto';
   document.getElementById('sf-reload').value = 8;
   document.getElementById('sf-event').value = '';
+  document.getElementById('sf-ps').value = '';
+  document.getElementById('sf-ps-kiosk').value = '1';
   document.querySelectorAll('#sf-lanes input').forEach(cb => cb.checked = false);
   renderTypeFields();
 }
@@ -235,6 +269,9 @@ function editSlot(s) {
     document.querySelectorAll('#sf-lanes input').forEach(cb => cb.checked = selected.has(cb.value));
   } else if (s.type === 'runde') {
     document.getElementById('sf-event').value = params.event_id || '';
+  } else if (s.type === 'preisschiessen') {
+    document.getElementById('sf-ps').value = params.preisschiessen_id || '';
+    document.getElementById('sf-ps-kiosk').value = params.kiosk === 2 ? '2' : '1';
   }
   renderTypeFields();
   document.getElementById('slot-form').scrollIntoView({behavior:'smooth'});
@@ -258,6 +295,10 @@ async function saveSlot(e) {
     const eventID = document.getElementById('sf-event').value;
     if (!eventID) { showMsg('Bitte einen Rundenwettkampf wählen.', 'err'); return; }
     params = { event_id: eventID };
+  } else if (type === 'preisschiessen') {
+    const psID = document.getElementById('sf-ps').value;
+    if (!psID) { showMsg('Bitte ein Preisschießen wählen.', 'err'); return; }
+    params = { preisschiessen_id: psID, kiosk: parseInt(document.getElementById('sf-ps-kiosk').value, 10) || 1 };
   }
 
   const body = { type, name, params };

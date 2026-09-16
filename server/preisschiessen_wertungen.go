@@ -72,6 +72,34 @@ type PSWertung struct {
 	AdlerMeisterID *string `json:"adler_meister_id"`
 	SortOrder      int     `json:"sort_order"`
 	Visible        bool    `json:"visible"`
+	// SerienModus/SerienAnzahl (Migration 065, urspruenglich je Scheibe in
+	// Migration 063 - siehe buildSeriesJoin-Kommentar) steuern EINHEITLICH
+	// FUER DIE GANZE WERTUNG, welche Serien einer Scheibe eingehen. Nutzer-
+	// Feedback: je Scheibe war das bei mehreren Scheiben in einer
+	// Kombi-Wertung unuebersichtlich und wird in der Praxis ohnehin nie
+	// unterschiedlich gesetzt. Nur der Faktor (PSWertungScheibe) bleibt je
+	// Scheibe, da unterschiedliche Zielgroessen/Kaliber weiterhin
+	// unterschiedliche Normierungsfaktoren brauchen.
+	SerienModus  string `json:"serien_modus"`
+	SerienAnzahl *int   `json:"serien_anzahl"`
+	// Nur typ='punkte_saison' (Migration 062, siehe vereinsabend_wertungen.go):
+	// Punkte-Lookup-Tabellen fuer Ring/Teiler je effektivem Schiesstag plus
+	// ein fester Anwesenheits-Bonus (nur wenn an diesem Tag nicht vor-/
+	// nachgeschossen wurde). Wertungsfeld waehlt dabei die Ring-Basis
+	// ("ring" oder "ring_decimal"); Teiler wird immer unabhaengig davon
+	// aus dem besten Teiler des Tages ermittelt.
+	AnwesenheitPunkte float64               `json:"anwesenheit_punkte"`
+	PunkteRing        []PSWertungPunktStufe `json:"punkte_ring"`
+	PunkteTeiler      []PSWertungPunktStufe `json:"punkte_teiler"`
+}
+
+// PSWertungPunktStufe ist eine Schwelle einer Punkte-Lookup-Tabelle
+// (ps_wertung_punkte_ring/ps_wertung_punkte_teiler): Schwelle bedeutet je
+// nach Tabelle "ab_wert" (Ring, untere Schranke) oder "bis_wert" (Teiler,
+// obere Schranke) - siehe lookupPunkteAb/lookupPunkteBis.
+type PSWertungPunktStufe struct {
+	Schwelle float64 `json:"schwelle"`
+	Punkte   float64 `json:"punkte"`
 }
 
 type PSWertungErgebnis struct {
@@ -151,7 +179,7 @@ func (s *Store) ListWertungen(ctx context.Context, preisschiessenID string) ([]P
 		SELECT id, preisschiessen_id, disziplin_key, typ, short_desc, COALESCE(long_desc,''),
 		       COALESCE(wertungsfeld,''), klassen_ids::text[],
 		       anz_summe, adler_teiler_id::text, adler_meister_id::text,
-		       sort_order, visible
+		       sort_order, visible, anwesenheit_punkte, serien_modus, serien_anzahl
 		FROM ps_wertungen WHERE preisschiessen_id=$1 ORDER BY sort_order, short_desc`, preisschiessenID)
 	if err != nil {
 		return nil, err
@@ -162,7 +190,7 @@ func (s *Store) ListWertungen(ctx context.Context, preisschiessenID string) ([]P
 		if err := rows.Scan(&x.ID, &x.PreisschiessenID, &x.DisziplinKey, &x.Typ, &x.ShortDesc,
 			&x.LongDesc, &x.Wertungsfeld, &x.KlassenIDs,
 			&x.AnzSumme, &x.AdlerTeilerID, &x.AdlerMeisterID,
-			&x.SortOrder, &x.Visible); err != nil {
+			&x.SortOrder, &x.Visible, &x.AnwesenheitPunkte, &x.SerienModus, &x.SerienAnzahl); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -176,6 +204,12 @@ func (s *Store) ListWertungen(ctx context.Context, preisschiessenID string) ([]P
 		if out[i].Scheiben, err = s.listWertungScheiben(ctx, out[i].ID); err != nil {
 			return nil, err
 		}
+		if out[i].PunkteRing, err = listWertungPunkte(ctx, s.pool, "ps_wertung_punkte_ring", "ab_wert", out[i].ID); err != nil {
+			return nil, err
+		}
+		if out[i].PunkteTeiler, err = listWertungPunkte(ctx, s.pool, "ps_wertung_punkte_teiler", "bis_wert", out[i].ID); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
@@ -186,16 +220,22 @@ func (s *Store) GetWertung(ctx context.Context, id string) (PSWertung, error) {
 		SELECT id, preisschiessen_id, disziplin_key, typ, short_desc, COALESCE(long_desc,''),
 		       COALESCE(wertungsfeld,''), klassen_ids::text[],
 		       anz_summe, adler_teiler_id::text, adler_meister_id::text,
-		       sort_order, visible
+		       sort_order, visible, anwesenheit_punkte, serien_modus, serien_anzahl
 		FROM ps_wertungen WHERE id=$1`, id).Scan(
 		&x.ID, &x.PreisschiessenID, &x.DisziplinKey, &x.Typ, &x.ShortDesc,
 		&x.LongDesc, &x.Wertungsfeld, &x.KlassenIDs,
 		&x.AnzSumme, &x.AdlerTeilerID, &x.AdlerMeisterID,
-		&x.SortOrder, &x.Visible)
+		&x.SortOrder, &x.Visible, &x.AnwesenheitPunkte, &x.SerienModus, &x.SerienAnzahl)
 	if err != nil {
 		return x, err
 	}
-	x.Scheiben, err = s.listWertungScheiben(ctx, x.ID)
+	if x.Scheiben, err = s.listWertungScheiben(ctx, x.ID); err != nil {
+		return x, err
+	}
+	if x.PunkteRing, err = listWertungPunkte(ctx, s.pool, "ps_wertung_punkte_ring", "ab_wert", x.ID); err != nil {
+		return x, err
+	}
+	x.PunkteTeiler, err = listWertungPunkte(ctx, s.pool, "ps_wertung_punkte_teiler", "bis_wert", x.ID)
 	return x, err
 }
 
@@ -244,6 +284,45 @@ func setWertungScheiben(ctx context.Context, tx pgx.Tx, wertungID string, scheib
 	return nil
 }
 
+// listWertungPunkte liest eine Punkte-Lookup-Tabelle (ps_wertung_punkte_ring
+// bzw. ps_wertung_punkte_teiler, ueber table/col parametrisiert - beide
+// Tabellen haben identische Form bis auf den Namen der Schwellenspalte) fuer
+// eine typ='punkte_saison'-Wertung, aufsteigend nach Schwelle sortiert.
+func listWertungPunkte(ctx context.Context, pool *pgxpool.Pool, table, col, wertungID string) ([]PSWertungPunktStufe, error) {
+	rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT %s, punkte FROM %s WHERE wertung_id=$1 ORDER BY %s`, col, table, col), wertungID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PSWertungPunktStufe{}
+	for rows.Next() {
+		var x PSWertungPunktStufe
+		if err := rows.Scan(&x.Schwelle, &x.Punkte); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// setWertungPunkte ersetzt die komplette Punkte-Lookup-Tabelle einer Wertung
+// (DELETE+INSERT, wie setWertungScheiben).
+func setWertungPunkte(ctx context.Context, tx pgx.Tx, table, col, wertungID string, stufen []PSWertungPunktStufe) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE wertung_id=$1`, table), wertungID); err != nil {
+		return err
+	}
+	for _, st := range stufen {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (wertung_id, %s, punkte) VALUES ($1,$2,$3)`, table, col),
+			wertungID, st.Schwelle, st.Punkte); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// orEmptyStrs verhindert, dass ein nil-Slice (z.B. bei einer Adler-Wertung
+// ohne ScheibenNamen/KlassenIDs) als SQL NULL statt als leeres Array
+// gebunden wird - beide Spalten sind NOT NULL.
 // orEmptyStrs verhindert, dass ein nil-Slice (z.B. bei einer Adler-Wertung
 // ohne ScheibenNamen/KlassenIDs) als SQL NULL statt als leeres Array
 // gebunden wird - beide Spalten sind NOT NULL.
@@ -261,20 +340,31 @@ func (s *Store) CreateWertung(ctx context.Context, x PSWertung) (string, error) 
 	}
 	defer tx.Rollback(ctx)
 
+	serienModus := x.SerienModus
+	if serienModus == "" {
+		serienModus = "alle"
+	}
 	var id string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO ps_wertungen
 		  (preisschiessen_id, disziplin_key, typ, short_desc, long_desc, wertungsfeld,
-		   klassen_ids, anz_summe, adler_teiler_id, adler_meister_id, sort_order, visible)
-		VALUES ($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''),$7::uuid[],$8,$9,$10,$11,$12)
+		   klassen_ids, anz_summe, adler_teiler_id, adler_meister_id, sort_order, visible,
+		   anwesenheit_punkte, serien_modus, serien_anzahl)
+		VALUES ($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''),$7::uuid[],$8,$9,$10,$11,$12,$13,$14,$15)
 		RETURNING id`,
 		x.PreisschiessenID, x.DisziplinKey, x.Typ, x.ShortDesc, x.LongDesc, x.Wertungsfeld,
 		orEmptyStrs(x.KlassenIDs), x.AnzSumme, x.AdlerTeilerID,
-		x.AdlerMeisterID, x.SortOrder, x.Visible,
+		x.AdlerMeisterID, x.SortOrder, x.Visible, x.AnwesenheitPunkte, serienModus, x.SerienAnzahl,
 	).Scan(&id); err != nil {
 		return "", err
 	}
 	if err := setWertungScheiben(ctx, tx, id, x.Scheiben); err != nil {
+		return "", err
+	}
+	if err := setWertungPunkte(ctx, tx, "ps_wertung_punkte_ring", "ab_wert", id, x.PunkteRing); err != nil {
+		return "", err
+	}
+	if err := setWertungPunkte(ctx, tx, "ps_wertung_punkte_teiler", "bis_wert", id, x.PunkteTeiler); err != nil {
 		return "", err
 	}
 	return id, tx.Commit(ctx)
@@ -287,19 +377,30 @@ func (s *Store) UpdateWertung(ctx context.Context, x PSWertung) error {
 	}
 	defer tx.Rollback(ctx)
 
+	serienModus := x.SerienModus
+	if serienModus == "" {
+		serienModus = "alle"
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE ps_wertungen SET
 		  disziplin_key = $1, typ = $2, short_desc = $3, long_desc = NULLIF($4,''),
 		  wertungsfeld = NULLIF($5,''), klassen_ids = $6::uuid[], anz_summe = $7,
-		  adler_teiler_id = $8, adler_meister_id = $9, sort_order = $10, visible = $11
-		WHERE id = $12`,
+		  adler_teiler_id = $8, adler_meister_id = $9, sort_order = $10, visible = $11,
+		  anwesenheit_punkte = $12, serien_modus = $13, serien_anzahl = $14
+		WHERE id = $15`,
 		x.DisziplinKey, x.Typ, x.ShortDesc, x.LongDesc, x.Wertungsfeld,
 		orEmptyStrs(x.KlassenIDs), x.AnzSumme, x.AdlerTeilerID,
-		x.AdlerMeisterID, x.SortOrder, x.Visible, x.ID,
+		x.AdlerMeisterID, x.SortOrder, x.Visible, x.AnwesenheitPunkte, serienModus, x.SerienAnzahl, x.ID,
 	); err != nil {
 		return err
 	}
 	if err := setWertungScheiben(ctx, tx, x.ID, x.Scheiben); err != nil {
+		return err
+	}
+	if err := setWertungPunkte(ctx, tx, "ps_wertung_punkte_ring", "ab_wert", x.ID, x.PunkteRing); err != nil {
+		return err
+	}
+	if err := setWertungPunkte(ctx, tx, "ps_wertung_punkte_teiler", "bis_wert", x.ID, x.PunkteTeiler); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -547,79 +648,191 @@ type wertungRow struct {
 	wert         float64
 }
 
-// loadWertungRows liest die Rohwerte für eine Meister-/Punkt-Wertung.
-//   - "ring"/"ring_decimal": eine Zeile je Serie (v_series_results), analog
-//     gs26_Serien - Quelle für gen_SerienP.py.
-//   - "teiler": eine Zeile je Einzelschuss (v_scoring_shots), analog
-//     gs26_Treffer - Quelle für gen_TeilerP.py.
+// loadWertungRows liest die Rohwerte für eine Meister-/Punkt-Wertung. Seit
+// Migration 065 gilt serien_modus/serien_anzahl EINHEITLICH FUER DIE GANZE
+// WERTUNG (vorher je Scheibe, Migration 063) - dadurch reicht jetzt EIN
+// normaler, ungebundener JOIN über alle zugeordneten Scheiben hinweg
+// (ps_wertung_scheiben direkt gejoint), statt wie zuvor je Scheibe eine
+// eigene Abfrage zu bauen und die Ergebnisse in Go zusammenzuführen -
+// letzteres war nötig, weil der Serien-Modus damals zeilenabhängig war
+// (und ein Versuch, das per LATERAL abzubilden, siehe frühere Fassung
+// dieses Kommentars, katastrophal langsam war). Da der Modus jetzt für die
+// gesamte Wertung feststeht, ist der Join auf v_series_results/
+// v_scoring_shots strukturell für jede Scheibe identisch und kann von
+// Postgres wie gewohnt einmalig materialisiert werden.
+//
+//   - "ring"/"ring_decimal": normalerweise eine Zeile je Serie
+//     (v_series_results), analog gs26_Serien - Quelle für gen_SerienP.py.
+//   - "teiler": normalerweise eine Zeile je Einzelschuss (v_scoring_shots),
+//     analog gs26_Treffer - Quelle für gen_TeilerP.py.
 //
 // Die Zuordnung Wertung -> Scheibe läuft über die echte FK-Tabelle
-// ps_wertung_scheiben (nicht mehr über Namensvergleich) - der dort
-// hinterlegte Faktor je Scheibe (z.B. LG vs. LP in einer kombinierten
-// Wertung) wird direkt in der SQL-Abfrage angewandt. Optional zusätzlich
-// nach Klasse gefiltert (klassen_ids, leer = alle), und nur abgeschlossene
-// Scheiben (Wertungsschüsse erreicht) zählen, wie in copy_Scheiben_pg.py/
-// gen_*.py.
+// ps_wertung_scheiben (nicht über Namensvergleich) - der dort hinterlegte
+// Faktor je Scheibe (z.B. LG vs. LP in einer kombinierten Wertung) wird
+// direkt in der SQL-Abfrage angewandt. Optional zusätzlich nach Klasse
+// gefiltert (klassen_ids, leer = alle), und nur abgeschlossene Scheiben
+// (Wertungsschüsse erreicht) zählen, wie in copy_Scheiben_pg.py/gen_*.py.
 func loadWertungRows(ctx context.Context, pool *pgxpool.Pool, w PSWertung) ([]wertungRow, error) {
-	var valueExpr, order string
-	switch w.Wertungsfeld {
-	case "ring":
-		valueExpr, order = "vser.rings", "DESC"
-	case "ring_decimal":
-		valueExpr, order = "vser.decimal_total", "DESC"
-	case "teiler":
-		valueExpr, order = "vss.eff_center_distance", "ASC"
-	default:
+	if w.Wertungsfeld != "ring" && w.Wertungsfeld != "ring_decimal" && w.Wertungsfeld != "teiler" {
 		return nil, fmt.Errorf("unbekanntes Wertungsfeld %q", w.Wertungsfeld)
 	}
-
-	joinTable := "JOIN v_series_results vser ON vser.session_id = ks.session_id"
+	order := "DESC"
 	if w.Wertungsfeld == "teiler" {
-		joinTable = "JOIN v_scoring_shots vss ON vss.effective_session_id = ks.session_id"
+		order = "ASC"
+	}
+	if (w.SerienModus == "erste_n" || w.SerienModus == "beste_n") && (w.SerienAnzahl == nil || *w.SerienAnzahl < 1) {
+		return nil, fmt.Errorf("serien_anzahl fehlt fuer serien_modus %q", w.SerienModus)
+	}
+	serienAnzahl := 0
+	if w.SerienAnzahl != nil {
+		serienAnzahl = *w.SerienAnzahl
+	}
+	join, err := buildSeriesJoin(w.Wertungsfeld, w.SerienModus, "sv")
+	if err != nil {
+		return nil, err
 	}
 
 	sql := fmt.Sprintf(`
 		SELECT pt.id, pt.teilnehmer_nr, sh.last_name, sh.first_name,
-		       COALESCE(cl.name,''), COALESCE(sc.name,''), psc.name, (%s) * ws.faktor AS wert
-		FROM ps_kauf_scheiben ks
-		JOIN ps_wertung_scheiben ws ON ws.scheibe_id = ks.scheibe_id AND ws.wertung_id = $1
+		       COALESCE(cl.name,''), COALESCE(sc.name,''), psc.name, sv.wert * ws.faktor AS wert
+		FROM ps_wertung_scheiben ws
+		JOIN ps_scheiben psc      ON psc.id = ws.scheibe_id
+		JOIN disciplines d        ON d.id = psc.discipline_id
+		JOIN ps_kauf_scheiben ks  ON ks.scheibe_id = ws.scheibe_id
 		JOIN ps_kaeufe k          ON k.id = ks.kauf_id
 		JOIN ps_teilnehmer pt     ON pt.id = k.teilnehmer_id
-		JOIN ps_scheiben psc      ON psc.id = ks.scheibe_id
-		JOIN disciplines d        ON d.id = psc.discipline_id
 		JOIN shooters sh          ON sh.id = pt.shooter_id
 		LEFT JOIN clubs cl        ON cl.id = sh.club_id
 		LEFT JOIN shooter_classes sc ON sc.id = pt.class_id
 		JOIN v_session_results vsr ON vsr.session_id = ks.session_id
 		%s
-		WHERE ks.preisschiessen_id = $2
+		WHERE ws.wertung_id = $1
+		  AND ks.preisschiessen_id = $2
 		  AND (array_length($3::uuid[],1) IS NULL OR pt.class_id = ANY($3::uuid[]))
 		  AND vsr.shot_count >= d.match_shot_count
 		  AND NOT psc.auswertung_unsichtbar
-		ORDER BY pt.id, wert %s`, valueExpr, joinTable, order)
+		  AND $4::int >= 0`, join)
 
-	rows, err := pool.Query(ctx, sql, w.ID, w.PreisschiessenID, w.KlassenIDs)
+	rows, err := pool.Query(ctx, sql, w.ID, w.PreisschiessenID, w.KlassenIDs, serienAnzahl)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []wertungRow
 	for rows.Next() {
 		var x wertungRow
 		if err := rows.Scan(&x.teilnehmerID, &x.startNr, &x.nachname, &x.vorname,
 			&x.verein, &x.klasse, &x.scheibeName, &x.wert); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, x)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].teilnehmerID != out[j].teilnehmerID {
+			return out[i].teilnehmerID < out[j].teilnehmerID
+		}
+		if order == "DESC" {
+			return out[i].wert > out[j].wert
+		}
+		return out[i].wert < out[j].wert
+	})
+	return out, nil
+}
+
+// buildSeriesJoin liefert den (ungebundenen, einmalig auswertbaren) JOIN,
+// der fuer eine einzelne Scheibe je nach serien_modus (Migration 063) die
+// Werte-Spalte "sv.wert" liefert:
+//
+//   - 'alle'/'je_serie': unveraendertes Verhalten von vor Migration 063 -
+//     bei Ring/Zehntel ein Wert je Serie, bei Teiler ein Wert je
+//     Einzelschuss (keine Restriktion/Aggregation).
+//   - 'gesamt': alle Serien der Scheibe zu EINEM Wert zusammengefasst -
+//     nutzt total_rings/total_decimal/best_center_distance direkt aus dem
+//     ohnehin schon gejointen v_session_results (vsr), kein weiterer Join.
+//   - 'erste_n'/'beste_n': nur ausgewaehlte Serien, zu einem Wert
+//     zusammengefasst. Wichtig fuer die Performance: die Fensterfunktion
+//     partitioniert per PARTITION BY session_id UEBER DIE GESAMTE VIEW,
+//     nicht korreliert per WHERE session_id=ks.session_id - so kann
+//     Postgres v_series_results/v_series_best_teiler weiterhin einmalig
+//     materialisieren und ganz normal gegen ks joinen, statt sie pro
+//     Kauf-Scheiben-Zeile erneut auszuwerten (siehe loadWertungRows-
+//     Kommentar zum urspruenglich viel zu langsamen LATERAL-Ansatz).
+// Der letzte Platzhalter (siehe Aufrufer) ist die serien_anzahl der Wertung
+// (0 wenn nicht relevant) - als gebundener Parameter statt einer
+// korrelierten Subquery gegen ps_wertungen, da der Wert dem Aufrufer
+// ohnehin schon bekannt ist. Die konkrete Platzhalter-Nummer haengt vom
+// Aufrufer ab (loadWertungRows: $4; vereinsabend_wertungen.go
+// loadPunkteSaisonRows: ebenfalls $4, fuer Ring- UND Teiler-Join gemeinsam).
+func buildSeriesJoin(wertungsfeld, serienModus, alias string) (string, error) {
+	if wertungsfeld == "teiler" {
+		switch serienModus {
+		case "alle", "je_serie", "":
+			return fmt.Sprintf(`JOIN (SELECT effective_session_id AS session_id, eff_center_distance AS wert
+			              FROM v_scoring_shots) %[1]s ON %[1]s.session_id = ks.session_id`, alias), nil
+		case "gesamt":
+			return fmt.Sprintf(`JOIN (SELECT session_id, best_center_distance AS wert FROM v_session_results) %[1]s ON %[1]s.session_id = ks.session_id`, alias), nil
+		case "erste_n":
+			return fmt.Sprintf(`JOIN (
+				SELECT session_id, MIN(best_teiler) AS wert FROM (
+					SELECT session_id, best_teiler,
+					       ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY series_no) AS ord
+					FROM v_series_best_teiler
+				) x WHERE x.ord <= $5
+				GROUP BY session_id
+			) %[1]s ON %[1]s.session_id = ks.session_id`, alias), nil
+		case "beste_n":
+			return fmt.Sprintf(`JOIN (
+				SELECT vsbt.session_id, MIN(vsbt.best_teiler) AS wert FROM (
+					SELECT vsbt.session_id, vsbt.best_teiler,
+					       ROW_NUMBER() OVER (PARTITION BY vsbt.session_id ORDER BY vser.rings DESC) AS ord
+					FROM v_series_best_teiler vsbt
+					JOIN v_series_results vser ON vser.session_id = vsbt.session_id AND vser.series_no = vsbt.series_no
+				) vsbt WHERE vsbt.ord <= $5
+				GROUP BY vsbt.session_id
+			) %[1]s ON %[1]s.session_id = ks.session_id`, alias), nil
+		}
+		return "", fmt.Errorf("unbekannter serien_modus %q", serienModus)
+	}
+
+	col := "rings"
+	gesamtCol := "total_rings"
+	if wertungsfeld == "ring_decimal" {
+		col = "decimal_total"
+		gesamtCol = "total_decimal"
+	}
+	switch serienModus {
+	case "alle", "je_serie", "":
+		return fmt.Sprintf(`JOIN (SELECT session_id, %s AS wert FROM v_series_results) %[2]s ON %[2]s.session_id = ks.session_id`, col, alias), nil
+	case "gesamt":
+		return fmt.Sprintf(`JOIN (SELECT session_id, %s AS wert FROM v_session_results) %[2]s ON %[2]s.session_id = ks.session_id`, gesamtCol, alias), nil
+	case "erste_n":
+		return fmt.Sprintf(`JOIN (
+			SELECT session_id, SUM(%[1]s) AS wert FROM (
+				SELECT session_id, %[1]s, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY series_no) AS ord
+				FROM v_series_results
+			) x WHERE x.ord <= $5
+			GROUP BY session_id
+		) %[2]s ON %[2]s.session_id = ks.session_id`, col, alias), nil
+	case "beste_n":
+		return fmt.Sprintf(`JOIN (
+			SELECT session_id, SUM(%[1]s) AS wert FROM (
+				SELECT session_id, %[1]s, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY %[1]s DESC) AS ord
+				FROM v_series_results
+			) x WHERE x.ord <= $5
+			GROUP BY session_id
+		) %[2]s ON %[2]s.session_id = ks.session_id`, col, alias), nil
+	}
+	return "", fmt.Errorf("unbekannter serien_modus %q", serienModus)
 }
 
 // computeMeisterPunkt berechnet die Platzierung für eine Meister- oder
-// Punkt-Wertung: je Teilnehmer die Rohwerte auf 10 auffüllen (0 bei Ring,
-// "schlechtester Wert" bei Teiler), Summe der besten AnzSumme Werte bilden
-// (bereits sortiert) und danach nach dieser Summe platzieren, mit den
-// Einzelwerten als Tiebreak bei Gleichstand.
+// Punkt-Wertung: je Teilnehmer die Rohwerte auffüllen (0 bei Ring,
+// "schlechtester Wert" bei Teiler) und über rankByBestNValues platzieren.
 //
 // Fachlich identisch zu gen_SerienP.py/gen_TeilerP.py, aber vereinfacht auf
 // EINE Platzierung statt der beiden dort parallel gepflegten Felder
@@ -640,7 +853,21 @@ func computeMeisterPunkt(ctx context.Context, pool *pgxpool.Pool, w PSWertung) (
 		fillValue = 99999
 		desc = false
 	}
+	return rankByBestNValues(rows, w.AnzSumme, fillValue, desc), nil
+}
 
+// rankByBestNValues ist der gemeinsame Ranking-Kern fuer computeMeisterPunkt
+// (Rohwerte je Scheibe/Schuss eines Preisschiessens) und computePunkteSaison
+// (Punkte-Summe je effektivem Schiesstag eines Vereinsabends, siehe
+// vereinsabend_wertungen.go): je Teilnehmer die Rohwerte auf mindestens 10
+// (bzw. mehr, falls ein Teilnehmer mehr als 10 Werte hat - z.B. eine lange
+// Saison mit vielen Vereinsabenden) auffuellen, Summe der besten n Werte
+// bilden (bereits nach "bestem Wert zuerst" sortiert) und danach nach dieser
+// Summe platzieren, mit den Einzelwerten als Tiebreak bei Gleichstand.
+// n<1 wird auf 1 angehoben (alte computeMeisterPunkt-Semantik); ein sehr
+// grosses n (z.B. math.MaxInt32 fuer "alle zaehlenden Tage zaehlen" bei
+// Punkte-Saison) wird ganz normal auf die tatsaechliche Werteanzahl gekappt.
+func rankByBestNValues(rows []wertungRow, n int, fillValue float64, desc bool) []PSWertungErgebnis {
 	// Nach Teilnehmer gruppieren (SQL liefert bereits nach pt.id sortiert).
 	type group struct {
 		meta         wertungRow
@@ -657,10 +884,23 @@ func computeMeisterPunkt(ctx context.Context, pool *pgxpool.Pool, w PSWertung) (
 			groups[r.teilnehmerID] = g
 			order = append(order, r.teilnehmerID)
 		}
-		g.werte = append(g.werte, r.wert) // Faktor bereits in loadWertungRows (je Scheibe) angewandt
+		g.werte = append(g.werte, r.wert) // Faktor bereits vom Aufrufer angewandt
 		if r.scheibeName != "" && !g.scheibenSeen[r.scheibeName] {
 			g.scheibenSeen[r.scheibeName] = true
 			g.scheiben = append(g.scheiben, r.scheibeName)
+		}
+	}
+
+	// Pad-Laenge: mindestens 10 (fuer die gewohnte S1..S10/T1..T10-Anzeige),
+	// aber mindestens so lang wie der laengste tatsaechliche Werte-Vektor
+	// (sonst wuerden bei mehr als 10 Werten - z.B. eine Saison mit > 10
+	// Vereinsabenden - Werte stillschweigend abgeschnitten). Global (nicht
+	// je Teilnehmer) berechnet, damit alle Werte-Vektoren gleich lang sind
+	// und cmpWerte unten sicher elementweise vergleichen kann.
+	padLen := 10
+	for _, tid := range order {
+		if l := len(groups[tid].werte); l > padLen {
+			padLen = l
 		}
 	}
 
@@ -668,19 +908,18 @@ func computeMeisterPunkt(ctx context.Context, pool *pgxpool.Pool, w PSWertung) (
 	for _, tid := range order {
 		g := groups[tid]
 		werte := append([]float64(nil), g.werte...)
-		for len(werte) < 10 {
+		for len(werte) < padLen {
 			werte = append(werte, fillValue)
 		}
-		werte = werte[:10]
-		n := w.AnzSumme
-		if n < 1 {
-			n = 1
+		useN := n
+		if useN < 1 {
+			useN = 1
 		}
-		if n > len(werte) {
-			n = len(werte)
+		if useN > len(werte) {
+			useN = len(werte)
 		}
 		sum := 0.0
-		for _, v := range werte[:n] {
+		for _, v := range werte[:useN] {
 			sum += v
 		}
 		out = append(out, PSWertungErgebnis{
@@ -710,7 +949,7 @@ func computeMeisterPunkt(ctx context.Context, pool *pgxpool.Pool, w PSWertung) (
 
 	// Platz: sortiert nach Summe, bei Gleichstand die naechstbeste
 	// Scheibe/der naechstbeste Schuss als Tiebreak (Werte ist immer nach
-	// bestem Wert zuerst sortiert). Sind auch dort alle 10 Werte gleich,
+	// bestem Wert zuerst sortiert). Sind auch dort alle Werte gleich,
 	// entscheidet die kleinere Teilnehmernummer (deterministisch, statt
 	// von der zufaelligen SQL-Reihenfolge abzuhaengen).
 	sort.SliceStable(out, func(i, j int) bool {
@@ -728,7 +967,7 @@ func computeMeisterPunkt(ctx context.Context, pool *pgxpool.Pool, w PSWertung) (
 	for i := range out {
 		out[i].Platz = i + 1
 	}
-	return out, nil
+	return out
 }
 
 // ----------------------------------------------------------------------------
@@ -807,11 +1046,28 @@ func recomputeAuswertung(ctx context.Context, pool *pgxpool.Pool, preisschiessen
 
 	ergebnisseByID := map[string][]PSWertungErgebnis{}
 
+	var ps Preisschiessen
+	for _, w := range wertungen {
+		if w.Typ == "punkte_saison" {
+			ps, err = store.GetPreisschiessen(ctx, preisschiessenID)
+			if err != nil {
+				return fmt.Errorf("Preisschiessen fuer Punkte-Saison: %w", err)
+			}
+			break
+		}
+	}
+
 	for _, w := range wertungen {
 		if w.Typ == "adler" {
 			continue
 		}
-		ergebnisse, err := computeMeisterPunkt(ctx, pool, w)
+		var ergebnisse []PSWertungErgebnis
+		var err error
+		if w.Typ == "punkte_saison" {
+			ergebnisse, err = computePunkteSaison(ctx, pool, w, ps)
+		} else {
+			ergebnisse, err = computeMeisterPunkt(ctx, pool, w)
+		}
 		if err != nil {
 			return fmt.Errorf("Wertung %s (%s): %w", w.ShortDesc, w.DisziplinKey, err)
 		}

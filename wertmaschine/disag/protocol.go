@@ -35,11 +35,28 @@ type StatusEvent struct {
 	Message   string
 }
 
+// EditShot: ein bereits erfasster Schuss, wie er fuer eine EDI-Antwort an
+// die RM (rmiv.go handleWSCLine/sendEdit) zurueckgemeldet wird - siehe
+// EventHandler.PendingShotsForEdit. Changed=true, wenn der Bediener diesen
+// Schuss per CorrectShot ueberschrieben hat (Flag "V" statt "U").
+type EditShot struct {
+	Ring    *int
+	Decimal *float64
+	Teiler  *float64
+	Changed bool
+}
+
 // EventHandler bekommt jedes Schuss-/Statusereignis waehrend einer laufenden
 // Messreihe gemeldet - vom Aufrufer (wertmaschine/session.go) implementiert.
 type EventHandler interface {
 	OnShot(ShotEvent)
 	OnStatus(StatusEvent)
+	// AllShotsResolved/PendingShotsForEdit werden nur vom RM-IV-Treiber
+	// gebraucht (Editier-Anfrage der RM, siehe rmiv.go handleWSCLine) - RM
+	// III hat dafuer keine Entsprechung (siehe rmiii.go-Kommentar zur
+	// bewusst nicht automatisierten 5-Schuss-Karte).
+	AllShotsResolved() bool
+	PendingShotsForEdit() []EditShot
 }
 
 // Machine: gemeinsames Interface fuer RM III (rmiii.go) und RM IV (rmiv.go).

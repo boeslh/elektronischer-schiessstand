@@ -116,7 +116,7 @@ func (s *Session) newMachine() disag.Machine {
 	if dev {
 		sink = s.web.broadcastRaw
 	}
-	if s.cfg.Protocol == "rmiv" {
+	if s.wireProtocol() == "rmiv" {
 		if sink != nil {
 			return disag.NewRMIVWithRawSink(s.cfg.ComPort, s, sink)
 		}
@@ -128,11 +128,74 @@ func (s *Session) newMachine() disag.Machine {
 	return disag.NewRMIII(s.cfg.ComPort, s)
 }
 
+// wireProtocol liefert das tatsaechliche Draht-Protokoll: "rmiii-win"
+// verwendet nach der Umschaltung (siehe EnsureWinMode) exakt dasselbe
+// 38400-Baud-ENQ-Protokoll wie "rmiv" (disag/rmiv.go) - nur der Weg dorthin
+// unterscheidet sich (automatische Software-Umschaltung statt eines bereits
+// manuell umgeschalteten Geraets). newMachine() und FetchConfig() (fuer den
+// vom Server passend zu erzeugenden Konfigurationsstring) brauchen
+// ausschliesslich dieses Draht-Protokoll, nicht den konfigurierten Wert an
+// sich.
+func (s *Session) wireProtocol() string {
+	if s.cfg.Protocol == "rmiii-win" {
+		return "rmiv"
+	}
+	return s.cfg.Protocol
+}
+
+// EnsureWinMode schaltet eine physische RM III per Software in den
+// "RMIII-Win"-Modus (siehe disag/rmiii.go EnterWinMode) - No-Op, wenn
+// cfg.Protocol nicht "rmiii-win" ist. Wird sowohl beim Dienststart
+// (main.go, einmalig) als auch ueber den Button "RMIII-Win Modus
+// umschalten" (web.go handleSwitchWinMode, manuell z.B. nach einem
+// Stromausfall/Neustart der Wertmaschine) aufgerufen. Blockiert fuer die
+// Dauer der Umschaltung (Handshake + ca. 25s Wartezeit) - waehrenddessen
+// laufende Status-Updates (s.OnStatus) werden unabhaengig vom Aufrufer
+// sofort per SSE an die Bedienoberflaeche gesendet.
+func (s *Session) EnsureWinMode() error {
+	if s.cfg.Protocol != "rmiii-win" {
+		return nil
+	}
+	s.OnStatus(disag.StatusEvent{Connected: false, Message: "Schalte RM III in RMIII-Win-Modus (W)..."})
+	switcher := disag.NewRMIII(s.cfg.ComPort, s)
+	defer switcher.Close()
+	if err := switcher.EnterWinMode(); err != nil {
+		s.OnStatus(disag.StatusEvent{Connected: false, Message: "Umschalten auf RMIII-Win fehlgeschlagen: " + err.Error()})
+		return err
+	}
+	s.OnStatus(disag.StatusEvent{Connected: false, Message: "Umschaltbefehl gesendet - warte 25s, bis das Geraet im RMIII-Win-Modus (38400 Baud) bereit ist..."})
+	time.Sleep(25 * time.Second)
+	s.OnStatus(disag.StatusEvent{Connected: false, Message: "RMIII-Win-Modus sollte jetzt aktiv sein (Display zeigt 'FEr')"})
+	return nil
+}
+
+// EnterFernMode versetzt die Wertmaschine in den passenden Fernsteuermodus -
+// je nach konfiguriertem Protokoll entweder "V" (rmiii, normale
+// Fernsteuerung, siehe disag.RMIII.EnterRemoteMode) oder "W" + Umschalten
+// auf 38400 Baud (rmiii-win, siehe EnsureWinMode). Nutzer-Feedback: ein
+// automatischer Trigger beim Dienststart bringt nichts, wenn die Maschine
+// schon in FEr feststeckt (das Geraet reagiert dann auf ein erneutes "W"
+// nicht) - der Bediener sieht am Display der Wertmaschine besser als die
+// Software, ob/wann ein Umschalten noetig ist, daher ausschliesslich
+// manuell ueber den "Fern"-Button ausgeloest (kein Aufruf mehr in main.go).
+func (s *Session) EnterFernMode() error {
+	switch s.cfg.Protocol {
+	case "rmiii-win":
+		return s.EnsureWinMode()
+	case "rmiii":
+		switcher := disag.NewRMIII(s.cfg.ComPort, s)
+		defer switcher.Close()
+		return switcher.EnterRemoteMode()
+	default: // "rmiv": setzt voraus, dass die RM bereits manuell umgeschaltet ist
+		return fmt.Errorf("fuer Protokoll %q nicht erforderlich", s.cfg.Protocol)
+	}
+}
+
 // StartPreisschiessen loest die Scheibe ueber ihre physische Seriennummer auf
 // und startet die Wertmaschine mit der zugehoerigen Disziplin-Konfiguration.
 func (s *Session) StartPreisschiessen(preisschiessenID, physicalSerial string) error {
 	params := url.Values{"preisschiessen_id": {preisschiessenID}, "physical_serial_no": {physicalSerial}}
-	cfgString, disciplineID, err := s.client.FetchConfig(s.cfg.Protocol, params)
+	cfgString, disciplineID, err := s.client.FetchConfig(s.wireProtocol(), params)
 	if err != nil {
 		return err
 	}
@@ -152,7 +215,7 @@ func (s *Session) StartPreisschiessen(preisschiessenID, physicalSerial string) e
 // die Wertmaschine.
 func (s *Session) StartRundenwettkampf(starterID string) error {
 	params := url.Values{"starter_id": {starterID}}
-	cfgString, disciplineID, err := s.client.FetchConfig(s.cfg.Protocol, params)
+	cfgString, disciplineID, err := s.client.FetchConfig(s.wireProtocol(), params)
 	if err != nil {
 		return err
 	}
@@ -200,6 +263,31 @@ func (s *Session) Recover() error {
 	return machine.Configure(cfgString)
 }
 
+// SendRaw schickt einen beliebigen Rohbefehl an die aktuell verbundene
+// Wertmaschine - fuer manuelle Diagnose ohne Dienst-Neustart (z.B. um bei
+// RMIV/RMIII-Win schnell "WID" statt des automatischen "ABR" auszuprobieren,
+// siehe disag/rmiv.go handleWSCLine, oder bei RM III "E" fuer "Einstellung
+// ausgeben"). Nutzt strukturelles Interface-Matching statt eine gemeinsame
+// Methode im disag.Machine-Interface zu erzwingen, da RMIII (SendCommand,
+// mit RTS/DTR-Handshake) und RMIV (SendRaw, im laufenden Rahmenprotokoll)
+// grundverschiedene Sendewege haben.
+func (s *Session) SendRaw(cmd string) error {
+	s.mu.Lock()
+	m := s.machine
+	s.mu.Unlock()
+	if m == nil {
+		return fmt.Errorf("keine aktive Verbindung")
+	}
+	switch mm := m.(type) {
+	case interface{ SendRaw(string) error }:
+		return mm.SendRaw(cmd)
+	case interface{ SendCommand(string) error }:
+		return mm.SendCommand(cmd)
+	default:
+		return fmt.Errorf("Rohbefehle werden fuer dieses Protokoll nicht unterstuetzt")
+	}
+}
+
 // OnShot implementiert disag.EventHandler - wird aus der Lese-Goroutine des
 // jeweiligen Machine-Treibers aufgerufen.
 func (s *Session) OnShot(ev disag.ShotEvent) {
@@ -226,17 +314,25 @@ func (s *Session) OnStatus(ev disag.StatusEvent) {
 
 // CorrectShot ueberschreibt Ring/Decimal/Teiler eines vom Geraet als
 // unsicher/ungueltig gemeldeten Schusses durch den vom Bediener eingegebenen
-// Wert (siehe Konzept Abschnitt 5 - lokale Korrektur statt des
-// geraeteseitigen EDI/WSC=-5-Dialogs, wie im bewaehrten VB6-Referenzcode).
+// Wert - lokale Korrektur statt des interaktiven geraeteseitigen Editier-
+// Dialogs (WSC=-N/EDI/S=.../WID/ABR), wie im bewaehrten VB6-Referenzcode.
+// Stoesst danach TryResolvePendingEdit an (nur bei RM IV relevant - siehe
+// disag/rmiv.go): falls die RM gerade auf eine EDI-Antwort wartet und jetzt
+// alle betroffenen Schuesse korrigiert sind, wird sie automatisch gesendet.
 func (s *Session) CorrectShot(index int, ring int, decimal float64) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if index < 0 || index >= len(s.shots) {
+		s.mu.Unlock()
 		return fmt.Errorf("ungueltiger Index")
 	}
 	s.shots[index].Ring = &ring
 	s.shots[index].Decimal = &decimal
 	s.shots[index].Corrected = true
+	m := s.machine
+	s.mu.Unlock()
+	if mm, ok := m.(interface{ TryResolvePendingEdit() }); ok {
+		mm.TryResolvePendingEdit()
+	}
 	return nil
 }
 
@@ -251,6 +347,26 @@ func (s *Session) AllResolved() bool {
 		}
 	}
 	return true
+}
+
+// AllShotsResolved/PendingShotsForEdit implementieren disag.EventHandler -
+// nur vom RM-IV-Treiber fuer die EDI-Antwort auf eine Editier-Anfrage
+// genutzt (siehe disag/rmiv.go attemptPendingEdit). AllShotsResolved ist
+// bewusst ein duenner Wrapper um das bereits bestehende AllResolved()
+// (oeffentliche API fuer die Bedienoberflaeche), damit der Treiber denselben
+// Zustand ohne eigene Kopie der Aufloesungs-Logik abfragen kann.
+func (s *Session) AllShotsResolved() bool {
+	return s.AllResolved()
+}
+
+func (s *Session) PendingShotsForEdit() []disag.EditShot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]disag.EditShot, len(s.shots))
+	for i, sh := range s.shots {
+		out[i] = disag.EditShot{Ring: sh.Ring, Decimal: sh.Decimal, Teiler: sh.Teiler, Changed: sh.Corrected}
+	}
+	return out
 }
 
 // Submit ueberträgt die gesammelten Einzelschuesse (Granularitaet "shot") an

@@ -103,6 +103,8 @@ func (ws *WebServer) Run(listen string) error {
 	mux.HandleFunc("POST /submit", ws.handleSubmit)
 	mux.HandleFunc("POST /abort", ws.handleAbort)
 	mux.HandleFunc("POST /recover", ws.handleRecover)
+	mux.HandleFunc("POST /enter-fern-mode", ws.handleEnterFernMode)
+	mux.HandleFunc("POST /send-raw", ws.handleSendRaw)
 
 	log.Printf("wertmaschine: http://localhost%s", listen)
 	return http.ListenAndServe(listen, mux)
@@ -251,6 +253,42 @@ func (ws *WebServer) handleAbort(w http.ResponseWriter, r *http.Request) {
 // abzubrechen oder das Geraet aus-/einschalten zu muessen.
 func (ws *WebServer) handleRecover(w http.ResponseWriter, r *http.Request) {
 	if err := ws.session.Recover(); err != nil {
+		writeJSONError(w, err, http.StatusBadGateway)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// handleEnterFernMode loest den Fernsteuermodus-Wechsel manuell aus (siehe
+// session.go EnterFernMode - protokollabhaengig "V" bei RM III bzw. "W" +
+// Umschalten auf 38400 Baud bei RMIII-Win). Ausschliesslich ueber den
+// "Fern"-Button in der Bedienoberflaeche ausgeloest, kein automatischer
+// Trigger mehr beim Dienststart (siehe main.go). Blockt fuer die Dauer der
+// Umschaltung (bei RMIII-Win ca. 25s), analog handleRecover.
+func (ws *WebServer) handleEnterFernMode(w http.ResponseWriter, r *http.Request) {
+	if err := ws.session.EnterFernMode(); err != nil {
+		writeJSONError(w, err, http.StatusBadGateway)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// handleSendRaw schickt einen vom Bediener eingegebenen Rohbefehl an die
+// aktuell verbundene Wertmaschine (siehe session.go SendRaw) - fuer
+// Live-Diagnose waehrend einer haengenden Erfassung, ohne den Dienst neu
+// starten (und damit bereits erfasste Schuesse verlieren) zu muessen. Nur
+// im Entwicklermodus in der Bedienoberflaeche sichtbar (siehe index.html
+// debug-card), der Endpunkt selbst ist aber nicht extra abgesichert (rein
+// lokale Bedienoberflaeche, gleiche Vertrauensstufe wie /recover).
+func (ws *WebServer) handleSendRaw(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Cmd string `json:"cmd"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Cmd == "" {
+		writeJSONError(w, fmt.Errorf("cmd erforderlich"), http.StatusBadRequest)
+		return
+	}
+	if err := ws.session.SendRaw(body.Cmd); err != nil {
 		writeJSONError(w, err, http.StatusBadGateway)
 		return
 	}

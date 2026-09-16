@@ -215,6 +215,7 @@ func renderPage(w http.ResponseWriter, cfg anzeigeConfig, sections []kioskSectio
 	}
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="de"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Preisschiessen – Ergebnisse</title>
 <style>
   :root{--bg:%s;--text:%s;--row-even:%s;--row-odd:%s;--line:#2b3542;--dim:#75879a}

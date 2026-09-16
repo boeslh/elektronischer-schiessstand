@@ -343,6 +343,13 @@ type DisciplineFull struct {
 	// produktiven Einsatz. Leer = automatische Berechnung wird weiter
 	// verwendet.
 	RMIIIConfigOverride string `json:"rmiii_config_override"`
+	// RMIVConfigOverride: analog RMIIIConfigOverride, aber fuer das RM-IV/
+	// RMIII-Win-Protokoll (SCH=...;-Format, siehe migrations/066 und
+	// wertmaschine_config.go BuildDisagConfig case "rmiv"). Unabhaengig vom
+	// RM-III-Override - eine Papier-Disziplin kann beide gleichzeitig
+	// gesetzt haben, je nachdem an welchem Wertungs-PC (rmiii vs.
+	// rmiv/rmiii-win) sie erfasst wird.
+	RMIVConfigOverride string `json:"rmiv_config_override"`
 }
 
 // TargetRef wird fuer Auswahlfelder in der Disziplin-Verwaltung benoetigt.
@@ -378,7 +385,7 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 		       d.match_time_s, d.active, COALESCE(d.notes,''),
 		       d.standpc_target_no, d.anzeige,
 		       d.scoring_mode, d.wertmaschine_caliber_mm,
-		       COALESCE(d.rmiii_config_override,'')
+		       COALESCE(d.rmiii_config_override,''), COALESCE(d.rmiv_config_override,'')
 		FROM disciplines d
 		LEFT JOIN targets t ON t.id = d.target_id
 		ORDER BY d.active DESC, d.name`)
@@ -397,7 +404,7 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 			&d.MatchTimeS, &d.Active, &d.Notes,
 			&d.StandPCTargetNo, &d.Anzeige,
 			&d.ScoringMode, &d.WertmaschineCaliberMM,
-			&d.RMIIIConfigOverride,
+			&d.RMIIIConfigOverride, &d.RMIVConfigOverride,
 		); err != nil {
 			return nil, err
 		}
@@ -421,14 +428,14 @@ func (s *Store) CreateDiscipline(ctx context.Context, d DisciplineFull) (string,
 		  (name, rule_no, distance_m, target_id,
 		   match_shot_count, max_sighting_shots, shots_per_series,
 		   decimal_scoring, match_time_s, active, notes, anzeige,
-		   scoring_mode, wertmaschine_caliber_mm, rmiii_config_override)
+		   scoring_mode, wertmaschine_caliber_mm, rmiii_config_override, rmiv_config_override)
 		VALUES ($1, NULLIF($2,''), $3, $4,
-		        $5, $6, $7, $8, $9, $10, NULLIF($11,''), $12, $13, $14, NULLIF($15,''))
+		        $5, $6, $7, $8, $9, $10, NULLIF($11,''), $12, $13, $14, NULLIF($15,''), NULLIF($16,''))
 		RETURNING id`,
 		d.Name, d.RuleNo, d.DistanceM, d.TargetID,
 		d.MatchShotCount, d.MaxSightingShots, d.ShotsPerSeries,
 		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, anzeige,
-		scoringMode, d.WertmaschineCaliberMM, d.RMIIIConfigOverride,
+		scoringMode, d.WertmaschineCaliberMM, d.RMIIIConfigOverride, d.RMIVConfigOverride,
 	).Scan(&id)
 	return id, err
 }
@@ -459,12 +466,13 @@ func (s *Store) UpdateDiscipline(ctx context.Context, d DisciplineFull) error {
 		  anzeige                 = $14,
 		  scoring_mode            = $15,
 		  wertmaschine_caliber_mm = $16,
-		  rmiii_config_override   = NULLIF($17,'')
+		  rmiii_config_override   = NULLIF($17,''),
+		  rmiv_config_override    = NULLIF($18,'')
 		WHERE id = $12`,
 		d.Name, d.RuleNo, d.DistanceM, d.TargetID,
 		d.MatchShotCount, d.MaxSightingShots, d.ShotsPerSeries,
 		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, d.ID, d.StandPCTargetNo, anzeige,
-		scoringMode, d.WertmaschineCaliberMM, d.RMIIIConfigOverride,
+		scoringMode, d.WertmaschineCaliberMM, d.RMIIIConfigOverride, d.RMIVConfigOverride,
 	)
 	return err
 }

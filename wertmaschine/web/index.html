@@ -19,6 +19,8 @@
   button:disabled{opacity:.5;cursor:not-allowed}
   #status-line{font-size:.85em;color:var(--dim);margin-top:8px}
   #status-line.connected{color:var(--acc)}
+  #debug-status-line{font-size:.85em;color:var(--dim)}
+  #debug-status-line.connected{color:var(--acc)}
   table{width:100%;border-collapse:collapse;margin-top:10px}
   th{text-align:left;font-size:.75em;color:var(--dim);padding:4px 6px;border-bottom:1px solid var(--line)}
   td{padding:5px 6px;border-bottom:1px solid #1e242c;font-size:.9em}
@@ -62,6 +64,10 @@
 
   <div class="row" style="margin-top:14px">
     <button onclick="startSession()">Starten</button>
+    <button class="secondary" onclick="enterFernMode()"
+            title="Versetzt die Wertmaschine in den Fernsteuermodus (RM III: &quot;V&quot;; RMIII-Win: &quot;W&quot; + Umschalten auf 38400 Baud). Am Display der Wertmaschine ablesen, ob/wann das noetig ist.">
+      Fern
+    </button>
   </div>
   <div id="start-msg" class="msg"></div>
 </div>
@@ -81,11 +87,16 @@
 </div>
 
 <div class="card" id="debug-card" style="display:none">
-  <div style="display:flex;justify-content:space-between;align-items:center">
+  <div id="debug-status-line">–</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
     <strong style="font-size:.85em;color:var(--dim)">Entwickler-Debug: Serielle Kommunikation</strong>
     <button class="secondary" style="padding:3px 10px;font-size:.8em" onclick="document.getElementById('debug-log').innerHTML=''">leeren</button>
   </div>
   <div id="debug-log"></div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="raw-cmd" placeholder="Rohbefehl, z.B. WID oder ABR" style="flex:2">
+    <button class="secondary" style="flex:1" onclick="sendRawCmd()">Senden</button>
+  </div>
 </div>
 
 <script>
@@ -204,6 +215,40 @@ async function recoverMachine() {
   }
 }
 
+// enterFernMode: versetzt die Wertmaschine in den Fernsteuermodus - bei RM
+// III "V", bei RMIII-Win "W" + Umschalten auf 38400 Baud (siehe
+// session.go EnterFernMode). Ausschliesslich manuell ueber den "Fern"-
+// Button ausgeloest (kein automatischer Trigger mehr beim Dienststart) -
+// der Bediener sieht am Display der Wertmaschine, ob/wann das noetig ist.
+// Blockiert bei RMIII-Win ca. 25s; der Fortschritt ist waehrenddessen live
+// in #debug-status-line (per SSE, nur bei aktivem Entwicklermodus sichtbar)
+// zu sehen.
+async function enterFernMode() {
+  try {
+    await postJSON('/enter-fern-mode', {});
+    showMsg('start-msg', 'Fernsteuermodus-Befehl gesendet.', 'ok');
+  } catch (err) {
+    showMsg('start-msg', 'Fehlgeschlagen: ' + err.message, 'err');
+  }
+}
+
+// sendRawCmd: manueller Rohbefehl an die Wertmaschine (siehe web.go
+// handleSendRaw/session.go SendRaw) - fuer schnelles Ausprobieren waehrend
+// einer Live-Diagnose (z.B. "WID" statt des automatischen "ABR" bei einer
+// Editier-Anfrage), ohne den Dienst neu zu starten. Ergebnis/Reaktion der
+// Wertmaschine zeigt sich ueber #status-line bzw. das Debug-Log oben (RX).
+async function sendRawCmd() {
+  const input = document.getElementById('raw-cmd');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  try {
+    await postJSON('/send-raw', {cmd});
+    input.value = '';
+  } catch (err) {
+    alert('Senden fehlgeschlagen: ' + err.message);
+  }
+}
+
 async function correctShot(index) {
   const ring = parseFloat(document.getElementById('correct-ring-' + index).value);
   if (isNaN(ring)) { alert('Bitte einen Ringwert eingeben.'); return; }
@@ -228,12 +273,24 @@ function render() {
     (state.connected ? 'Verbunden' : 'Nicht verbunden') + (state.status_msg ? ' – ' + state.status_msg : '');
   document.getElementById('status-line').className = state.connected ? 'connected' : '';
 
+  const protoLabel = {rmiii: 'RM III (Fernsteuerung)', rmiv: 'RM III-Win', 'rmiii-win': 'RM III-Win'};
+  document.getElementById('debug-status-line').textContent =
+    `Protokoll: ${protoLabel[state.protocol] || state.protocol || '–'} · ${state.com_port || '–'}` +
+    (state.status_msg ? ' – ' + state.status_msg : '');
+  document.getElementById('debug-status-line').className = state.connected ? 'connected' : '';
+
   const tbody = document.getElementById('shots-tbody');
   tbody.innerHTML = (state.shots || []).map((s, i) => {
     const needsFix = (s.raw_flag === 'review' || s.raw_flag === 'invalid') && !s.corrected;
     const rowClass = needsFix ? s.raw_flag : '';
+    // Vorschlagswert: die Wertmaschine liefert bei "review"-Schuessen (Flag
+    // K, "muss kontrolliert werden") trotzdem einen gemessenen Ring-/
+    // Zehntelwert mit (nur bei "invalid" - Flag U bzw. "0.0"/"-,-" - ist
+    // kein Wert vorhanden) - als Startwert im Korrekturfeld vorbefuellen,
+    // statt der Bedienperson eine komplett leere Eingabe zuzumuten.
+    const suggested = s.decimal ?? s.ring ?? '';
     const correctionCell = needsFix
-      ? `<input type="number" step="0.1" class="correct-input" id="correct-ring-${i}" placeholder="Ring">
+      ? `<input type="number" step="0.1" class="correct-input" id="correct-ring-${i}" placeholder="Ring" value="${suggested}">
          <button class="secondary" style="padding:3px 8px" onclick="correctShot(${i})">OK</button>`
       : (s.corrected ? '(korrigiert)' : '');
     return `<tr class="${rowClass}">

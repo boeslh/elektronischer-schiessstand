@@ -67,17 +67,48 @@ type disagDisciplineFields struct {
 	decimalScoring bool
 	caliberMM      *float64
 	rmiiiOverride  string
+	rmivOverride   string
+	// bandType/shotsPerCard: 0 = automatisch (Heuristik, siehe
+	// disagBandHeuristic) - nur von den *Preview-Funktionen gesetzt, wenn
+	// die Bedienoberflaeche einen bereits manuell gewaehlten Wert (Scheiben-
+	// laenge-/Schuss-pro-Scheibe-Auswahlfelder in disciplines.html)
+	// beibehalten will, statt ihn durch die Heuristik zu ueberschreiben. Der
+	// tatsaechliche Laufzeit-Pfad (BuildDisagConfig/disagDisciplineFieldsFor)
+	// setzt diese Felder nie (es gibt dafuer keine eigene DB-Spalte - beide
+	// Protokolle kodieren eine manuelle Wahl stattdessen direkt im jeweiligen
+	// Override-String), verhaelt sich also unveraendert wie bisher.
+	bandType     int
+	shotsPerCard int
+}
+
+// disagBandHeuristic liefert einen Vorschlag fuer Scheibenlaenge (1=Einzel-
+// scheibe, 2=5er-Band, 3=10er-Band - RM-III-Ziffer-2-Kodierung, bei RM-IV
+// auf SCH=LGES/LG5/LG10 abgebildet) und Schuss/Scheibe - gemeinsam von
+// computeRMIIIConfig (Ziffer 2/9) und computeRMIVConfig (SCH=-Variante/SSC=)
+// verwendet, damit beide Protokolle bei gleichen Eingabedaten denselben
+// Vorschlag liefern (siehe disciplines.html: die Auswahlfelder wirken sich
+// jetzt auf beide Einstellungsstrings gemeinsam aus).
+func disagBandHeuristic(isLG bool, matchShotCount, shotsPerSeries int) (bandType, shotsPerCard int) {
+	bandType = 1 // Einzelscheibe
+	if isLG && matchShotCount >= 10 {
+		bandType = 3 // 10er Band
+	}
+	shotsPerCard = 1 // Grundeinstellung nach Einschalten
+	if shotsPerSeries == 2 || shotsPerSeries == 5 {
+		shotsPerCard = shotsPerSeries
+	}
+	return
 }
 
 func (s *Store) disagDisciplineFieldsFor(ctx context.Context, disciplineID string) (disagDisciplineFields, error) {
 	var f disagDisciplineFields
 	err := s.pool.QueryRow(ctx, `
 		SELECT tg.name, d.match_shot_count, d.shots_per_series, d.decimal_scoring,
-		       d.wertmaschine_caliber_mm, COALESCE(d.rmiii_config_override,'')
+		       d.wertmaschine_caliber_mm, COALESCE(d.rmiii_config_override,''), COALESCE(d.rmiv_config_override,'')
 		FROM disciplines d JOIN targets tg ON tg.id = d.target_id
 		WHERE d.id = $1`, disciplineID,
 	).Scan(&f.targetName, &f.matchShotCount, &f.shotsPerSeries, &f.decimalScoring,
-		&f.caliberMM, &f.rmiiiOverride)
+		&f.caliberMM, &f.rmiiiOverride, &f.rmivOverride)
 	if err != nil {
 		return f, fmt.Errorf("Disziplin/Scheibe: %w", err)
 	}
@@ -85,13 +116,16 @@ func (s *Store) disagDisciplineFieldsFor(ctx context.Context, disciplineID strin
 }
 
 // BuildDisagConfig liefert den Konfigurationsstring fuer die Disag-
-// Wertmaschine (RM IV: key=value-String OHNE Pruefsumme/CR - das haengt der
-// wertmaschine-Dienst selbst an, siehe disag/rmiv.go dort; RM III: 9-stelliger
-// Zahlencode) fuer eine Disziplin. Fuer RM III wird - falls gesetzt - das
-// manuelle Override (disciplines.rmiii_config_override, siehe
-// migrations/058) unveraendert zurueckgegeben statt berechnet zu werden; die
-// automatische Berechnung diente mit echter Hardware mehrfach als
-// nachweislich unzuverlaessige Ausgangsbasis.
+// Wertmaschine (RM IV/RMIII-Win: key=value-String OHNE Pruefsumme/CR - das
+// haengt der wertmaschine-Dienst selbst an, siehe disag/rmiv.go dort; RM
+// III: 9-stelliger Zahlencode) fuer eine Disziplin. In beiden Faellen wird -
+// falls gesetzt - das jeweilige manuelle Override (disciplines.
+// rmiii_config_override bzw. rmiv_config_override, siehe migrations/058
+// bzw. 066) unveraendert zurueckgegeben statt berechnet; die automatische
+// RM-III-Berechnung diente mit echter Hardware mehrfach als nachweislich
+// unzuverlaessige Ausgangsbasis - fuer RM IV/RMIII-Win gilt dieselbe
+// Vorsicht, bis die automatische Berechnung an echter Hardware bestaetigt
+// ist (siehe computeRMIVConfig-Kommentar).
 func (s *Store) BuildDisagConfig(ctx context.Context, disciplineID, protocol string) (string, error) {
 	f, err := s.disagDisciplineFieldsFor(ctx, disciplineID)
 	if err != nil {
@@ -100,15 +134,10 @@ func (s *Store) BuildDisagConfig(ctx context.Context, disciplineID, protocol str
 
 	switch protocol {
 	case "rmiv":
-		sch, ok := matchDisagSchByName(f.targetName)
-		if !ok {
-			return "", errBadRequest(fmt.Sprintf("keine Disag-Scheibenzuordnung fuer %q gefunden", f.targetName))
+		if f.rmivOverride != "" {
+			return f.rmivOverride, nil
 		}
-		cfg := fmt.Sprintf("SCH=%s;SZI=%d;SGE=%d;SSC=1;TEA=ZT;TEG=2000;", sch, f.shotsPerSeries, f.matchShotCount)
-		if f.caliberMM != nil {
-			cfg = fmt.Sprintf("KAL=%.2f;", *f.caliberMM) + cfg
-		}
-		return cfg, nil
+		return computeRMIVConfig(f)
 	case "rmiii":
 		if f.rmiiiOverride != "" {
 			return f.rmiiiOverride, nil
@@ -117,6 +146,77 @@ func (s *Store) BuildDisagConfig(ctx context.Context, disciplineID, protocol str
 	default:
 		return "", errBadRequest("unbekanntes Protokoll (rmiv|rmiii erwartet)")
 	}
+}
+
+// computeRMIVConfig berechnet den RM-IV/RMIII-Win-Konfigurationsstring
+// (SCH=...;-Schluessel-Wert-Format, siehe VB-Abend/schnittstellenbeschreibung.pdf)
+// aus den Disziplin-/Scheibendaten - automatischer Vorschlagswert, per
+// disciplines.rmiv_config_override uebersteuerbar (siehe BuildDisagConfig).
+// NOCH NICHT AN ECHTER HARDWARE VERIFIZIERT (anders als die RM-III-Ziffern,
+// wo genau deshalb ein Override eingefuehrt wurde) - TEA=ZT (Teilerwertung
+// mit Zehntel-Teiler) und TEG=2000 sind Startwerte, keine getesteten
+// Optimalwerte.
+//
+// Scheibenlaenge/Schuss-pro-Scheibe (siehe disagBandHeuristic) werden bei
+// der LG-Scheibenfamilie direkt auf die passende SCH=-Variante abgebildet
+// (LGES=Einzelscheibe/LG5=5er-Band/LG10=10er-Band, siehe
+// VB-Abend/schnittstellenbeschreibung.pdf) bzw. als SSC= uebernommen - bei
+// allen anderen Scheibentypen kennt das Protokoll laut Dokumentation keine
+// Bandvarianten, dort bleibt SCH= unveraendert.
+func computeRMIVConfig(f disagDisciplineFields) (string, error) {
+	sch, ok := matchDisagSchByName(f.targetName)
+	if !ok {
+		return "", errBadRequest(fmt.Sprintf("keine Disag-Scheibenzuordnung fuer %q gefunden", f.targetName))
+	}
+	isLG := sch == "LG10"
+	bandType, ssc := f.bandType, f.shotsPerCard
+	if bandType == 0 || ssc == 0 {
+		autoBand, autoSPK := disagBandHeuristic(isLG, f.matchShotCount, f.shotsPerSeries)
+		if bandType == 0 {
+			bandType = autoBand
+		}
+		if ssc == 0 {
+			ssc = autoSPK
+		}
+	}
+	if isLG {
+		switch bandType {
+		case 1:
+			sch = "LGES"
+		case 2:
+			sch = "LG5"
+		case 3:
+			sch = "LG10"
+		}
+	}
+	cfg := fmt.Sprintf("SCH=%s;SZI=%d;SGE=%d;SSC=%d;TEA=ZT;TEG=2000;", sch, f.shotsPerSeries, f.matchShotCount, ssc)
+	if f.caliberMM != nil {
+		cfg = fmt.Sprintf("KAL=%.2f;", *f.caliberMM) + cfg
+	}
+	return cfg, nil
+}
+
+// ComputeRMIVConfigPreview berechnet den RM-IV/RMIII-Win-Konfigurationsstring
+// aus uebergebenen Parametern statt aus einer bereits gespeicherten
+// Disziplin - fuer den (jetzt gemeinsamen) "Standard einsetzen"-Button in
+// disciplines.html, analog ComputeRMIIIConfigPreview. bandType/shotsPerCard
+// = 0 laesst computeRMIVConfig die automatische Heuristik anwenden -
+// disciplines.html uebergibt hier die aktuellen Werte der (fuer beide
+// Protokolle gemeinsam genutzten) Scheibenlaenge-/Schuss-pro-Scheibe-
+// Auswahlfelder, wenn diese bereits eine manuelle Wahl tragen.
+func (s *Store) ComputeRMIVConfigPreview(ctx context.Context, targetID string, matchShotCount, shotsPerSeries int, caliberMM *float64, bandType, shotsPerCard int) (string, error) {
+	var targetName string
+	if err := s.pool.QueryRow(ctx, `SELECT name FROM targets WHERE id=$1`, targetID).Scan(&targetName); err != nil {
+		return "", fmt.Errorf("Scheibe: %w", err)
+	}
+	return computeRMIVConfig(disagDisciplineFields{
+		targetName:     targetName,
+		matchShotCount: matchShotCount,
+		shotsPerSeries: shotsPerSeries,
+		caliberMM:      caliberMM,
+		bandType:       bandType,
+		shotsPerCard:   shotsPerCard,
+	})
 }
 
 // ComputeRMIIIConfigPreview berechnet den RM-III-Einstellungsstring aus
@@ -167,22 +267,26 @@ func computeRMIIIConfig(f disagDisciplineFields) (string, error) {
 	if f.decimalScoring {
 		ringFormat = 5 // Zehntel Ringe + Teiler
 	}
-	// Ziffer 2 (Scheibenlaenge): LG-Disziplinen mit >=10 Schuss werden
-	// ueblicherweise auf 10er-Baendern geschossen, nicht auf Einzelscheiben -
-	// nur ein Vorschlagswert, in der Bedienoberflaeche (disciplines.html)
-	// direkt am Einstellungsstring editierbar (Ziffer 2 wird dort nicht
-	// separat gespeichert).
-	bandType := 1 // Einzelscheibe
-	if typ == 1 && f.matchShotCount >= 10 {
-		bandType = 3 // 10er Band
+	// Ziffer 2 (Scheibenlaenge) und Ziffer 9 (Schuss/Scheibe): Vorschlagswert
+	// aus der gemeinsamen Heuristik (siehe disagBandHeuristic), ausser die
+	// Bedienoberflaeche hat bereits eine manuelle Wahl getroffen (f.bandType/
+	// f.shotsPerCard != 0 - nur beim erneuten Berechnen mit bereits
+	// befuelltem Feld relevant, siehe disciplines.html) - in der Bedien-
+	// oberflaeche direkt am Einstellungsstring editierbar (Ziffer 2/9 werden
+	// dort nicht separat gespeichert).
+	bandType, schussProKarte := f.bandType, f.shotsPerCard
+	if bandType == 0 || schussProKarte == 0 {
+		autoBand, autoSPK := disagBandHeuristic(typ == 1, f.matchShotCount, f.shotsPerSeries)
+		if bandType == 0 {
+			bandType = autoBand
+		}
+		if schussProKarte == 0 {
+			schussProKarte = autoSPK
+		}
 	}
 	const teilergrenzeCode = 14 // 2000T, siehe Konzept Abschnitt 2.4
 	const teilerMitTF1 = 2      // Teiler messen, Teilungsfaktor 1.0 (unskaliert)
 	const druckerAus = 2        // 1=ein, 2=aus
-	schussProKarte := 1         // Grundeinstellung nach Einschalten
-	if f.shotsPerSeries == 2 || f.shotsPerSeries == 5 {
-		schussProKarte = f.shotsPerSeries
-	}
 	return fmt.Sprintf("%d%d%d%d%02d%d%d%d",
 		typ, bandType, rmiiiSeriesLengthCode(f.matchShotCount), ringFormat,
 		teilergrenzeCode, teilerMitTF1, druckerAus, schussProKarte), nil

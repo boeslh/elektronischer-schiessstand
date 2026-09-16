@@ -208,6 +208,35 @@ func (m *RMIII) EnterRemoteMode() error {
 	return nil
 }
 
+// EnterWinMode versetzt die RM III in den "RMIII-Win"-Modus (Anzeige zeigt
+// "FEr" statt "FErn" wie im normalen Fernsteuermodus) - Software-Alternative
+// zur Tastenkombination "SERIE"+"TEILER"+"SCHUSS"+"NEUSTART" am Geraet,
+// siehe VB-Abend/schnittstellenbeschreibung.pdf. Wie EnterRemoteMode nur
+// einmal je Einschaltvorgang noetig (Display muss "NEU" zeigen). Nach dem
+// Senden braucht das Geraet laut Dokumentation ca. 20-30s, bis es im neuen
+// Modus (38400 Baud, ENQ/STX-Rahmenprotokoll, siehe disag/rmiv.go) reagiert
+// - das Warten uebernimmt der Aufrufer (wertmaschine/session.go
+// EnsureWinMode), nicht diese Funktion; hier wird nur der Umschaltbefehl
+// gesendet.
+//
+// NOCH NICHT AN ECHTER HARDWARE VERIFIZIERT (anders als EXIT/V bei
+// Recover()/EnterRemoteMode()): die Dokumentation nennt "W" nur als
+// Alternative zur Tastenkombination, ohne den RTS/DTR-Handshake explizit zu
+// erwaehnen (anders als beim "V"-Befehl in der separaten RMIIIBA_2.pdf).
+// Hier wird testweise derselbe Handshake-Weg wie bei "V" verwendet
+// (sendViaHandshake) - naheliegend, da beide Befehle vermutlich denselben
+// Firmware-Empfangsmechanismus im Boot-/Handbetrieb-Zustand nutzen. Sollte
+// das am echten Geraet nicht funktionieren (Handshake-Timeout trotz
+// frisch eingeschalteter RM3), naechster Versuch: SendCommand("W") ganz
+// ohne RTS/DTR-Handshake (z.B. ueber cmd_test_manual -send W).
+func (m *RMIII) EnterWinMode() error {
+	if err := m.sendViaHandshake("W"); err != nil {
+		return err
+	}
+	m.handler.OnStatus(StatusEvent{Connected: true, Message: "RMIII-Win-Umschaltbefehl gesendet - Display sollte auf 'FEr' wechseln"})
+	return nil
+}
+
 // SendCommand schickt einen beliebigen Befehl (RTS/DTR-Handshake + payload +
 // CR) - fuer manuelle Diagnose ueber cmd_test_manual (z.B. "-send E" fuer
 // "Einstellung ausgeben", siehe RMIIIBA_1.pdf). KEIN Aequivalent zu einem der

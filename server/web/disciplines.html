@@ -11,25 +11,27 @@ header { background: #1a1a2e; border-bottom: 2px solid #e94560; padding: 14px 24
 header a.back { color: #e94560; text-decoration: none; font-size: 1.2rem; }
 header a.back:hover { color: #ff6b81; }
 header h1 { font-size: 1.4rem; color: #e94560; }
-.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; display: grid; grid-template-columns: 1fr 380px; gap: 24px; }
+.container { max-width: 1430px; margin: 0 auto; padding: 24px 16px; display: grid; grid-template-columns: 1fr 380px; gap: 24px; }
 @media (max-width: 800px) { .container { grid-template-columns: 1fr; } }
 
 /* --- List --- */
 .card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px; }
 .card h2 { font-size: 1rem; color: #a0a0c0; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 16px; }
-.btn-new { background: #e94560; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: .9rem; margin-bottom: 16px; }
+.list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.list-header h2 { margin-bottom: 0; }
+.btn-new { background: #e94560; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: .9rem; }
 .btn-new:hover { background: #c73652; }
-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-th { text-align: left; color: #a0a0c0; font-weight: 500; padding: 6px 8px; border-bottom: 1px solid #2a2a4a; }
-td { padding: 8px; border-bottom: 1px solid #1e1e3a; vertical-align: middle; }
+table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+th { text-align: left; color: #a0a0c0; font-weight: 500; padding: 5px 8px; border-bottom: 1px solid #2a2a4a; }
+td { padding: 4px 8px; border-bottom: 1px solid #1e1e3a; vertical-align: middle; }
 tr:last-child td { border-bottom: none; }
 tr.inactive td { color: #666; }
-.badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: .75rem; }
+.badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: .72rem; }
 .badge.active { background: #1a3a2a; color: #4caf50; }
 .badge.inactive { background: #3a1a1a; color: #e57373; }
 .badge.decimal { background: #1a2a3a; color: #64b5f6; }
 .row-actions { white-space: nowrap; }
-.btn-edit, .btn-del { border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; font-size: .8rem; margin-left: 4px; }
+.btn-edit, .btn-del { border: none; border-radius: 5px; padding: 3px 8px; cursor: pointer; font-size: .75rem; margin-left: 4px; }
 .btn-edit { background: #2a2a5a; color: #90caf9; }
 .btn-edit:hover { background: #3a3a7a; }
 .btn-del  { background: #3a1a1a; color: #ef9a9a; }
@@ -69,8 +71,10 @@ form textarea { resize: vertical; min-height: 56px; }
 <div class="container">
   <!-- ---- Liste ---- -->
   <div class="card">
-    <h2>Alle Disziplinen</h2>
-    <button class="btn-new" onclick="newDiscipline()">+ Neue Disziplin</button>
+    <div class="list-header">
+      <h2>Alle Disziplinen</h2>
+      <button class="btn-new" onclick="newDiscipline()">+ Neue Disziplin</button>
+    </div>
     <table id="disc-table">
       <thead>
         <tr>
@@ -88,7 +92,7 @@ form textarea { resize: vertical; min-height: 56px; }
   </div>
 
   <!-- ---- Formular ---- -->
-  <div class="card form-card" id="form-card">
+  <div class="card form-card" id="form-card" style="display:none">
     <h2>Disziplin <span id="form-title">anlegen</span></h2>
     <form id="disc-form" onsubmit="saveForm(event)">
       <input type="hidden" id="f-id">
@@ -116,6 +120,7 @@ form textarea { resize: vertical; min-height: 56px; }
       <select id="f-scoring-mode" onchange="updateScoringModeFields()">
         <option value="elektronisch">Elektronisch (Stand-PC)</option>
         <option value="papier">Papierscheibe (Wertmaschine/manuell)</option>
+        <option value="teilnahme">Teilnahme (kein Ergebnis, nur Anwesenheit)</option>
       </select>
       <div class="hint" id="scoring-mode-hint" style="display:none">
         Diese Disziplin darf nicht auf eine echte Stand-PC-Bahn zugewiesen werden -
@@ -126,40 +131,51 @@ form textarea { resize: vertical; min-height: 56px; }
         <input type="number" id="f-caliber" step="0.01" min="0" placeholder="leer = nicht relevant">
       </div>
       <div id="rmiii-override-field" style="display:none">
-        <label for="f-rmiii-override">RM-III Einstellungsstring</label>
-        <div class="form-row2">
-          <input type="text" id="f-rmiii-override" placeholder="leer = automatisch berechnet" maxlength="30" oninput="syncRMIIISelectsFromString()">
-          <button type="button" class="btn-cancel" id="f-rmiii-default-btn" onclick="fillRMIIIDefault()">Standard einsetzen</button>
-        </div>
-        <div class="hint">Fest hinterlegter 9-stelliger Code für die RM-III-Wertmaschine - überschreibt die automatische Berechnung. "Standard einsetzen" berechnet einen Vorschlagswert aus den aktuellen Formularwerten (auch vor dem Speichern nutzbar).</div>
+        <label for="f-rmiii-override"
+               title="Fest hinterlegter 9-stelliger Code für die RM-III-Wertmaschine (normaler Fernsteuermodus) - überschreibt die automatische Berechnung.">
+          RM-III Einstellungsstring
+        </label>
+        <input type="text" id="f-rmiii-override" style="width:100%" placeholder="leer = automatisch berechnet" maxlength="30" oninput="syncRMIIISelectsFromString()">
 
-        <div class="form-row2" style="margin-top:8px">
+        <label for="f-rmiv-override" style="margin-top:10px"
+               title="Schlüssel-Wert-String für Wertmaschinen-PCs im RM-IV- bzw. RMIII-Win-Modus (siehe wertmaschine.json &quot;protocol&quot;) - unabhängig vom RM-III-String oben, eine Papierscheibe kann an unterschiedlichen Ständen mit unterschiedlichem Protokoll erfasst werden. Noch nicht an echter Hardware verifiziert.">
+          RM-IV / RMIII-Win Einstellungsstring
+        </label>
+        <input type="text" id="f-rmiv-override" style="width:100%" placeholder="leer = automatisch berechnet">
+
+        <div class="form-actions" style="margin-top:10px">
+          <button type="button" class="btn-cancel" id="f-rm-default-btn"
+                  title="Berechnet einen Vorschlagswert für BEIDE Felder aus den aktuellen Formularwerten (auch vor dem Speichern nutzbar) - ersetzt eine bereits manuell gewählte Scheibenlänge/Schuss-pro-Scheibe."
+                  onclick="fillBothDefaults()">
+            Standard einsetzen (beide Felder)
+          </button>
+        </div>
+
+        <div class="form-row2" style="margin-top:10px">
           <div>
-            <label for="f-rmiii-band">Scheibenlänge (Ziffer 2)</label>
-            <select id="f-rmiii-band" onchange="applyRMIIIDigit(1, this)" disabled>
+            <label for="f-rmiii-band" title="Wirkt sich auf beide Einstellungsstrings aus (RM-III Ziffer 2 bzw. RM-IV SCH=LGES/LG5/LG10).">Scheibenlänge</label>
+            <select id="f-rmiii-band" onchange="onBandOrPercardChange()" disabled>
               <option value="1">Einzelscheibe</option>
               <option value="2">5er Band</option>
               <option value="3">10er Band</option>
             </select>
           </div>
           <div>
-            <label for="f-rmiii-percard">Schuss/Scheibe (Ziffer 9)</label>
-            <select id="f-rmiii-percard" onchange="applyRMIIIDigit(8, this)" disabled>
+            <label for="f-rmiii-percard" title="Wirkt sich auf beide Einstellungsstrings aus (RM-III Ziffer 9 bzw. RM-IV SSC=).">Schuss/Scheibe</label>
+            <select id="f-rmiii-percard" onchange="onBandOrPercardChange()" disabled>
               <option value="1">1</option>
               <option value="2">2</option>
               <option value="5">5 (nur Einzelscheibe)</option>
             </select>
           </div>
         </div>
-        <div>
-          <label for="f-rmiii-printer">Drucker/Aufdruck (Ziffer 8)</label>
-          <select id="f-rmiii-printer" onchange="applyRMIIIDigit(7, this)" disabled>
-            <option value="1">Drucker eingeschaltet</option>
-            <option value="2">Drucker ausgeschaltet</option>
-            <option value="3">Teilerwert nicht aufdrucken</option>
-          </select>
-        </div>
-        <div class="hint">Diese Auswahlfelder lesen/ändern die entsprechende Ziffer direkt im Einstellungsstring oben - nur aktiv, wenn dort ein gültiger (mind. 9-stelliger) String steht.</div>
+        <label for="f-rmiii-printer" title="Nur RM-III (Ziffer 8) - im RM-IV-/RMIII-Win-Format gibt es dafür keine direkte Entsprechung.">Drucker/Aufdruck (nur RM-III)</label>
+        <select id="f-rmiii-printer" onchange="applyRMIIIDigit(7, this)" disabled
+                title="Nur aktiv, wenn oben ein gültiger (mind. 9-stelliger) RM-III-String steht.">
+          <option value="1">Drucker eingeschaltet</option>
+          <option value="2">Drucker ausgeschaltet</option>
+          <option value="3">Teilerwert nicht aufdrucken</option>
+        </select>
       </div>
 
       <div class="form-row2">
@@ -201,7 +217,7 @@ form textarea { resize: vertical; min-height: 56px; }
 
       <div class="form-actions">
         <button type="submit" class="btn-save">Speichern</button>
-        <button type="button" class="btn-cancel" onclick="clearForm()">Abbrechen</button>
+        <button type="button" class="btn-cancel" onclick="cancelForm()">Abbrechen</button>
       </div>
       <div id="form-msg" style="display:none"></div>
     </form>
@@ -268,12 +284,14 @@ function esc(s) {
 function newDiscipline() {
   clearForm();
   document.getElementById('form-title').textContent = 'anlegen';
+  document.getElementById('form-card').style.display = 'block';
   document.getElementById('form-card').scrollIntoView({behavior:'smooth'});
 }
 
 function editRow(id) {
   const d = disciplines.find(x => x.id === id);
   if (!d) return;
+  document.getElementById('form-card').style.display = 'block';
   document.getElementById('form-title').textContent = 'bearbeiten';
   document.getElementById('f-id').value = d.id;
   document.getElementById('f-name').value = d.name;
@@ -290,6 +308,7 @@ function editRow(id) {
   document.getElementById('f-scoring-mode').value = d.scoring_mode || 'elektronisch';
   document.getElementById('f-caliber').value = d.wertmaschine_caliber_mm != null ? d.wertmaschine_caliber_mm : '';
   document.getElementById('f-rmiii-override').value = d.rmiii_config_override || '';
+  document.getElementById('f-rmiv-override').value = d.rmiv_config_override || '';
   syncRMIIISelectsFromString();
   updateScoringModeFields();
   document.getElementById('f-notes').value = d.notes || '';
@@ -328,39 +347,95 @@ async function fetchRMIIIPreview() {
   return j.config_string;
 }
 
-// fillRMIIIDefault setzt den kompletten berechneten Vorschlagswert ein
-// (ueberschreibt auch bereits per Auswahlfeld gesetzte Ziffern 2/8/9) - fuer
-// den "Standard einsetzen"-Button, ein bewusster harter Reset.
-async function fillRMIIIDefault() {
+// fetchRMIVPreview berechnet den RM-IV/RMIII-Win-Einstellungsstring aus den
+// aktuellen Formularwerten (siehe migrations/066) - eigener Preview-
+// Endpunkt, da Format/Berechnung (SCH=...;-String) komplett anders ist als
+// beim RM-III-Zifferncode. bandType/shotsPerCard=0 laesst den Server die
+// automatische Heuristik anwenden (siehe disagBandHeuristic).
+async function fetchRMIVPreview(bandType, shotsPerCard) {
+  const targetId = document.getElementById('f-target').value;
+  if (!targetId) throw new Error('Bitte zuerst eine Scheibe auswählen.');
+  const caliber = document.getElementById('f-caliber').value;
+  const res = await fetch('/api/disciplines/rmiv-config-preview', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      target_id: targetId,
+      match_shot_count: parseInt(document.getElementById('f-scoring').value) || 40,
+      shots_per_series: parseInt(document.getElementById('f-series').value) || 10,
+      caliber_mm: caliber !== '' ? parseFloat(caliber) : null,
+      band_type: bandType || 0,
+      shots_per_card: shotsPerCard || 0,
+    }),
+  });
+  const j = await res.json();
+  if (!res.ok) throw new Error(j.error || res.status);
+  return j.config_string;
+}
+
+// fillBothDefaults setzt den kompletten berechneten Vorschlagswert in BEIDE
+// Felder ein (ueberschreibt auch bereits per Auswahlfeld gesetzte Werte) -
+// fuer den gemeinsamen "Standard einsetzen"-Button, ein bewusster harter
+// Reset je Feld (ein Fehler beim einen Feld verhindert nicht das Befuellen
+// des anderen).
+async function fillBothDefaults() {
   try {
     document.getElementById('f-rmiii-override').value = await fetchRMIIIPreview();
     syncRMIIISelectsFromString();
   } catch (err) {
-    showMsg('Standard konnte nicht ermittelt werden: ' + err.message, 'err');
+    showMsg('RM-III-Standard konnte nicht ermittelt werden: ' + err.message, 'err');
+  }
+  try {
+    document.getElementById('f-rmiv-override').value = await fetchRMIVPreview(0, 0);
+  } catch (err) {
+    showMsg('RM-IV-Standard konnte nicht ermittelt werden: ' + err.message, 'err');
   }
 }
 
 // autoUpdateRMIIIString haelt Ziffer 1 (Scheibentyp), 3 (Serie) und 4
 // (Ringformat) automatisch mit Scheibe/Wertungsschuessen/Zehntelwertung
-// synchron, sobald sich diese Formularfelder aendern (z.B. loest eine
-// Aenderung der Wertungsschuesse auf >=10 bei LG automatisch den Wechsel auf
-// 10er-Band in Ziffer 2 aus, siehe computeRMIIIConfig-Heuristik) - Ziffer 8
-// (Drucker) und 9 (Schuss/Scheibe) bleiben dabei unangetastet, da das reine
-// Bedienerpraeferenzen sind, die nichts mit der Schusszahl zu tun haben.
-// Greift nur, wenn bereits ein (mind. 9-stelliger) String im Feld steht -
-// ohne bestehenden String gibt es nichts automatisch zu aktualisieren, dafuer
-// dient weiterhin der "Standard einsetzen"-Button.
+// synchron, sobald sich diese Formularfelder aendern - Ziffer 2 (Scheiben-
+// laenge), 8 (Drucker) und 9 (Schuss/Scheibe) bleiben dabei die bisherige
+// Bedienerwahl (reine Formularfelder, die nichts mit der Schusszahl zu tun
+// haben). Greift nur, wenn bereits ein (mind. 9-stelliger) String im Feld
+// steht - ohne bestehenden String gibt es nichts automatisch zu
+// aktualisieren, dafuer dient weiterhin der "Standard einsetzen"-Button.
+// Stoesst anschliessend auch das RM-IV-Feld an (siehe refreshRMIVIfPresent),
+// da Wertungsschuesse/Schuesse-pro-Serie/Scheibe fuer beide Protokolle
+// gleichermassen gelten.
 async function autoUpdateRMIIIString() {
+  if (document.getElementById('f-scoring-mode').value === 'papier') {
+    const cur = document.getElementById('f-rmiii-override').value.trim();
+    if (cur.length >= 9) {
+      try {
+        const fresh = await fetchRMIIIPreview();
+        document.getElementById('f-rmiii-override').value = fresh[0] + cur[1] + fresh.slice(2, 7) + cur[7] + cur[8];
+        syncRMIIISelectsFromString();
+      } catch (err) {
+        // Scheibe (noch) nicht gewaehlt o.ae. - still bleiben, kein
+        // showMsg-Spam bei jedem Tastendruck.
+      }
+    }
+  }
+  await refreshRMIVIfPresent();
+}
+
+// refreshRMIVIfPresent berechnet das RM-IV-Feld neu (nur wenn bereits
+// befuellt, analog zum RM-III-Verhalten oben) - beruecksichtigt dabei die
+// aktuellen Werte der (fuer beide Felder gemeinsam genutzten) Scheiben-
+// laenge-/Schuss-pro-Scheibe-Auswahlfelder, sofern diese schon aktiv sind
+// (RM-III-String vorhanden, siehe syncRMIIISelectsFromString).
+async function refreshRMIVIfPresent() {
   if (document.getElementById('f-scoring-mode').value !== 'papier') return;
-  const cur = document.getElementById('f-rmiii-override').value.trim();
-  if (cur.length < 9) return;
+  const field = document.getElementById('f-rmiv-override');
+  if (!field.value.trim()) return;
+  const active = !document.getElementById('f-rmiii-band').disabled;
   try {
-    const fresh = await fetchRMIIIPreview();
-    document.getElementById('f-rmiii-override').value = fresh.slice(0, 7) + cur[7] + cur[8] + fresh.slice(9);
-    syncRMIIISelectsFromString();
+    field.value = await fetchRMIVPreview(
+      active ? parseInt(document.getElementById('f-rmiii-band').value, 10) : 0,
+      active ? parseInt(document.getElementById('f-rmiii-percard').value, 10) : 0,
+    );
   } catch (err) {
-    // Scheibe (noch) nicht gewaehlt o.ae. - still bleiben, kein showMsg-Spam
-    // bei jedem Tastendruck.
+    // Scheibe (noch) nicht gewaehlt o.ae. - still bleiben.
   }
 }
 
@@ -379,6 +454,15 @@ function syncRMIIISelectsFromString() {
     document.getElementById('f-rmiii-printer').value = s[7];
     document.getElementById('f-rmiii-percard').value = s[8];
   }
+}
+
+// onBandOrPercardChange: Scheibenlaenge/Schuss-pro-Scheibe sind jetzt fuer
+// beide Einstellungsstrings gemeinsame Auswahlfelder - patcht die RM-III-
+// Ziffern direkt (wie bisher) UND stoesst danach die RM-IV-Neuberechnung an.
+function onBandOrPercardChange() {
+  applyRMIIIDigit(1, document.getElementById('f-rmiii-band'));
+  applyRMIIIDigit(8, document.getElementById('f-rmiii-percard'));
+  refreshRMIVIfPresent();
 }
 
 function applyRMIIIDigit(index, selectEl) {
@@ -400,10 +484,19 @@ function clearForm() {
   document.getElementById('f-scoring-mode').value = 'elektronisch';
   document.getElementById('f-caliber').value = '';
   document.getElementById('f-rmiii-override').value = '';
+  document.getElementById('f-rmiv-override').value = '';
   syncRMIIISelectsFromString();
   updateScoringModeFields();
   renderTargetSelect('');
   hideMsg();
+}
+
+// cancelForm: Formular zuruecksetzen UND ausblenden (Abbrechen-Button) -
+// anders als clearForm() allein (auch am Anfang von newDiscipline() genutzt,
+// wo das Formular direkt danach wieder eingeblendet wird).
+function cancelForm() {
+  clearForm();
+  document.getElementById('form-card').style.display = 'none';
 }
 
 function hideMsg() {
@@ -441,6 +534,7 @@ async function saveForm(e) {
     wertmaschine_caliber_mm: document.getElementById('f-caliber').value !== ''
       ? parseFloat(document.getElementById('f-caliber').value) : null,
     rmiii_config_override: document.getElementById('f-rmiii-override').value.trim(),
+    rmiv_config_override: document.getElementById('f-rmiv-override').value.trim(),
     notes:              document.getElementById('f-notes').value.trim(),
   };
 
@@ -457,6 +551,7 @@ async function saveForm(e) {
     }
     showMsg(id ? 'Gespeichert.' : 'Disziplin angelegt.', 'ok');
     clearForm();
+    document.getElementById('form-card').style.display = 'none';
     await load();
   } catch (err) {
     showMsg('Netzwerkfehler: ' + err.message, 'err');

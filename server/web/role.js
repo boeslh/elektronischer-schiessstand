@@ -18,6 +18,7 @@
     '/archiv': 'archiv',
     '/preisschiessen': 'preisschiessen', '/preisschiessen-liste': 'preisschiessen',
     '/preisschiessen-bearbeiten': 'preisschiessen',
+    '/vereinsabende': 'preisschiessen', '/vereinsabende-liste': 'preisschiessen',
     '/anzeigen': 'anzeigen',
   };
 

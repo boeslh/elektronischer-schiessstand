@@ -43,8 +43,8 @@ input:focus,select:focus{outline:none;border-color:var(--acc)}
 <body>
 
 <header>
-  <a href="/preisschiessen-liste">← Alle Preisschießen</a>
-  <h1>Neues Preisschießen</h1>
+  <a id="pf-back" href="/preisschiessen-liste">← Alle Preisschießen</a>
+  <h1 id="pf-title">Neues Preisschießen</h1>
 </header>
 
 <main>
@@ -65,18 +65,50 @@ input:focus,select:focus{outline:none;border-color:var(--acc)}
       </select>
       <label for="pf-maxneg">Maximal erlaubtes Minus-Guthaben (€)</label>
       <input type="number" id="pf-maxneg" step="0.01" min="0" value="0">
-      <p class="hint" style="margin-top:4px">
+      <p class="hint" id="pf-hint-normal" style="margin-top:4px">
         Wie weit darf das Guthaben eines Teilnehmers beim Kauf ins Minus rutschen,
         bevor bezahlt wird? 0 = kein Minus erlaubt (Kauf nur bei ausreichendem Guthaben).
         Scheiben, Sets und alle weiteren Details werden danach in der
         Preisschießen-Übersicht im Tab „Verwaltung“ gepflegt.
       </p>
-      <div class="form-actions">
-        <button type="submit" class="btn-save">Anlegen</button>
-        <button type="button" class="btn-cancel" onclick="location.href='/preisschiessen-liste'">Abbrechen</button>
-      </div>
-      <div id="pf-msg" class="msg"></div>
     </form>
+  </div>
+
+  <div class="card" id="pf-saison-card" style="display:none">
+    <h2>Saison-Einstellungen</h2>
+    <label>Vereinsabend-Wochentag(e) *</label>
+    <div class="form-row2" id="pf-wochentage" style="grid-template-columns:repeat(7,1fr)">
+      <label style="margin:0;text-align:center"><input type="checkbox" value="1" class="pf-wt"><br>Mo</label>
+      <label style="margin:0;text-align:center"><input type="checkbox" value="2" class="pf-wt"><br>Di</label>
+      <label style="margin:0;text-align:center"><input type="checkbox" value="3" class="pf-wt"><br>Mi</label>
+      <label style="margin:0;text-align:center"><input type="checkbox" value="4" class="pf-wt"><br>Do</label>
+      <label style="margin:0;text-align:center"><input type="checkbox" value="5" class="pf-wt"><br>Fr</label>
+      <label style="margin:0;text-align:center"><input type="checkbox" value="6" class="pf-wt"><br>Sa</label>
+      <label style="margin:0;text-align:center"><input type="checkbox" value="7" class="pf-wt"><br>So</label>
+    </div>
+    <p class="hint">Nur Scheiben, deren tatsächlicher Schießtag auf einen dieser Wochentage fällt, gehen in die Jahreswertung ein (kein Terminkalender, reiner Filter).</p>
+    <div class="form-row2" style="margin-top:10px">
+      <div>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:0">
+          <input type="checkbox" id="pf-vorschiessen" style="width:auto"> Vorschießen erlaubt
+        </label>
+      </div>
+      <div>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:0">
+          <input type="checkbox" id="pf-nachschiessen" style="width:auto"> Nachschießen erlaubt
+        </label>
+      </div>
+    </div>
+    <label for="pf-beste-x">Beste X Abende zählen (leer = alle)</label>
+    <input type="number" id="pf-beste-x" min="1" placeholder="alle">
+  </div>
+
+  <div class="card">
+    <div class="form-actions">
+      <button type="submit" form="ps-form" class="btn-save">Anlegen</button>
+      <button type="button" class="btn-cancel" id="pf-cancel-btn" onclick="location.href='/preisschiessen-liste'">Abbrechen</button>
+    </div>
+    <div id="pf-msg" class="msg"></div>
   </div>
 </main>
 
@@ -94,6 +126,16 @@ function showMsg(id, text, type) {
   setTimeout(() => el.style.display = 'none', 4000);
 }
 
+const isSaison = new URLSearchParams(location.search).get('kind') === 'vereinsabend_saison';
+if (isSaison) {
+  document.getElementById('pf-title').textContent = 'Neue Vereinsabend-Saison';
+  document.getElementById('pf-back').href = '/vereinsabende-liste';
+  document.getElementById('pf-cancel-btn').onclick = () => location.href = '/vereinsabende-liste';
+  document.getElementById('pf-saison-card').style.display = 'block';
+  document.getElementById('pf-hint-normal').style.display = 'none';
+  document.title = 'Neue Vereinsabend-Saison';
+}
+
 async function createPS(e) {
   e.preventDefault();
   const body = {
@@ -104,10 +146,22 @@ async function createPS(e) {
     max_negative_guthaben: parseFloat(document.getElementById('pf-maxneg').value) || 0,
     active: true,
   };
+  if (isSaison) {
+    body.kind = 'vereinsabend_saison';
+    body.saison_wochentage = [...document.querySelectorAll('.pf-wt:checked')].map(el => parseInt(el.value, 10));
+    body.vorschiessen_erlaubt = document.getElementById('pf-vorschiessen').checked;
+    body.nachschiessen_erlaubt = document.getElementById('pf-nachschiessen').checked;
+    const besteX = document.getElementById('pf-beste-x').value.trim();
+    body.beste_x_abende = besteX !== '' ? parseInt(besteX, 10) : null;
+    if (body.saison_wochentage.length === 0) {
+      showMsg('pf-msg', 'Bitte mindestens einen Wochentag wählen.', 'err');
+      return;
+    }
+  }
   try {
     const res = await api('/preisschiessen', jsonOpts('POST', body));
     localStorage.setItem('ps_current_id', res.id);
-    location.href = '/preisschiessen?tab=verwaltung';
+    location.href = isSaison ? '/vereinsabende?id=' + res.id : '/preisschiessen?tab=verwaltung';
   } catch(err) { showMsg('pf-msg', 'Fehler: '+err.message, 'err'); }
 }
 </script>

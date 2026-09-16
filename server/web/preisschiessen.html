@@ -23,7 +23,7 @@ header select{background:#0e1218;border:1px solid var(--line);border-radius:6px;
               text-overflow:ellipsis}
 header .btn-liste{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);font-size:.8rem;padding:6px 12px;cursor:pointer;white-space:nowrap}
 header .btn-liste:hover{border-color:var(--text);color:var(--text)}
-main{flex:1;padding:16px;max-width:1100px;margin:0 auto;width:100%}
+main{flex:1;padding:16px;max-width:1500px;margin:0 auto;width:100%}
 
 .tabs{display:flex;gap:2px;margin-bottom:10px}
 .tab-btn{background:#1a2230;border:1px solid var(--line);color:var(--dim);padding:8px 16px;
@@ -112,6 +112,10 @@ tr.gw-row.active td{background:#1a2a2a}
 .stand-form select{width:auto;min-width:110px}
 
 .split{display:grid;grid-template-columns:1fr 380px;gap:16px}
+/* Auswertung: Wertungsformular braucht seit Serien-Auswahl je Scheibe und
+   den Ring-/Teiler-Punktetabellen (Migration 062/063) spürbar mehr Breite
+   als die übrigen .split-Formulare (Teilnehmer/Kasse/Vereine). */
+#maintab-auswertung .split{grid-template-columns:1fr 480px}
 @media (max-width: 900px) { .split { grid-template-columns:1fr } }
 .form-card{position:sticky;top:16px}
 .check-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:.83rem}
@@ -339,7 +343,7 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
 
         <label style="margin-top:16px">Gekaufte Scheiben</label>
         <table>
-          <thead><tr><th>Ser.-Nr.</th><th>Scheibe</th><th>Status</th><th>Schüsse</th><th>Stand</th></tr></thead>
+          <thead><tr><th>Ser.-Nr.</th><th>Scheibe</th><th>Status</th><th>Schüsse</th><th>Stand</th><th>Schießtag</th><th></th></tr></thead>
           <tbody id="tn-einheiten-tbody"></tbody>
         </table>
         <div id="tn-d-msg" class="msg"></div>
@@ -460,25 +464,68 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
               <option value="meister">Meister (Ringe)</option>
               <option value="punkt">Punkt (Teiler)</option>
               <option value="adler">Adler (Mischung)</option>
+              <option value="punkte_saison">Punkte-Saison (Vereinsabend)</option>
             </select>
 
             <div id="aw-wtf-mp-fields">
-              <label for="aw-wtf-feld">Wertungsfeld</label>
+              <label for="aw-wtf-feld" id="aw-wtf-feld-label">Wertungsfeld</label>
               <select id="aw-wtf-feld">
                 <option value="ring">Ganzring</option>
                 <option value="ring_decimal">Zehntel</option>
                 <option value="teiler">Teiler</option>
               </select>
+
+              <label for="aw-wtf-serien-modus">Serien</label>
+              <select id="aw-wtf-serien-modus" onchange="awToggleSerienAnzahlField()">
+                <option value="alle">Alle (je Serie einzeln)</option>
+                <option value="gesamt">Gesamt (Scheibe zusammengefasst)</option>
+                <option value="erste_n">Erste N Serien</option>
+                <option value="beste_n">Beste N Serien</option>
+              </select>
+              <div id="aw-wtf-serien-anzahl-wrap" style="display:none;margin-top:8px">
+                <label for="aw-wtf-serien-anzahl">Anzahl Serien (N)</label>
+                <input type="number" id="aw-wtf-serien-anzahl" min="1">
+              </div>
+              <p class="hint" style="margin-top:4px">Gilt für alle Scheiben dieser Wertung gemeinsam.
+                "Alle" = unverändertes Verhalten (jede Serie/jeder Schuss zählt einzeln). "Gesamt" fasst
+                eine ganze Scheibe zu einem Wert zusammen. "Erste/Beste N" wählt nur N Serien aus, zu
+                einem Wert summiert (z.B. Vereinsabend: nur die ersten 2 von 4 Serien zählen).</p>
+
               <label>Scheiben (mit Faktor je Scheibe)</label>
               <p class="hint" style="margin-top:-2px;margin-bottom:6px">Faktor normiert unterschiedliche
                 Zielgrößen/Kaliber (z.B. LG vs. LP in einer kombinierten Wertung) - Standard 1.</p>
               <div class="checklist" id="aw-wtf-scheiben"></div>
               <label>Nur für Schützenklassen (leer = alle)</label>
               <div class="checklist" id="aw-wtf-classes"></div>
-              <label for="aw-wtf-anzsumme">Anzahl beste Werte (Summenwertung)</label>
-              <input type="number" id="aw-wtf-anzsumme" min="1" max="10" value="1">
-              <p class="hint" style="margin-top:4px">1 = Einzelwertung (nur die beste Scheibe/der beste
-                Schuss zählt). Größer als 1 = Summenwertung (die besten N Scheiben/Schüsse werden addiert).</p>
+              <div id="aw-wtf-anzsumme-wrap">
+                <label for="aw-wtf-anzsumme">Anzahl beste Werte (Summenwertung)</label>
+                <input type="number" id="aw-wtf-anzsumme" min="1" max="10" value="1">
+                <p class="hint" style="margin-top:4px">1 = Einzelwertung (nur die beste Scheibe/der beste
+                  Schuss zählt). Größer als 1 = Summenwertung (die besten N Scheiben/Schüsse werden addiert).</p>
+              </div>
+            </div>
+
+            <div id="aw-wtf-punkte-fields" style="display:none">
+              <label for="aw-wtf-anwesenheit">Anwesenheits-Punkte</label>
+              <input type="number" id="aw-wtf-anwesenheit" step="0.01" min="0" value="0">
+              <p class="hint" style="margin-top:4px">Nur vergeben, wenn an diesem Tag nicht vor-/nachgeschossen
+                wurde (unabhängig davon, ob zusätzlich ein Ring-/Teiler-Ergebnis vorliegt). "Beste X Abende"
+                wird zentral in den Saison-Einstellungen festgelegt, nicht hier.</p>
+
+              <label>Ring-Punkte-Tabelle</label>
+              <p class="hint" style="margin-top:-2px;margin-bottom:6px">Ab erreichtem Ringwert (Basis:
+                Wertungsfeld oben) gibt es die angegebenen Punkte - die höchste erreichte Schranke zählt.
+                Beispiel: "ab 89 → 8 Punkte".</p>
+              <div id="aw-wtf-punkte-ring-rows"></div>
+              <button type="button" class="btn-cancel" onclick="awAddPunkteRow('ring')">+ Schranke</button>
+
+              <label style="margin-top:14px">Teiler-Punkte-Tabelle</label>
+              <p class="hint" style="margin-top:-2px;margin-bottom:6px">Bis zu diesem Teiler gibt es die
+                angegebenen Punkte - die niedrigste (engste) erreichte Schranke zählt. Beispiel:
+                "bis 34,4 → 5 Punkte". Wird unabhängig vom Wertungsfeld immer aus dem besten Teiler des
+                Tages ermittelt.</p>
+              <div id="aw-wtf-punkte-teiler-rows"></div>
+              <button type="button" class="btn-cancel" onclick="awAddPunkteRow('teiler')">+ Schranke</button>
             </div>
 
             <div id="aw-wtf-adler-fields" style="display:none">
@@ -1444,13 +1491,64 @@ async function tnRefreshDetail() {
 
   const tbody = document.getElementById('tn-einheiten-tbody');
   tbody.innerHTML = (einheiten && einheiten.length) ? einheiten.map(e => `
-      <tr>
+      <tr data-ks-id="${e.id}">
         <td>#${e.serial_no}${e.physical_serial_no ? ` (${esc(e.physical_serial_no)})` : ''}</td>
-        <td>${esc(e.scheibe_name)}</td>
+        <td class="tn-scheibe-cell">${esc(e.scheibe_name)}</td>
         <td><span class="badge badge-${e.status}">${TN_STATUS_LABEL[e.status]||e.status}</span></td>
         <td style="font-size:.8rem">${e.shot_count}/${e.required_shots}</td>
         <td style="font-size:.82rem">${e.lane_no ? `Stand ${e.lane_no}` : '–'}</td>
-      </tr>`).join('') : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Scheiben gekauft</td></tr>';
+        <td style="font-size:.78rem">${e.schiesstag || '–'}${e.ist_vor_nachschuss ? ' <span class="hint">(V/N)</span>' : ''}</td>
+        <td class="row-actions">
+          <button class="btn-eval" title="Ergebnis ansehen" ${e.session_id ? `onclick="window.open('/ergebnis-ansicht?session_id=${e.session_id}','_blank')"` : 'disabled'}>👁</button>
+          ${awCanManage ? `
+          <button class="btn-eval" title="Datum korrigieren" onclick="tnCorrectDate('${e.id}','${e.schiesstag||''}')">🗓</button>
+          <button class="btn-eval" title="Scheibenzuordnung ändern" onclick="tnReassignScheibeUI('${e.id}','${e.scheibe_id}')">⇄</button>` : ''}
+        </td>
+      </tr>`).join('') : '<tr><td colspan="7" style="color:var(--dim);text-align:center">Keine Scheiben gekauft</td></tr>';
+}
+
+// tnCorrectDate/tnReassignScheibeUI: Admin-/Revisor-Funktionen (siehe
+// .claude/plans/wise-scribbling-abelson.md) - Datum bzw. Scheiben-Zuordnung
+// einer bereits gekauften/geschossenen Kauf-Scheibe nachträglich korrigieren,
+// gilt für normales Preisschießen wie Vereinsabend-Saison gleichermaßen.
+// Nur sichtbar für Admins (awCanManage), analog den übrigen Konfigurationsfeldern.
+async function tnCorrectDate(ksId, currentDate) {
+  const input = prompt('Effektiven Schießtag korrigieren (JJJJ-MM-TT, leer = Korrektur zurücksetzen):', currentDate || '');
+  if (input === null) return;
+  const val = input.trim();
+  if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+    alert('Bitte im Format JJJJ-MM-TT eingeben.');
+    return;
+  }
+  try {
+    await api(`/preisschiessen/${currentPS.id}/kauf-scheiben/${ksId}/schiesstag`, jsonOpts('PUT', {schiesstag: val || null}));
+    await tnRefreshDetail();
+    showMsg('tn-d-msg', 'Datum korrigiert.', 'ok');
+  } catch (err) { showMsg('tn-d-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+function tnReassignScheibeUI(ksId, currentScheibeId) {
+  const row = document.querySelector(`#tn-einheiten-tbody tr[data-ks-id="${ksId}"]`);
+  const cell = row.querySelector('.tn-scheibe-cell');
+  const original = cell.innerHTML;
+  cell.innerHTML = '<span class="hint">Lade…</span>';
+  api(`/preisschiessen/${currentPS.id}/scheiben`).then(list => {
+    const options = (list || []).map(s =>
+      `<option value="${s.id}" ${s.id===currentScheibeId?'selected':''}>${esc(s.name)}</option>`).join('');
+    cell.innerHTML = `
+      <select id="tn-reassign-sel-${ksId}" style="width:auto">${options}</select>
+      <button class="btn-eval" onclick="tnConfirmReassign('${ksId}')">✓</button>
+      <button class="btn-eval" onclick="tnRefreshDetail()">✕</button>`;
+  }).catch(err => { cell.innerHTML = original; showMsg('tn-d-msg', 'Fehler: '+err.message, 'err'); });
+}
+
+async function tnConfirmReassign(ksId) {
+  const sel = document.getElementById(`tn-reassign-sel-${ksId}`);
+  try {
+    await api(`/preisschiessen/${currentPS.id}/kauf-scheiben/${ksId}/scheibe`, jsonOpts('PUT', {scheibe_id: sel.value}));
+    await tnRefreshDetail();
+    showMsg('tn-d-msg', 'Scheibenzuordnung geändert.', 'ok');
+  } catch (err) { showMsg('tn-d-msg', 'Fehler: '+err.message, 'err'); }
 }
 
 function tnGotoKasse() {
@@ -1649,7 +1747,7 @@ let awWertungen = [];
 let awCanManage = false;
 let awStatusTimer = null;
 
-const AW_TYP_LABEL = {meister:'Meister', punkt:'Punkt', adler:'Adler'};
+const AW_TYP_LABEL = {meister:'Meister', punkt:'Punkt', adler:'Adler', punkte_saison:'Punkte-Saison'};
 const AW_FELD_LABEL = {ring:'Ganzring', ring_decimal:'Zehntel', teiler:'Teiler'};
 
 function updateAwManageVisibility() {
@@ -1887,8 +1985,19 @@ function awRenderWertungen() {
 
 function awUpdateTypFields() {
   const typ = document.getElementById('aw-wtf-typ').value;
-  document.getElementById('aw-wtf-mp-fields').style.display = typ === 'adler' ? 'none' : '';
-  document.getElementById('aw-wtf-adler-fields').style.display = typ === 'adler' ? '' : 'none';
+  const isAdler = typ === 'adler';
+  const isPunkteSaison = typ === 'punkte_saison';
+  document.getElementById('aw-wtf-mp-fields').style.display = isAdler ? 'none' : '';
+  document.getElementById('aw-wtf-adler-fields').style.display = isAdler ? '' : 'none';
+  document.getElementById('aw-wtf-punkte-fields').style.display = isPunkteSaison ? '' : 'none';
+  document.getElementById('aw-wtf-anzsumme-wrap').style.display = isPunkteSaison ? 'none' : '';
+  document.getElementById('aw-wtf-feld-label').textContent =
+    isPunkteSaison ? 'Ring-Basis (für Ring-Punktetabelle)' : 'Wertungsfeld';
+  const teilerOpt = document.querySelector('#aw-wtf-feld option[value="teiler"]');
+  teilerOpt.disabled = isPunkteSaison;
+  if (isPunkteSaison && document.getElementById('aw-wtf-feld').value === 'teiler') {
+    document.getElementById('aw-wtf-feld').value = 'ring';
+  }
 }
 
 function awFillAdlerSelects() {
@@ -1909,7 +2018,9 @@ function awClassChecklistHTML(checkedIDs) {
 }
 
 // selected: Array von {scheibe_id, faktor} - Faktor-Feld ist nur aktiv,
-// wenn die zugehörige Scheibe angehakt ist.
+// wenn die zugehörige Scheibe angehakt ist. Die Serien-Auswahl
+// (alle/gesamt/erste_n/beste_n) gilt seit Migration 065 einheitlich für die
+// ganze Wertung, siehe awToggleSerienAnzahlField/#aw-wtf-serien-modus.
 function awScheibenChecklistHTML(selected) {
   if (!awScheiben.length) return '<span class="hint">Noch keine Scheiben in diesem Preisschießen angelegt.</span>';
   const bySelId = new Map((selected || []).map(s => [s.scheibe_id, s.faktor]));
@@ -1943,6 +2054,45 @@ function awReadCheckedScheiben() {
     });
 }
 
+// awToggleSerienAnzahlField: das "N"-Feld nur einblenden, wenn der
+// Serien-Modus der Wertung erste_n/beste_n ist (siehe #aw-wtf-serien-modus).
+function awToggleSerienAnzahlField() {
+  const modus = document.getElementById('aw-wtf-serien-modus').value;
+  document.getElementById('aw-wtf-serien-anzahl-wrap').style.display =
+    (modus === 'erste_n' || modus === 'beste_n') ? 'block' : 'none';
+}
+
+// awPunkteRowHTML/awAddPunkteRow/awSetPunkteRows/awReadPunkteRows verwalten
+// die editierbaren Ring-/Teiler-Punktetabellen einer punkte_saison-Wertung
+// (kind='ring' -> ab_wert-Schranken, kind='teiler' -> bis_wert-Schranken).
+function awPunkteRowHTML(kind, schwelle, punkte) {
+  const label = kind === 'ring' ? 'ab' : 'bis';
+  return `<div class="form-row2" data-punkte-row style="margin-top:6px;align-items:center">
+    <div style="display:flex;align-items:center;gap:6px">
+      <span class="hint" style="width:26px">${label}</span>
+      <input type="number" step="0.01" class="pk-schwelle" value="${schwelle}" style="width:100%">
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <input type="number" step="0.01" class="pk-punkte" value="${punkte}" style="width:100%" placeholder="Punkte">
+      <button type="button" class="btn-cancel" onclick="this.closest('[data-punkte-row]').remove()" style="padding:4px 8px">✕</button>
+    </div>
+  </div>`;
+}
+function awAddPunkteRow(kind, schwelle, punkte) {
+  document.getElementById(`aw-wtf-punkte-${kind}-rows`)
+    .insertAdjacentHTML('beforeend', awPunkteRowHTML(kind, schwelle || 0, punkte || 0));
+}
+function awSetPunkteRows(kind, stufen) {
+  document.getElementById(`aw-wtf-punkte-${kind}-rows`).innerHTML = '';
+  (stufen || []).forEach(s => awAddPunkteRow(kind, s.schwelle, s.punkte));
+}
+function awReadPunkteRows(kind) {
+  return Array.from(document.querySelectorAll(`#aw-wtf-punkte-${kind}-rows [data-punkte-row]`)).map(row => ({
+    schwelle: parseFloat(row.querySelector('.pk-schwelle').value) || 0,
+    punkte: parseFloat(row.querySelector('.pk-punkte').value) || 0,
+  }));
+}
+
 function awClearWertungForm() {
   document.getElementById('aw-wt-form').reset();
   document.getElementById('aw-wtf-id').value = '';
@@ -1951,6 +2101,12 @@ function awClearWertungForm() {
   document.getElementById('aw-wtf-visible').checked = true;
   document.getElementById('aw-wtf-scheiben').innerHTML = awScheibenChecklistHTML([]);
   document.getElementById('aw-wtf-classes').innerHTML = awClassChecklistHTML([]);
+  document.getElementById('aw-wtf-serien-modus').value = 'alle';
+  document.getElementById('aw-wtf-serien-anzahl').value = '';
+  awToggleSerienAnzahlField();
+  document.getElementById('aw-wtf-anwesenheit').value = 0;
+  awSetPunkteRows('ring', []);
+  awSetPunkteRows('teiler', []);
   awUpdateTypFields();
 }
 
@@ -1967,6 +2123,12 @@ function awEditWertung(id) {
   document.getElementById('aw-wtf-scheiben').innerHTML = awScheibenChecklistHTML(wt.scheiben || []);
   document.getElementById('aw-wtf-anzsumme').value = wt.anz_summe;
   document.getElementById('aw-wtf-classes').innerHTML = awClassChecklistHTML(wt.klassen_ids || []);
+  document.getElementById('aw-wtf-serien-modus').value = wt.serien_modus || 'alle';
+  document.getElementById('aw-wtf-serien-anzahl').value = wt.serien_anzahl ?? '';
+  awToggleSerienAnzahlField();
+  document.getElementById('aw-wtf-anwesenheit').value = wt.anwesenheit_punkte || 0;
+  awSetPunkteRows('ring', wt.punkte_ring || []);
+  awSetPunkteRows('teiler', wt.punkte_teiler || []);
   awFillAdlerSelects();
   document.getElementById('aw-wtf-adler-teiler').value = wt.adler_teiler_id || '';
   document.getElementById('aw-wtf-adler-meister').value = wt.adler_meister_id || '';
@@ -1992,7 +2154,18 @@ async function awSaveWertung(e) {
     adler_meister_id: typ === 'adler' ? (document.getElementById('aw-wtf-adler-meister').value || null) : null,
     sort_order: 0,
     visible: document.getElementById('aw-wtf-visible').checked,
+    serien_modus: typ === 'adler' ? 'alle' : document.getElementById('aw-wtf-serien-modus').value,
+    anwesenheit_punkte: typ === 'punkte_saison' ? (parseFloat(document.getElementById('aw-wtf-anwesenheit').value) || 0) : 0,
+    punkte_ring: typ === 'punkte_saison' ? awReadPunkteRows('ring') : [],
+    punkte_teiler: typ === 'punkte_saison' ? awReadPunkteRows('teiler') : [],
   };
+  if (typ !== 'adler' && (body.serien_modus === 'erste_n' || body.serien_modus === 'beste_n')) {
+    const n = parseInt(document.getElementById('aw-wtf-serien-anzahl').value, 10);
+    if (!n || n < 1) { showMsg('aw-wtf-msg', 'Bitte eine gültige Anzahl Serien (N) angeben.', 'err'); return; }
+    body.serien_anzahl = n;
+  } else {
+    body.serien_anzahl = null;
+  }
   try {
     if (id) {
       await api(`/preisschiessen/${currentPS.id}/wertungen/${id}`, jsonOpts('PUT', body));

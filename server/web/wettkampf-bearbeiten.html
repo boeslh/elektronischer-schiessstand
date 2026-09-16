@@ -748,6 +748,11 @@ function manualResultShots() {
     const val = parseFloat(ringVal);
     const entry = { count: perEntryCount, ring: Math.round(val), decimal: val };
     if (teilers[i].value.trim() !== '') entry.teiler = parseFloat(teilers[i].value);
+    // series_no mitschicken (1-basiert) - ohne das gruppiert v_series_results
+    // alle Serien-Eintraege einer Session unter NULL zusammen statt je Serie
+    // eine eigene, einzeln auswertbare Zeile zu liefern (siehe Konzept
+    // .claude/plans/wise-scribbling-abelson.md).
+    if (mode === 'series') entry.series_no = i + 1;
     shots.push(entry);
   }
   return shots;

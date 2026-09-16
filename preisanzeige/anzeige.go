@@ -75,6 +75,8 @@ func (h *anzeigeHandler) handleAnzeige(w http.ResponseWriter, r *http.Request) {
 		renderStandanzeige(w, ctx, h.pool, slot)
 	case "runde":
 		renderRundenanzeige(w, ctx, h.pool, slot)
+	case "preisschiessen":
+		renderPreisschiessenAnzeigeSlot(w, ctx, h.pool, slot)
 	default:
 		fmt.Fprintf(w, `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">
 <title>Anzeige %d</title></head><body style="background:#12161b;color:#75879a;
