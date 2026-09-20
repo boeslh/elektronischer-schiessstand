@@ -189,15 +189,54 @@ async function loadKeys() {
   renderTable('network-table', networkKeys, 'msg-network');
 }
 
-function renderTable(tableId, keys, msgId) {
+function renderTable(tableId, keys, msgId, valueFn) {
   const table = document.getElementById(tableId);
-  table.innerHTML = keys.map(k => `
+  table.innerHTML = keys.map(k => {
+    const cur = valueFn ? valueFn(k.key) : undefined;
+    const curStr = (cur === undefined || cur === null) ? '' : String(cur);
+    return `
     <tr>
       <td class="key">${k.key}${k.reboot ? '<span class="reboot-tag">Reboot</span>' : ''}</td>
       <td class="desc">${esc(k.desc)}<br>${esc(k.range)} (Default ${esc(k.default)})</td>
-      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}"></td>
+      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}" value="${esc(curStr)}"></td>
       <td><button onclick="setKey('${k.key}', '${msgId}')">Speichern</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+}
+
+// CONFIG_FIELD_MAP/NET_FIELD_MAP: SET-Key (admin.go adminConfigKeys/
+// adminNetworkKeys) -> Feldname im zuletzt bekannten config-/confignet-
+// Telegramm (devicestate.go ConfigTelegram/ConfignetTelegram), damit die
+// Tabelle den tatsaechlich am Geraet aktiven Wert als Vorgabe anbietet statt
+// nur den statischen Schema-Default.
+const CONFIG_FIELD_MAP = {
+  LANE:'lane', DEBOUNCE:'debounce_ms', WINDOW:'window_ms', DEBUG:'debug',
+  OUTLIER:'outlier_um', RADIUS:'cluster_radius_um', MINCLUSTER:'min_cluster_hits',
+  MAXPRECISION:'max_precision_um', MINMICS:'min_mics', TDOA:'tdoa_us',
+  TARGET:'target', STANDOFFSTEEL:'standoff_steel_mm', STANDOFFPAPER:'standoff_paper_mm',
+  MICHALFX:'mic_half_x_mm', BSHIFTPCT:'bullet_shift_pct', BSHIFTCAP:'bullet_shift_cap_mm',
+  PIEZO:'use_piezo', PIEZOMIN:'piezo_min_us', PIEZOMAX:'piezo_max_us',
+  OFFSETX:'offset_x_um', OFFSETY:'offset_y_um', SOUNDSPEED:'sound_mps',
+  PAPERFEED:'paper_feed_mm', PAPERSPEED:'paper_speed_mmps', PAPERAUTO:'paper_auto',
+  PAPERTRIGGER:'paper_trigger', PAPERDIR:'paper_dir_invert', PAPERJOGSPEED:'paper_jog_speed_mmps',
+  CALSHOTS:'cal_shots',
+};
+const NET_FIELD_MAP = {
+  SSID:'ssid', PASS:'pass', HOST:'host', PORT:'port', STATIC:'static_ip',
+  IP:'ip', GW:'gateway', SUBNET:'subnet', DNS:'dns',
+};
+
+function currentConfigValue(key, cfg) {
+  if (!cfg) return undefined;
+  const m = key.match(/^MICEN([0-5])$/);
+  if (m) return cfg.mic_enabled ? cfg.mic_enabled[+m[1]] : undefined;
+  const field = CONFIG_FIELD_MAP[key];
+  return field ? cfg[field] : undefined;
+}
+function currentNetValue(key, cn) {
+  if (!cn) return undefined;
+  const field = NET_FIELD_MAP[key];
+  return field ? cn[field] : undefined;
 }
 
 function esc(s) {
@@ -215,16 +254,30 @@ async function setKey(key, msgId) {
   }
 }
 
-async function refreshStatus() {
+async function refreshStatus(fillTables, passive) {
+  if (fillTables === undefined) fillTables = true;
   try {
-    const s = await fetch('/admin/api/status').then(r => r.json());
-    renderStatus(s);
+    const s = await fetch(passive ? '/admin/api/status/passive' : '/admin/api/status').then(r => r.json());
+    renderStatus(s, fillTables);
   } catch(e) {
     showMsg('msg-status', 'Fehler: ' + e.message, 'err');
   }
 }
 
-function renderStatus(s) {
+// calPollTimer: waehrend einer laufenden Kalibrierung (CAL START) meldet die
+// Firmware pro Schuss von sich aus ein neues "cal"-Telegramm (state
+// waiting/skipped/done, siehe schiessstand_firmware.ino processShot) - das
+// landet bereits passiv im DeviceState des Stand-PC. Der Poll hier liest
+// deshalb nur noch /admin/api/status/passive (reines Mitlesen des Caches,
+// KEIN STATUS/SHOW/SHOWNET/CAL STATUS-Kommando an den ESP32) - aktives
+// Nachfragen im Sekundentakt erzeugte unnoetigen WLAN/TCP-Verkehr, der die
+// zeitkritische TDOA-Erfassung waehrend der Kalibrierung stoeren kann.
+let calPollTimer = null;
+function stopCalPoll() {
+  if (calPollTimer) { clearInterval(calPollTimer); calPollTimer = null; }
+}
+
+function renderStatus(s, fillTables) {
   const st = s.status, cfg = s.config, cn = s.confignet, cal = s.cal;
   const mac = (st && st.mac) || (cfg && cfg.mac) || (cn && cn.mac) || '';
   document.getElementById('hdr-mac').textContent = mac;
@@ -234,7 +287,14 @@ function renderStatus(s) {
     html += `<div class="kv"><b>Schuesse seit Start</b>${st.shots}</div>`;
   }
   if (cal) {
-    html += `<div class="kv"><b>Kalibrierung</b>${esc(cal.state)}${cal.state==='running' ? ` (${cal.progress}/${cal.need})` : ''}</div>`;
+    let calLine = `<b>Kalibrierung</b>${esc(cal.state)}`;
+    if (cal.state === 'start' || cal.state === 'waiting' || cal.state === 'skipped') {
+      calLine += ` (${cal.progress}/${cal.need})`;
+    }
+    if (cal.state === 'skipped' && cal.reason) calLine += ` – ${esc(cal.reason)}, Schuss nicht gewertet`;
+    if (cal.state === 'done') calLine += ` – ${cal.shots} Schuss verwendet`;
+    html += `<div class="kv">${calLine}</div>`;
+    if (cal.state === 'done' || cal.state === 'aborted' || cal.state === 'idle') stopCalPoll();
   }
   if (cn) {
     html += `<div class="kv"><b>Netzwerk</b>${esc(cn.wifi_ip||'-')} · Verbunden mit Stand-PC: ${cn.tcp_connected ? 'ja' : 'nein'}${cn.net_pending ? ' <span style="color:var(--warn)">- Netzwerkaenderung schwebend</span>' : ''}</div>`;
@@ -246,13 +306,22 @@ function renderStatus(s) {
     html = '<div class="kv" style="color:var(--dim)">Kein Geraet verbunden.</div>';
   }
   document.getElementById('status-body').innerHTML = html;
+
+  if (fillTables) {
+    if (cfg) renderTable('config-table', configKeys, 'msg-config', k => currentConfigValue(k, cfg));
+    if (cn) renderTable('network-table', networkKeys, 'msg-network', k => currentNetValue(k, cn));
+  }
 }
 
 async function calAction(action) {
   try {
     await api('/admin/api/cal', {action});
     showMsg('msg-cal', `CAL ${action} gesendet.`, 'ok');
-    refreshStatus();
+    await refreshStatus();
+    stopCalPoll();
+    if (action === 'START') {
+      calPollTimer = setInterval(() => refreshStatus(false, true), 1500);
+    }
   } catch(e) {
     showMsg('msg-cal', 'Fehler: ' + e.message, 'err');
   }

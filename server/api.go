@@ -51,12 +51,13 @@ type APIServer struct {
 	listen          string
 	dsn             string // fuer pg_dump/pg_restore (Import/Export-Kachel, siehe backup.go)
 	backupDir       string
+	migrationsDir   string // fuer ApplyPendingMigrations nach einem Full Restore, siehe backup.go/migrations.go
 	liveStates      sync.Map // key=laneNo(int) → LaneLiveState
 	wertmaschinePSK []byte   // siehe wertmaschine_auth.go
 }
 
-func NewAPIServer(store *Store, live *LiveHub, listen, dsn, backupDir string, wertmaschinePSK []byte) *APIServer {
-	return &APIServer{store: store, live: live, listen: listen, dsn: dsn, backupDir: backupDir, wertmaschinePSK: wertmaschinePSK}
+func NewAPIServer(store *Store, live *LiveHub, listen, dsn, backupDir, migrationsDir string, wertmaschinePSK []byte) *APIServer {
+	return &APIServer{store: store, live: live, listen: listen, dsn: dsn, backupDir: backupDir, migrationsDir: migrationsDir, wertmaschinePSK: wertmaschinePSK}
 }
 
 func serveHTML(fsys fs.FS, name string) http.HandlerFunc {

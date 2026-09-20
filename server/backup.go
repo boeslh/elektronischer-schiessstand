@@ -127,21 +127,32 @@ func safeBackupPath(dir, filename string) (string, error) {
 	return filepath.Join(dir, filename), nil
 }
 
-func (a *APIServer) restoreFromFile(ctx context.Context, path string) error {
+// restoreFromFile stellt path per "pg_restore --clean" wieder her (ersetzt
+// den kompletten aktuellen Inhalt) und zieht danach automatisch alle
+// Migrationen nach, die im wiederhergestellten (ggf. aelteren) Datenbestand
+// noch fehlen - siehe migrations.go ApplyPendingMigrations. Liefert die
+// Liste der dabei neu angewandten Migrationsdateien (leer = Backup war
+// bereits auf dem aktuellen Stand).
+func (a *APIServer) restoreFromFile(ctx context.Context, path string) ([]string, error) {
 	pgRestore, err := a.resolvePgTool("pg_restore")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Sicherheits-Backup vor jedem Restore - Restore ueberschreibt sonst
 	// unwiderruflich den aktuellen Stand.
 	if _, err := a.createBackup(ctx); err != nil {
-		return fmt.Errorf("Sicherheits-Backup vor Restore fehlgeschlagen, Restore abgebrochen: %w", err)
+		return nil, fmt.Errorf("Sicherheits-Backup vor Restore fehlgeschlagen, Restore abgebrochen: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, pgRestore, "--clean", "--if-exists", "-d", a.dsn, path)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("pg_restore fehlgeschlagen: %s: %w", out, err)
+		return nil, fmt.Errorf("pg_restore fehlgeschlagen: %s: %w", out, err)
 	}
-	return nil
+	applied, err := ApplyPendingMigrations(ctx, a.store.pool, a.migrationsDir)
+	if err != nil {
+		return nil, fmt.Errorf("Datenbank wiederhergestellt, aber Migrationen danach fehlgeschlagen "+
+			"(Backup war vermutlich aelter als der aktuelle Stand): %w", err)
+	}
+	return applied, nil
 }
 
 // ----------------------------------------------------------------------------
@@ -248,10 +259,11 @@ func (a *APIServer) restoreBackupHandler(w http.ResponseWriter, r *http.Request)
 	if _, err := os.Stat(path); err != nil {
 		return nil, &httpError{code: http.StatusNotFound, msg: "Backup nicht gefunden"}
 	}
-	if err := a.restoreFromFile(r.Context(), path); err != nil {
+	applied, err := a.restoreFromFile(r.Context(), path)
+	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"ok": true}, nil
+	return map[string]any{"ok": true, "migrations_applied": applied}, nil
 }
 
 // uploadBackupHandler speichert eine hochgeladene Datei als neues Backup,
@@ -319,8 +331,9 @@ func (a *APIServer) restoreUploadHandler(w http.ResponseWriter, r *http.Request)
 
 	// Die hochgeladene Datei bleibt als Backup erhalten (zaehlt selbst als
 	// Sicherung), restoreFromFile legt zusaetzlich ein Vorher-Backup an.
-	if err := a.restoreFromFile(r.Context(), path); err != nil {
+	applied, err := a.restoreFromFile(r.Context(), path)
+	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"ok": true, "filename": filename}, nil
+	return map[string]any{"ok": true, "filename": filename, "migrations_applied": applied}, nil
 }

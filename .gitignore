@@ -9,6 +9,8 @@
 !/README.md
 !/datenmodell.sql
 !/install-services.sh
+!/install.sh
+!/package.sh
 !/.gitignore
 
 # ---- server/ ----

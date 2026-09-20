@@ -98,6 +98,7 @@ func (ws *WebServer) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/logout", ws.handleAdminLogout)
 	mux.HandleFunc("GET /admin/api/keys", ws.requireAdmin(ws.handleAdminKeys))
 	mux.HandleFunc("GET /admin/api/status", ws.requireAdmin(ws.handleAdminStatus))
+	mux.HandleFunc("GET /admin/api/status/passive", ws.requireAdmin(ws.handleAdminStatusPassive))
 	mux.HandleFunc("POST /admin/api/set", ws.requireAdmin(ws.handleAdminSet))
 	mux.HandleFunc("POST /admin/api/cal", ws.requireAdmin(ws.handleAdminCal))
 	mux.HandleFunc("POST /admin/api/cal/restore", ws.requireAdmin(ws.handleAdminCalRestore))
@@ -206,6 +207,21 @@ func (ws *WebServer) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	for _, cmd := range []string{"STATUS", "SHOW", "SHOWNET", "CAL STATUS"} {
 		ws.cmds.SendCommand(cmd, 0)
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ws.deviceState.Snapshot())
+}
+
+// handleAdminStatusPassive liefert den zuletzt bekannten DeviceState-Stand,
+// OHNE selbst ein Kommando an den ESP32 zu senden (kein STATUS/SHOW/SHOWNET/
+// CAL STATUS-Roundtrip). Der ESP32 meldet waehrend einer laufenden
+// Kalibrierung ohnehin pro Schuss unaufgefordert ein neues "cal"-Telegramm
+// (siehe schiessstand_firmware.ino processShot -> calActive-Zweig), das
+// bereits passiv ueber dispatchLine() in deviceState landet - fuer das
+// Nachziehen des Kalibrier-Fortschritts in der Admin-GUI reicht daher reines
+// Mitlesen. Aktives Nachfragen im Sekundentakt erzeugt unnoetigen
+// WLAN/TCP-Verkehr zum ESP32, der die zeitkritische TDOA-Erfassung waehrend
+// der Kalibrierung stoeren kann - siehe web/admin.html calPollTimer.
+func (ws *WebServer) handleAdminStatusPassive(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ws.deviceState.Snapshot())
 }

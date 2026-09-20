@@ -6,11 +6,14 @@
 #   sudo ./install-service.sh [Optionen]
 #
 # Optionen:
-#   --dsn DSN          PostgreSQL-DSN (Standard: postgres://schiessstand:CHANGEME@127.0.0.1/schiessstand)
-#   --listen ADDR      HTTP-Adresse   (Standard: :8090)
-#   --user USER        Systembenutzer (Standard: Aufrufer vor sudo)
-#   --no-migrate       Migrationen NICHT automatisch anwenden
-#   --uninstall        Service stoppen, deaktivieren und entfernen
+#   --dsn DSN               PostgreSQL-DSN (Standard: postgres://schiessstand:CHANGEME@127.0.0.1/schiessstand)
+#   --listen ADDR           HTTP-Adresse   (Standard: :8090)
+#   --user USER             Systembenutzer (Standard: Aufrufer vor sudo)
+#   --backup-dir DIR        DB-Backup-Verzeichnis (Standard: ~<user>/db-backups)
+#   --wertmaschine-psk-hex  PSK (Hex) fuer /api/wertmaschine/* (Standard: aus
+#                           bestehender server.env uebernehmen, sonst neu erzeugt)
+#   --no-migrate            Migrationen NICHT automatisch anwenden
+#   --uninstall             Service stoppen, deaktivieren und entfernen
 # ============================================================================
 set -euo pipefail
 
@@ -24,20 +27,37 @@ BINARY="${SCRIPT_DIR}/server_bin"
 DSN="postgres://schiessstand:CHANGEME@127.0.0.1/schiessstand"
 LISTEN=":8090"
 RUN_USER="${SUDO_USER:-${USER:-myshoot}}"
+BACKUP_DIR=""
+WERTMASCHINE_PSK_HEX=""
 RUN_MIGRATE=true
 UNINSTALL=false
 
 # ── Argumente parsen ───────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dsn)      DSN="$2";     shift 2 ;;
-    --listen)   LISTEN="$2";  shift 2 ;;
-    --user)     RUN_USER="$2";shift 2 ;;
+    --dsn)                 DSN="$2";                  shift 2 ;;
+    --listen)              LISTEN="$2";                shift 2 ;;
+    --user)                RUN_USER="$2";              shift 2 ;;
+    --backup-dir)          BACKUP_DIR="$2";            shift 2 ;;
+    --wertmaschine-psk-hex) WERTMASCHINE_PSK_HEX="$2"; shift 2 ;;
     --no-migrate) RUN_MIGRATE=false; shift ;;
     --uninstall)  UNINSTALL=true;    shift ;;
     *) echo "Unbekannte Option: $1" >&2; exit 1 ;;
   esac
 done
+
+[[ -z "${BACKUP_DIR}" ]] && BACKUP_DIR="/home/${RUN_USER}/db-backups"
+
+# ── Wertmaschine-PSK: bestehenden Wert wiederverwenden (sonst neu erzeugen) -
+# muss mit server_psk_hex in jeder wertmaschine/config.json dieser Anlage
+# uebereinstimmen (siehe wertmaschine/install-service.sh).
+if [[ -z "${WERTMASCHINE_PSK_HEX}" && -f "${ENV_FILE}" ]]; then
+  WERTMASCHINE_PSK_HEX="$(grep -oP '(?<=SCHIESSSTAND_WERTMASCHINE_PSK=).*' "${ENV_FILE}" || true)"
+fi
+if [[ -z "${WERTMASCHINE_PSK_HEX}" ]]; then
+  WERTMASCHINE_PSK_HEX="$(openssl rand -hex 32)"
+  echo "==> Neuen Wertmaschine-PSK erzeugt (in ${ENV_FILE} gespeichert)."
+fi
 
 # ── Root prüfen ─────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
@@ -73,28 +93,26 @@ sudo -u "${RUN_USER}" /usr/local/go/bin/go build -o server_bin . \
 echo "    OK: ${BINARY}"
 
 # ── 2. Migrationen anwenden ─────────────────────────────────────────────────
+# Nutzt denselben versionsverfolgten Mechanismus wie der Full-Restore-Nachzug
+# (schema_migrations-Tabelle, siehe migrations.go) - wendet ausschliesslich
+# noch fehlende Dateien an (egal ob Erstinstallation einer leeren DB oder
+# Update einer bereits laufenden Anlage) und bricht bei einem echten Fehler
+# hart ab, statt ihn nur zu loggen und weiterzumachen.
 if $RUN_MIGRATE; then
-  echo "==> Wende Migrationen an..."
-  MIGRATION_DIR="${SCRIPT_DIR}/migrations"
-  if [[ -d "${MIGRATION_DIR}" ]]; then
-    for sql in "${MIGRATION_DIR}"/*.sql; do
-      [[ -f "$sql" ]] || continue
-      echo "    $(basename "$sql")..."
-      sudo -u "${RUN_USER}" psql "${DSN}" -f "${sql}" -q \
-        || { echo "WARNUNG: $(basename "$sql") fehlgeschlagen (evtl. bereits angewandt)"; }
-    done
-    echo "    Migrationen abgeschlossen."
-  else
-    echo "    Kein migrations/-Verzeichnis gefunden – übersprungen."
-  fi
+  echo "==> Wende Migrationen an (schema_migrations)..."
+  sudo -u "${RUN_USER}" "${BINARY}" -migrate-only -dsn "${DSN}" -migrations-dir "${SCRIPT_DIR}/migrations" \
+    || { echo "FEHLER: Migrationen fehlgeschlagen."; exit 1; }
 fi
 
 # ── 3. Umgebungsdatei anlegen (Credentials nicht in der Unit-Datei) ──────────
 echo "==> Lege Umgebungsdatei an: ${ENV_FILE}"
 mkdir -p "$(dirname "${ENV_FILE}")"
+mkdir -p "${BACKUP_DIR}"
+chown "${RUN_USER}:${RUN_USER}" "${BACKUP_DIR}"
 cat > "${ENV_FILE}" << EOF
 SCHIESSSTAND_DSN=${DSN}
 SCHIESSSTAND_LISTEN=${LISTEN}
+SCHIESSSTAND_WERTMASCHINE_PSK=${WERTMASCHINE_PSK_HEX}
 EOF
 chmod 640 "${ENV_FILE}"
 chown "root:${RUN_USER}" "${ENV_FILE}"
@@ -115,7 +133,7 @@ User=${RUN_USER}
 Group=${RUN_USER}
 WorkingDirectory=${SCRIPT_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${BINARY} -dsn \${SCHIESSSTAND_DSN} -listen \${SCHIESSSTAND_LISTEN}
+ExecStart=${BINARY} -dsn \${SCHIESSSTAND_DSN} -listen \${SCHIESSSTAND_LISTEN} -backup-dir ${BACKUP_DIR} -wertmaschine-psk-hex \${SCHIESSSTAND_WERTMASCHINE_PSK}
 Restart=on-failure
 RestartSec=5s
 StartLimitBurst=5
@@ -149,6 +167,9 @@ systemctl status "${SERVICE_NAME}" --no-pager -l | head -20
 
 echo ""
 echo "==> Installation abgeschlossen."
+echo ""
+echo "    Wertmaschine-PSK (fuer wertmaschine/install-service.sh --psk-hex auf"
+echo "    einem anderen Rechner): ${WERTMASCHINE_PSK_HEX}"
 echo ""
 echo "    Nützliche Befehle:"
 echo "    sudo systemctl status  ${SERVICE_NAME}"

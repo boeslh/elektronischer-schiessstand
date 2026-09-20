@@ -485,6 +485,15 @@ function confirmRestore(description) {
   return typed === CONFIRM_WORD;
 }
 
+// migrationsNote: Full Restore zieht automatisch fehlende Migrationen nach
+// (server/backup.go restoreFromFile / migrations.go), falls das Backup
+// aelter als der aktuelle Stand war - hier als Hinweis anzeigen, damit das
+// nicht unbemerkt bleibt.
+function migrationsNote(applied) {
+  if (!applied || !applied.length) return '';
+  return ` Das Backup war älter als der aktuelle Stand - ${applied.length} Migration(en) automatisch nachgezogen (${applied.map(esc).join(', ')}).`;
+}
+
 async function restoreServerBackup(filename) {
   if (!confirmRestore(`Die komplette aktuelle Datenbank wird durch "${filename}" ersetzt.`)) return;
   const msgEl = document.getElementById('backup-msg');
@@ -493,7 +502,7 @@ async function restoreServerBackup(filename) {
     const resp = await fetch(`/api/admin/backups/${encodeURIComponent(filename)}/restore`, {method: 'POST'});
     const j = await resp.json();
     if (!resp.ok) throw new Error(j.error || resp.statusText);
-    msgEl.innerHTML = `<div class="msg ok">&#10003; Datenbank aus "${esc(filename)}" wiederhergestellt.</div>`;
+    msgEl.innerHTML = `<div class="msg ok">&#10003; Datenbank aus "${esc(filename)}" wiederhergestellt.${migrationsNote(j.migrations_applied)}</div>`;
     await loadBackups();
   } catch(e) {
     msgEl.innerHTML = `<div class="msg err">Fehler: ${esc(e.message)}</div>`;
@@ -535,7 +544,7 @@ async function uploadAndRestore() {
     const resp = await fetch('/api/admin/restore-upload', {method: 'POST', body: fd});
     const j = await resp.json();
     if (!resp.ok) throw new Error(j.error || resp.statusText);
-    msgEl.innerHTML = '<div class="msg ok">&#10003; Datenbank aus hochgeladener Datei wiederhergestellt.</div>';
+    msgEl.innerHTML = `<div class="msg ok">&#10003; Datenbank aus hochgeladener Datei wiederhergestellt.${migrationsNote(j.migrations_applied)}</div>`;
     selectedFile = null;
     document.getElementById('upload-filename').textContent = '';
     document.getElementById('file-input').value = '';
