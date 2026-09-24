@@ -256,9 +256,13 @@ if $INSTALL_SERVER; then
   fi
   DB_PASSWORD="$(ask_val "Passwort fuer die Datenbankrolle 'schiessstand'" "${DEFAULT_DB_PASSWORD}")"
   if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='schiessstand'" | grep -q 1; then
-    sudo -u postgres psql -c "CREATE USER schiessstand WITH PASSWORD '${DB_PASSWORD}';" >/dev/null
+    # CREATEDB: der Server legt fuer den selektiven Export/Import (Import/
+    # Export-Kachel) kurzzeitig eine Wegwerf-Datenbank an (siehe
+    # staged-transfer.go stagedSetup) - ohne dieses Recht schlaegt die
+    # Funktion mit "keine Berechtigung, um Datenbank zu erzeugen" fehl.
+    sudo -u postgres psql -c "CREATE USER schiessstand WITH PASSWORD '${DB_PASSWORD}' CREATEDB;" >/dev/null
   else
-    sudo -u postgres psql -c "ALTER USER schiessstand WITH PASSWORD '${DB_PASSWORD}';" >/dev/null
+    sudo -u postgres psql -c "ALTER USER schiessstand WITH PASSWORD '${DB_PASSWORD}' CREATEDB;" >/dev/null
   fi
   if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='schiessstand'" | grep -q 1; then
     sudo -u postgres psql -c "CREATE DATABASE schiessstand OWNER schiessstand;" >/dev/null

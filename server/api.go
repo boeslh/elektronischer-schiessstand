@@ -112,6 +112,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/admin/export-selection", a.h(a.exportSelectionHandler))
 	mux.HandleFunc("POST /api/admin/import-selection", a.h(a.importSelectionHandler))
 	mux.HandleFunc("POST /api/admin/delete-selection", a.h(a.deleteSelectionHandler))
+	mux.HandleFunc("POST /api/admin/factory-reset", a.h(a.factoryResetHandler))
 	mux.HandleFunc("GET /import-export", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := a.requireAdmin(w, r); err != nil {
 			writeAccessDeniedPage(w, err)
@@ -776,7 +777,7 @@ func (a *APIServer) simulateSession(w http.ResponseWriter, r *http.Request) (any
 			},
 		}
 		if sh.HasRaw {
-			sim := SolveShot(sh.AirNs, body.Params)
+			sim := SolveShot(sh.AirNs, sh.PiezoNs, body.Params)
 			res.Sim.PosValid = sim.PosValid
 			res.Sim.ClusterHits = sim.ClusterHits
 			if sim.PosValid {
@@ -824,19 +825,21 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 		wanted[no] = true
 	}
 	var airNs [][6][]int64
+	var piezoNs []*int64
 	for _, sh := range shots {
 		if wanted[sh.ShotNo] && sh.HasRaw {
 			airNs = append(airNs, sh.AirNs)
+			piezoNs = append(piezoNs, sh.PiezoNs)
 		}
 	}
 	if len(airNs) < 3 {
 		return nil, errBadRequest("zu wenige der ausgewaehlten Schuesse haben Rohdaten (mind. 3 noetig)")
 	}
 
-	offsets, cost := CalibrateMicOffsets(airNs, body.Params)
+	offsets, cost := CalibrateMicOffsets(airNs, piezoNs, body.Params)
 	return map[string]any{
 		"mic_offset_ns": offsets,
-		"cost_mm":       cost,
+		"cost":          cost,
 		"shots_used":    len(airNs),
 	}, nil
 }
@@ -852,8 +855,11 @@ type candidateOut struct {
 	B          int     `json:"b"`
 	XUm        int64   `json:"x_um"`
 	YUm        int64   `json:"y_um"`
+	CorrXUm    int64   `json:"corr_x_um"` // wie XUm/YUm, aber MIT Kugeldurchmesser-Korrektur (siehe
+	CorrYUm    int64   `json:"corr_y_um"` // airCandidate.CorrX/CorrY in simulator.go)
 	ResidualMM float64 `json:"residual_mm"`
 	Best       bool    `json:"best"`
+	InCluster  bool    `json:"in_cluster"`
 }
 
 type bulletShiftOut struct {
@@ -903,7 +909,7 @@ func (a *APIServer) solveShotDetail(w http.ResponseWriter, r *http.Request) (any
 		return nil, errBadRequest("keine Rohdaten fuer diesen Schuss vorhanden")
 	}
 
-	res, candidates, bulletShift := SolveShotDetail(target.AirNs, body.Params)
+	res, candidates, bulletShift := SolveShotDetail(target.AirNs, target.PiezoNs, body.Params)
 
 	cands := make([]candidateOut, len(candidates))
 	for i, c := range candidates {
@@ -913,8 +919,11 @@ func (a *APIServer) solveShotDetail(w http.ResponseWriter, r *http.Request) (any
 			B:          c.B,
 			XUm:        int64(math.Round(float64(c.X)*1000)) + body.Params.OffsetXUm,
 			YUm:        int64(math.Round(float64(c.Y)*1000)) + body.Params.OffsetYUm,
+			CorrXUm:    int64(math.Round(float64(c.CorrX)*1000)) + body.Params.OffsetXUm,
+			CorrYUm:    int64(math.Round(float64(c.CorrY)*1000)) + body.Params.OffsetYUm,
 			ResidualMM: round2(float64(c.ResidualMM)),
 			Best:       c.Best,
+			InCluster:  c.InCluster,
 		}
 	}
 	bshifts := make([]bulletShiftOut, len(bulletShift))
@@ -947,6 +956,7 @@ func (a *APIServer) listSimulatorConfigs(w http.ResponseWriter, r *http.Request)
 func (a *APIServer) saveSimulatorConfig(w http.ResponseWriter, r *http.Request) (any, error) {
 	body, err := decodeBody[struct {
 		Name   string    `json:"name"`
+		LaneNo *int      `json:"lane_no"`
 		Params SimParams `json:"params"`
 	}](r)
 	if err != nil {
@@ -955,7 +965,7 @@ func (a *APIServer) saveSimulatorConfig(w http.ResponseWriter, r *http.Request) 
 	if body.Name == "" {
 		return nil, errBadRequest("name erforderlich")
 	}
-	id, err := a.store.SaveSimulatorConfig(r.Context(), body.Name, body.Params)
+	id, err := a.store.SaveSimulatorConfig(r.Context(), body.Name, body.LaneNo, body.Params)
 	if err != nil {
 		return nil, err
 	}

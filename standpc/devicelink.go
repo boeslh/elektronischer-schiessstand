@@ -156,8 +156,8 @@ func (c *CommandManager) Deliver(corr int, line []byte) {
 	select {
 	case ch <- cp:
 	default:
-		// Kanal voll (sehr viele Zeilen fuer einen Befehl, z.B. PIN LIST
-		// mit vielen Pins) - collectResponses liest kontinuierlich mit,
+		// Kanal voll (sehr viele Zeilen fuer einen Befehl) - collectResponses
+		// liest kontinuierlich mit,
 		// das sollte praktisch nie blockieren; im Zweifel Zeile verwerfen
 		// statt den ESP32-Lesepfad aufzuhalten.
 	}

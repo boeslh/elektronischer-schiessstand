@@ -149,42 +149,55 @@
 
   <div class="row-actions">
     <div class="filter-group">
-      <label>Gespeicherte Configs</label>
-      <select id="cfgSelect"><option value="">– auswählen –</option></select>
-    </div>
-    <button class="btn-sec" onclick="loadConfig()">Laden</button>
-    <div class="filter-group">
       <label>Name zum Speichern</label>
       <input type="text" id="cfgName" placeholder="z.B. Stand 1 Winter" style="min-width:220px">
     </div>
     <button class="btn-sec" onclick="saveConfig()">Speichern</button>
+    <span class="hint" id="cfgSaveLaneHint"></span>
   </div>
+
+  <div class="filter-group" style="margin-bottom:6px">
+    <label>Gespeicherte Kalibrierungen (nach Stand, neueste zuerst)</label>
+    <span style="margin-left:14px">Filter: <select id="cfgLaneFilter" onchange="setCfgLaneFilter(this.value)"></select></span>
+  </div>
+  <table id="cfgTable" style="margin-bottom:14px">
+    <thead><tr><th>Name</th><th>Stand</th><th>Gespeichert am</th><th></th></tr></thead>
+    <tbody id="cfgTbody"></tbody>
+  </table>
 
   <div class="row-actions">
     <div class="filter-group" style="flex:1;min-width:400px">
       <label>SHOW-Ausgabe der Firmware einfügen (optional)</label>
       <textarea id="showText" rows="2" style="width:100%"
-        placeholder='{"type":"config","mic_offset_ns":[...],"standoff_steel_mm":...,...}'></textarea>
+        placeholder='{"type":"config","mic_offset_ns":[...],"standoff_paper_mm":...,...}'></textarea>
     </div>
     <button class="btn-sec" onclick="importShow()">Übernehmen</button>
   </div>
   <div id="showStatus" class="hint"></div>
 
   <div class="target-radios">
-    <label><input type="radio" name="target" value="steel" checked> Target: Steel</label>
-    <label><input type="radio" name="target" value="paper"> Target: Paper</label>
+    <label><input type="radio" name="algo" value="classic" checked onchange="onAlgoChange()"> Auswertepfad: Classic</label>
+    <label><input type="radio" name="algo" value="rim" onchange="onAlgoChange()"> Auswertepfad: RIM (Firmware Rev 4.11.0)</label>
   </div>
+  <div class="hint" id="algoHint" style="margin-bottom:10px"></div>
 
-  <div class="params-grid">
-    <div class="filter-group"><label>Standoff Steel (mm)</label><input type="number" id="p-standoffSteel" step="0.1" value="30.0"></div>
-    <div class="filter-group"><label>Standoff Paper (mm)</label><input type="number" id="p-standoffPaper" step="0.1" value="28.0"></div>
+  <div class="params-grid" id="classicParams">
+    <div class="filter-group"><label>Standoff (mm)</label><input type="number" id="p-standoffPaper" step="0.1" value="28.0"></div>
     <div class="filter-group"><label>Mic-Halbabstand X (mm)</label><input type="number" id="p-micHalfX" step="0.1" value="115.0"></div>
     <div class="filter-group"><label>Offset X (0.001mm)</label><input type="number" id="p-offsetX" step="1" value="0"></div>
     <div class="filter-group"><label>Offset Y (0.001mm)</label><input type="number" id="p-offsetY" step="1" value="0"></div>
-    <div class="filter-group"><label>Schallgeschw. (m/s)</label><input type="number" id="p-sound" step="1" value="355"></div>
+    <div class="filter-group"><label>Schallgeschw. (m/s)</label><input type="number" id="p-sound" step="1" value="343"></div>
     <div class="filter-group"><label>Kugeldurchm.-Korrektur (%)</label><input type="number" id="p-bshiftPct" step="1" min="0" max="100" value="50"></div>
     <div class="filter-group"><label>Korrektur-Kappung (mm)</label><input type="number" id="p-bshiftCap" step="0.1" min="0" value="3.0"></div>
     <div class="filter-group"><label>Cluster-Radius (0.001mm)</label><input type="number" id="p-clusterRadius" step="1" min="0" max="500000" value="200"></div>
+  </div>
+
+  <div class="params-grid" id="rimParams" style="display:none">
+    <div class="filter-group"><label>Lochrand-Radius PELLETR (mm)</label><input type="number" id="p-pelletR" step="0.01" min="0" max="10" value="2.25"></div>
+    <div class="filter-group"><label>"clean"-Schwelle MAXSIGMA (mm)</label><input type="number" id="p-maxSigma" step="0.01" min="0" max="50" value="2.0"></div>
+    <div class="filter-group"><label>Piezo-Verzögerung min. (us)</label><input type="number" id="p-piezoMin" step="1" min="0" max="5000" value="100"></div>
+    <div class="filter-group"><label>Piezo-Verzögerung max. (us)</label><input type="number" id="p-piezoMax" step="1" min="0" max="5000" value="1400"></div>
+    <div class="filter-group"><label>Mindestzahl Mics MINMICS</label><input type="number" id="p-minMics" step="1" min="3" max="6" value="5"></div>
   </div>
 
   <div class="filter-group" style="margin-bottom:6px"><label>Mikrofon-Timing-Offsets OFS0–OFS5 (ns)</label></div>
@@ -277,6 +290,11 @@
           Details &amp; Schnittpunkte beim Anklicken einblenden
         </label>
       </div>
+      <div class="hint" style="margin:2px 0 6px">
+        Schnittpunkte: <span style="color:#ff8c1a">orange, groß</span> = beste Kombination (Stufe-1-Lösung) ·
+        gelb = weitere Kombination innerhalb Cluster-Radius (zählt zur finalen Position) ·
+        <span style="opacity:0.5">gedämpft/gestrichelt</span> = außerhalb Cluster-Radius (zählt nicht mit)
+      </div>
       <div class="series-grid" id="seriesGrid"></div>
       <div id="detailBox"></div>
       <div id="detailExtra"></div>
@@ -294,6 +312,7 @@ async function api(path, opts) {
 }
 
 let currentSessionId = null;
+let currentLoadedLaneNo = null; // Stand der geladenen Session, siehe selectSession()/saveConfig()
 let lastSimShots = [];
 let lastSessionShots = []; // Antwort von .../simulator-shots (fuer die Kalibrier-Schussauswahl)
 let calSelected = new Set(); // ausgewaehlte shot_no fuer die Kalibrierung
@@ -377,6 +396,17 @@ async function selectSession(tr, r) {
   document.querySelectorAll('#tbody tr.selected').forEach(x => x.classList.remove('selected'));
   tr.classList.add('selected');
   currentSessionId = r.session_id;
+  currentLoadedLaneNo = (r.lane_no != null) ? r.lane_no : null;
+  const laneHintEl = document.getElementById('cfgSaveLaneHint');
+  if (laneHintEl) {
+    laneHintEl.textContent = currentLoadedLaneNo != null ? `wird als Stand ${currentLoadedLaneNo} gespeichert` : '';
+  }
+  // Filter der gespeicherten Kalibrierungen auf den Stand dieses Ergebnisses
+  // vorbelegen (Liste wird sonst schnell sehr lang) - und die Liste selbst
+  // neu laden, damit auch zwischenzeitlich (Stand-PC/anderer Tab) gespeicherte
+  // Kalibrierungen sichtbar sind, siehe loadConfigOptions()-Kommentar.
+  cfgLaneFilter = currentLoadedLaneNo;
+  loadConfigOptions();
 
   zoomFocusShot = null;
   selectedChipEl = null;
@@ -418,26 +448,43 @@ async function selectSession(tr, r) {
 
 // ── 2. Parameter / Config / SHOW-Import ─────────────────────────────────
 function currentParams() {
-  const target = document.querySelector('input[name=target]:checked').value;
+  const algo = document.querySelector('input[name=algo]:checked').value;
   return {
-    standoff_steel_mm: parseFloat(document.getElementById('p-standoffSteel').value) || 0,
     standoff_paper_mm: parseFloat(document.getElementById('p-standoffPaper').value) || 0,
     mic_half_x_mm: parseFloat(document.getElementById('p-micHalfX').value) || 0,
     offset_x_um: parseInt(document.getElementById('p-offsetX').value) || 0,
     offset_y_um: parseInt(document.getElementById('p-offsetY').value) || 0,
     sound_mps: parseFloat(document.getElementById('p-sound').value) || 0,
     mic_offset_ns: [0,1,2,3,4,5].map(i => parseInt(document.getElementById('p-ofs'+i).value) || 0),
-    target: target,
     bullet_shift_pct: parseInt(document.getElementById('p-bshiftPct').value) || 0,
     bullet_shift_cap_mm: parseFloat(document.getElementById('p-bshiftCap').value) || 0,
     cluster_radius_um: parseInt(document.getElementById('p-clusterRadius').value) || 0,
     mic_enabled: [0,1,2,3,4,5].map(i => document.getElementById('p-micen'+i).checked),
+    algo: algo,
+    pellet_r_mm: parseFloat(document.getElementById('p-pelletR').value) || 0,
+    max_sigma_um: Math.round((parseFloat(document.getElementById('p-maxSigma').value) || 0) * 1000),
+    piezo_min_us: parseInt(document.getElementById('p-piezoMin').value) || 0,
+    piezo_max_us: parseInt(document.getElementById('p-piezoMax').value) || 0,
+    min_mics: parseInt(document.getElementById('p-minMics').value) || 0,
   };
+}
+
+// onAlgoChange: RIM nutzt eine andere Geometrie-/Fenster-Parametrisierung
+// als Classic (Lochrand statt Kugeldurchm.-Korrektur/Cluster-Radius, Piezo-
+// Fenster statt fester TDOA-Plausibilitaet) - siehe SimParams-Kommentar in
+// simulator.go. Blendet die jeweils irrelevante Parametergruppe aus, statt
+// beide dauerhaft nebeneinander zu zeigen.
+function onAlgoChange() {
+  const rim = document.querySelector('input[name=algo]:checked').value === 'rim';
+  document.getElementById('classicParams').style.display = rim ? 'none' : '';
+  document.getElementById('rimParams').style.display = rim ? '' : 'none';
+  document.getElementById('algoHint').textContent = rim
+    ? 'RIM (Firmware Rev 4.11.0): braucht gespeicherte Piezo-Zeiten (piezo_ns) - Schüsse ohne Piezo-Auslösung (z.B. SET PIEZO=0) können nicht neu berechnet werden. Liefert Sigma-Unsicherheit statt Cluster-Hits/Precision.'
+    : '';
 }
 
 function applyParams(p) {
   if (!p) return;
-  if (p.standoff_steel_mm != null) document.getElementById('p-standoffSteel').value = p.standoff_steel_mm;
   if (p.standoff_paper_mm != null) document.getElementById('p-standoffPaper').value = p.standoff_paper_mm;
   if (p.mic_half_x_mm != null) document.getElementById('p-micHalfX').value = p.mic_half_x_mm;
   if (p.offset_x_um != null) document.getElementById('p-offsetX').value = p.offset_x_um;
@@ -446,9 +493,6 @@ function applyParams(p) {
   if (Array.isArray(p.mic_offset_ns)) {
     p.mic_offset_ns.forEach((v,i) => { const el = document.getElementById('p-ofs'+i); if (el) el.value = v; });
   }
-  if (p.target === 'paper' || p.target === 'steel') {
-    document.querySelector(`input[name=target][value=${p.target}]`).checked = true;
-  }
   if (p.bullet_shift_pct != null) document.getElementById('p-bshiftPct').value = p.bullet_shift_pct;
   if (p.bullet_shift_cap_mm != null) document.getElementById('p-bshiftCap').value = p.bullet_shift_cap_mm;
   if (p.cluster_radius_um != null) document.getElementById('p-clusterRadius').value = p.cluster_radius_um;
@@ -456,26 +500,84 @@ function applyParams(p) {
     // SHOW liefert 0/1 (ints), gespeicherte Configs echte Booleans - beides abdecken.
     p.mic_enabled.forEach((v,i) => { const el = document.getElementById('p-micen'+i); if (el) el.checked = !!v; });
   }
+  if (p.algo === 'classic' || p.algo === 'rim') {
+    document.querySelector(`input[name=algo][value=${p.algo}]`).checked = true;
+  }
+  if (p.pellet_r_mm != null) document.getElementById('p-pelletR').value = p.pellet_r_mm;
+  if (p.max_sigma_um != null) document.getElementById('p-maxSigma').value = p.max_sigma_um / 1000;
+  if (p.piezo_min_us != null) document.getElementById('p-piezoMin').value = p.piezo_min_us;
+  if (p.piezo_max_us != null) document.getElementById('p-piezoMax').value = p.piezo_max_us;
+  if (p.min_mics != null) document.getElementById('p-minMics').value = p.min_mics;
+  onAlgoChange();
 }
 
+// loadConfigOptions: Liste gespeicherter Kalibrierungen als Tabelle statt
+// eines flachen Namens-Dropdowns - Server liefert bereits nach Stand und
+// Datum/Uhrzeit sortiert (siehe store.go ListSimulatorConfigs), Stand als
+// eigene Spalte fuer schnelles visuelles Filtern. Wird sowohl beim initialen
+// Laden der Seite als auch (erneut, siehe selectSession()) beim Auswaehlen
+// eines Ergebnisses aufgerufen - Bugfix: "gespeicherte Kalibrierungen erst
+// sichtbar, wenn ich eine andere gespeichert habe" - Abschnitt 2 (und damit
+// die Tabelle) ist beim initialen Laden noch unsichtbar (display:none, siehe
+// paramsSection), zwischenzeitlich per Stand-PC oder anderem Tab neu
+// gespeicherte Kalibrierungen wurden bis jetzt aber nie nachgeladen, nur
+// beim eigenen "Speichern" - jetzt zusaetzlich bei jeder Ergebnis-Auswahl.
 async function loadConfigOptions() {
   try {
-    const list = await api('/api/simulator-configs') || [];
-    const sel = document.getElementById('cfgSelect');
-    sel.innerHTML = '<option value="">– auswählen –</option>';
-    for (const c of list) {
-      const o = document.createElement('option');
-      o.value = c.id; o.textContent = c.name; o.dataset.params = JSON.stringify(c.params);
-      sel.appendChild(o);
-    }
+    savedConfigs = await api('/api/simulator-configs') || [];
+    renderConfigTable();
   } catch(e) { /* ignorieren */ }
 }
 
-function loadConfig() {
-  const sel = document.getElementById('cfgSelect');
-  const opt = sel.selectedOptions[0];
-  if (!opt || !opt.value) return;
-  applyParams(JSON.parse(opt.dataset.params || '{}'));
+let savedConfigs = [];
+// cfgLaneFilter: null = alle Staende, sonst nur dieser Stand - wird beim
+// Auswaehlen eines Ergebnisses auf dessen Stand vorbelegt (siehe
+// selectSession()), da die Liste sonst schnell sehr lang wird.
+let cfgLaneFilter = null;
+
+function renderConfigTable() {
+  const select = document.getElementById('cfgLaneFilter');
+  const lanes = [...new Set(savedConfigs.map(c => c.lane_no).filter(l => l != null))].sort((a,b) => a-b);
+  const hasNoLane = savedConfigs.some(c => c.lane_no == null);
+  const curVal = cfgLaneFilter != null ? String(cfgLaneFilter) : '';
+  select.innerHTML = '<option value="">Alle Stände</option>'
+    + lanes.map(l => `<option value="${l}">Stand ${l}</option>`).join('')
+    + (hasNoLane ? '<option value="none">ohne Stand</option>' : '');
+  select.value = cfgLaneFilter === 'none' ? 'none' : curVal;
+
+  const filtered = savedConfigs.filter(c => {
+    if (cfgLaneFilter == null) return true;
+    if (cfgLaneFilter === 'none') return c.lane_no == null;
+    return c.lane_no === cfgLaneFilter;
+  });
+
+  const tbody = document.getElementById('cfgTbody');
+  tbody.innerHTML = '';
+  for (const c of filtered) {
+    const tr = document.createElement('tr');
+    const dt = c.created_at ? new Date(c.created_at) : null;
+    const when = dt ? dt.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '–';
+    const lane = c.lane_no != null ? `Stand ${c.lane_no}` : '–';
+    tr.innerHTML = `<td>${esc(c.name)}</td><td>${lane}</td><td>${when}</td>
+      <td><button class="btn-sec" style="padding:3px 10px;font-size:12px" onclick="loadConfigById('${c.id}')">Laden</button></td>`;
+    tbody.appendChild(tr);
+  }
+  if (!filtered.length) {
+    const msg = savedConfigs.length ? 'Keine gespeicherten Kalibrierungen für diesen Filter.' : 'Noch keine gespeicherten Kalibrierungen.';
+    tbody.innerHTML = `<tr><td colspan="4" class="hint">${msg}</td></tr>`;
+  }
+}
+
+function setCfgLaneFilter(val) {
+  cfgLaneFilter = val === '' ? null : (val === 'none' ? 'none' : parseInt(val));
+  renderConfigTable();
+}
+
+function loadConfigById(id) {
+  const c = savedConfigs.find(x => x.id === id);
+  if (!c) return;
+  applyParams(c.params);
+  currentLoadedLaneNo = c.lane_no != null ? c.lane_no : currentLoadedLaneNo;
 }
 
 async function saveConfig() {
@@ -483,7 +585,7 @@ async function saveConfig() {
   if (!name) { alert('Name erforderlich'); return; }
   try {
     await api('/api/simulator-configs', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name, params: currentParams()})});
+      body: JSON.stringify({name, lane_no: currentLoadedLaneNo, params: currentParams()})});
     document.getElementById('cfgName').value = '';
     await loadConfigOptions();
   } catch(e) { alert('Fehler beim Speichern: ' + e.message); }
@@ -539,13 +641,20 @@ async function runCalibration() {
   box.style.display = '';
   box.textContent = 'Berechne Kalibrierung…';
   try {
+    const params = currentParams();
     const resp = await api(`/api/sessions/${currentSessionId}/calibrate`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({params: currentParams(), shot_nos: Array.from(calSelected)})
+      body: JSON.stringify({params: params, shot_nos: Array.from(calSelected)})
     });
     const ofs = resp.mic_offset_ns;
+    // ALGO=CLASSIC: cost = Rest-Fehlersumme in mm. ALGO=RIM: cost = Summe
+    // der quadrierten RMS-Residuen in ns^2 (siehe calCostRimFn() in
+    // simulator.go) - andere Einheit, nicht direkt vergleichbar.
+    const costLabel = params.algo === 'rim'
+      ? `Kostensumme ${resp.cost.toFixed(0)} ns²`
+      : `Rest-Fehlersumme ${resp.cost.toFixed(3)} mm`;
     box.innerHTML = `Neue Offsets (ns): <strong>${ofs.join(', ')}</strong> · `
-      + `Rest-Fehlersumme ${resp.cost_mm.toFixed(3)} mm über ${resp.shots_used} Schuss/Schüsse. `;
+      + `${costLabel} über ${resp.shots_used} Schuss/Schüsse. `;
     const applyBtn = document.createElement('button');
     applyBtn.className = 'btn-sec';
     applyBtn.textContent = 'In OFS0–5 übernehmen';
@@ -556,16 +665,15 @@ async function runCalibration() {
   }
 }
 
-// buildSetCommands: alle aktuell im Formular stehenden Parameter (Standoff,
-// Offsets, Schallgeschwindigkeit, Mic-Timing-Offsets, Kugelkorrektur,
-// Cluster-Radius, Mikrofon-Auswahl) als SET-Befehle fuer die serielle
-// Konsole der Firmware - Feld->Befehl 1:1 nach dem SET-Kommandoparser
-// (schiessstand_firmware.ino, siehe HELP-Text).
+// buildSetCommands: alle aktuell im Formular stehenden Parameter als SET-
+// Befehle fuer die serielle Konsole der Firmware - Feld->Befehl 1:1 nach dem
+// SET-Kommandoparser (schiessstand_firmware.ino, siehe HELP-Text). SET
+// TARGET/STANDOFFSTEEL gibt es nicht mehr - seit Firmware Rev 4.11.2
+// komplett entfernt (Papier ist die einzige Geometrie, ebenso im Simulator
+// nachgezogen, siehe simulator.go).
 function buildSetCommands() {
   const p = currentParams();
   const lines = [
-    `SET TARGET=${p.target.toUpperCase()}`,
-    `SET STANDOFFSTEEL=${p.standoff_steel_mm}`,
     `SET STANDOFFPAPER=${p.standoff_paper_mm}`,
     `SET MICHALFX=${p.mic_half_x_mm}`,
     `SET OFFSETX=${p.offset_x_um}`,
@@ -577,6 +685,12 @@ function buildSetCommands() {
   lines.push(`SET BSHIFTCAP=${p.bullet_shift_cap_mm}`);
   lines.push(`SET RADIUS=${p.cluster_radius_um}`);
   p.mic_enabled.forEach((v,i) => lines.push(`SET MICEN${i}=${v ? 1 : 0}`));
+  lines.push(`SET ALGO=${p.algo.toUpperCase()}`);
+  lines.push(`SET PELLETR=${p.pellet_r_mm}`);
+  lines.push(`SET MAXSIGMA=${(p.max_sigma_um / 1000).toFixed(2)}`);
+  lines.push(`SET PIEZOMIN=${p.piezo_min_us}`);
+  lines.push(`SET PIEZOMAX=${p.piezo_max_us}`);
+  lines.push(`SET MINMICS=${p.min_mics}`);
   return lines.join('\n');
 }
 
@@ -820,21 +934,37 @@ function renderTargetSVG(geo, shots) {
   }
 
   // Kandidaten-Schnittpunkte des aktuell im Detail betrachteten Schusses
-  // (optional, siehe Checkbox) - kleine gelbe Kreuze: jede geloeste 3er-
-  // Mikrofon-Kombination, aus deren Mittelwert (innerhalb SET RADIUS) sich
-  // die finale Position (Stufe 2) ergibt.
+  // (optional, siehe Checkbox) - jede geloeste 3er-Mikrofon-Kombination:
+  // gelb/durchgezogen = liegt innerhalb des Cluster-Radius (SET RADIUS) um
+  // die Stufe-1-Loesung und ist damit in die Stufe-2-Mittelung (finale
+  // Position) eingeflossen - gedaempft/gestrichelt = liegt ausserhalb und
+  // wurde bei der Mittelung ignoriert - orange/groesser = die "beste"
+  // Kombination (Stufe-1-Loesung, geringster Rest-Fehler), zuletzt gezeichnet
+  // damit sie oben liegt (siehe in_cluster/best in server/simulator.go).
   if (showExtraDetail && detailCandidates.length) {
     const cs = CALIBER * 0.16;
-    for (const c of detailCandidates) {
-      const cx = c.x_um / 1000, cy = -(c.y_um / 1000);
+    const drawOrder = detailCandidates.filter(c => !c.best).concat(detailCandidates.filter(c => c.best));
+    for (const c of drawOrder) {
+      const px = candCorrected ? c.corr_x_um : c.x_um;
+      const py = candCorrected ? c.corr_y_um : c.y_um;
+      const cx = px / 1000, cy = -(py / 1000);
+      const size = c.best ? cs * 1.6 : cs;
+      const color = c.best ? '#ff8c1a' : '#f3fb06';
+      const width = c.best ? strokeW * 1.4 : strokeW * 0.8;
+      const opacity = c.in_cluster ? 1 : 0.4;
+      const dash = c.in_cluster ? null : `${size*0.6},${size*0.5}`;
       const l1 = document.createElementNS(SVG_NS, 'line');
-      l1.setAttribute('x1', cx - cs); l1.setAttribute('y1', cy - cs);
-      l1.setAttribute('x2', cx + cs); l1.setAttribute('y2', cy + cs);
-      l1.setAttribute('stroke', '#f3fb06'); l1.setAttribute('stroke-width', strokeW * 0.8);
+      l1.setAttribute('x1', cx - size); l1.setAttribute('y1', cy - size);
+      l1.setAttribute('x2', cx + size); l1.setAttribute('y2', cy + size);
+      l1.setAttribute('stroke', color); l1.setAttribute('stroke-width', width);
+      l1.setAttribute('opacity', opacity);
+      if (dash) l1.setAttribute('stroke-dasharray', dash);
       const l2 = document.createElementNS(SVG_NS, 'line');
-      l2.setAttribute('x1', cx - cs); l2.setAttribute('y1', cy + cs);
-      l2.setAttribute('x2', cx + cs); l2.setAttribute('y2', cy - cs);
-      l2.setAttribute('stroke', '#f3fb06'); l2.setAttribute('stroke-width', strokeW * 0.8);
+      l2.setAttribute('x1', cx - size); l2.setAttribute('y1', cy + size);
+      l2.setAttribute('x2', cx + size); l2.setAttribute('y2', cy - size);
+      l2.setAttribute('stroke', color); l2.setAttribute('stroke-width', width);
+      l2.setAttribute('opacity', opacity);
+      if (dash) l2.setAttribute('stroke-dasharray', dash);
       shotLayer.appendChild(l1); shotLayer.appendChild(l2);
     }
   }
@@ -949,6 +1079,12 @@ function onDetailToggleChange() {
 let detailSolveResp = null; // letzte Antwort von .../solve-detail ({sim, candidates, bullet_shift})
 let detailShotNoForResp = null;
 let candRefMode = 'target'; // 'target' = Scheibenzentrum, 'shot' = Schusszentrum (simulierte Endposition)
+// candCorrected: false = rohe (unkorrigierte) Schnittpunkt-Koordinaten je Kandidat (Standard,
+// entspricht der Firmware-DEBUG=3-"cand"-Ausgabe) - true = dieselbe Kugeldurchmesser-Korrektur
+// (SET BSHIFTPCT/BSHIFTCAP), die sonst nur auf die Stufe-1-Loesung wirkt, je Kandidat einzeln
+// angewandt (siehe airCandidate.CorrX/CorrY in simulator.go) - macht die sonst unsichtbare
+// Wirkung der Korrektur an jedem einzelnen Schnittpunkt sichtbar.
+let candCorrected = false;
 
 async function loadDetailExtra(s) {
   if (!showExtraDetail || !s.has_raw) {
@@ -984,6 +1120,16 @@ function setCandRefMode(mode) {
   renderDetailExtra();
 }
 
+// setCandCorrected schaltet die Schnittpunkt-Grafik (gelbe Kreuze) UND die
+// Tabelle zwischen rohen und kugeldurchmesser-korrigierten Koordinaten um -
+// im Gegensatz zu setCandRefMode (nur Tabellen-Bezugspunkt) wirkt sich das
+// auch auf die SVG-Grafik aus, daher zusaetzlich renderTargetSVG().
+function setCandCorrected(v) {
+  candCorrected = v;
+  renderDetailExtra();
+  renderTargetSVG(currentTargetGeometry, lastSimShots);
+}
+
 // renderDetailExtra baut die Detail-Box aus der zuletzt geladenen Antwort
 // neu auf (z.B. beim Umschalten Scheibenzentrum/Schusszentrum, ohne
 // erneuten Server-Request).
@@ -995,7 +1141,8 @@ function renderDetailExtra() {
   const shotNo = detailShotNoForResp;
 
   if (!sim.pos_valid) {
-    box.innerHTML = `<strong>Rohwerte Schuss ${shotNo} (Simuliert)</strong><br>keine gültige Position (pos_valid=false)`;
+    const reason = sim.invalid_reason ? `<br>Grund: ${esc(sim.invalid_reason)}` : '';
+    box.innerHTML = `<strong>Rohwerte Schuss ${shotNo} (Simuliert)</strong><br>keine gültige Position (pos_valid=false)${reason}`;
     return;
   }
 
@@ -1004,18 +1151,41 @@ function renderDetailExtra() {
       ${candRefMode==='target'?'checked':''} onchange="setCandRefMode('target')"> zum Scheibenzentrum</label>
     <label><input type="radio" name="candRef" value="shot"
       ${candRefMode==='shot'?'checked':''} onchange="setCandRefMode('shot')"> zum Schusszentrum</label>`;
+  const corrOptions = `
+    <label style="margin-right:10px"><input type="radio" name="candCorr" value="raw"
+      ${!candCorrected?'checked':''} onchange="setCandCorrected(false)"> Rohwerte</label>
+    <label><input type="radio" name="candCorr" value="corr"
+      ${candCorrected?'checked':''} onchange="setCandCorrected(true)"> nach Kugeldurchm.-Korrektur</label>`;
 
+  // ALGO=RIM liefert sigma_x_um/sigma_y_um/clean statt pos_res_um/
+  // precision_um/cluster_hits (kein Kandidaten-/Kugelkorrektur-Konzept,
+  // siehe simulator.go solveShotRIM) - Detailzeile entsprechend anpassen.
+  const isRim = sim.sigma_x_um != null;
   let html = `<strong>Rohwerte Schuss ${shotNo} (Simuliert)</strong><br>`
-    + `x_um=${sim.x_um} · y_um=${sim.y_um} · pos_res_um=${sim.pos_res_um} · `
-    + `precision_um=${sim.precision_um} · cluster_hits=${sim.cluster_hits}<br><br>`
-    + `<div style="margin-bottom:6px">Schnittpunkt-Koordinaten anzeigen: ${refOptions}</div>`
-    + `<table><tr><th>Ref</th><th>A</th><th>B</th><th>x (mm)</th><th>y (mm)</th><th>Rest-Fehler (mm)</th></tr>`;
+    + (isRim
+        ? `x_um=${sim.x_um} · y_um=${sim.y_um} · sigma_x_um=${sim.sigma_x_um} · `
+          + `sigma_y_um=${sim.sigma_y_um} · clean=${sim.clean}<br><br>`
+        : `x_um=${sim.x_um} · y_um=${sim.y_um} · pos_res_um=${sim.pos_res_um} · `
+          + `corr_res_um=${sim.corr_res_um} · precision_um=${sim.precision_um} · `
+          + `cluster_hits=${sim.cluster_hits}<br>`
+          + `<span class="hint">corr_res_um = Rest-Fehler NACH Kugeldurchm.-Korrektur - dieser Wert `
+          + `(nicht pos_res_um) ist auch das Kostenmaß der Kalibrierung.</span><br><br>`)
+    + (isRim ? '' :
+      `<div style="margin-bottom:6px">Schnittpunkt-Koordinaten anzeigen: ${refOptions}</div>`
+      + `<div style="margin-bottom:6px">${corrOptions}</div>`
+      + `<table><tr><th>Ref</th><th>A</th><th>B</th><th>x (mm)</th><th>y (mm)</th><th>Rest-Fehler (mm)</th></tr>`);
+  if (isRim) {
+    box.innerHTML = html;
+    return;
+  }
 
   const cx = candRefMode === 'shot' ? sim.x_um : 0;
   const cy = candRefMode === 'shot' ? sim.y_um : 0;
   for (const c of detailCandidates) {
-    const xmm = ((c.x_um - cx) / 1000).toFixed(2);
-    const ymm = ((c.y_um - cy) / 1000).toFixed(2);
+    const px = candCorrected ? c.corr_x_um : c.x_um;
+    const py = candCorrected ? c.corr_y_um : c.y_um;
+    const xmm = ((px - cx) / 1000).toFixed(2);
+    const ymm = ((py - cy) / 1000).toFixed(2);
     const style = c.best ? ' style="font-weight:700;color:var(--acc)"' : '';
     html += `<tr${style}><td>${c.ref}</td><td>${c.a}</td><td>${c.b}</td>`
       + `<td>${xmm}</td><td>${ymm}</td><td>${c.residual_mm.toFixed(2)}</td></tr>`;

@@ -78,7 +78,7 @@ func dispatchLine(line []byte, out chan<- RawShot, cmds *CommandManager, state *
 			}
 		}
 		log.Printf("ESP32: %s", line)
-	case "ready", "pong", "ok", "cand", "net", "pin":
+	case "ready", "pong", "ok", "cand", "net":
 		log.Printf("ESP32: %s", line)
 	case "error":
 		log.Printf("ESP32 FEHLER: %s", line)

@@ -224,7 +224,7 @@ async function loadAbweichenderWochentag() {
       <tr data-ks-id="${r.kauf_scheibe_id}">
         <td style="padding:6px 8px;font-size:.85rem">#${r.teilnehmer_nr} ${esc(r.nachname)}, ${esc(r.vorname)}</td>
         <td style="padding:6px 8px;font-size:.85rem">${esc(r.scheibe_name)}</td>
-        <td style="padding:6px 8px;font-size:.85rem">${r.schiesstag} (${WOCHENTAG_LABEL[r.wochentag] || r.wochentag})</td>
+        <td style="padding:6px 8px;font-size:.85rem">${r.schiesstag}${r.schiesstag_time ? ' ' + r.schiesstag_time : ''} (${WOCHENTAG_LABEL[r.wochentag] || r.wochentag})</td>
         <td style="padding:6px 8px;white-space:nowrap">
           <button type="button" class="btn-link" style="padding:4px 10px;font-size:.75rem"
                   onclick="abwMarkVorNachschuss('${r.kauf_scheibe_id}')">Vor-/Nachschuss markieren</button>

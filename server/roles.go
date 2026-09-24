@@ -562,7 +562,7 @@ func (s *Store) ApplySessionRecalibration(ctx context.Context, sessionID string,
 		if !sh.HasRaw {
 			continue
 		}
-		sim := SolveShot(sh.AirNs, params)
+		sim := SolveShot(sh.AirNs, sh.PiezoNs, params)
 		if !sim.PosValid {
 			continue
 		}

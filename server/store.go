@@ -2507,6 +2507,14 @@ func (s *Store) ListRundenwettkampfResults(ctx context.Context, eventID string) 
 // ----------------------------------------------------------------------------
 
 // SimShotRaw: ein Schuss mit allen fuer die Neuberechnung noetigen Rohdaten.
+// PiezoNs (gleiche Zeitbasis wie AirNs, "relativ zum insgesamt ersten
+// erfassten Mikrofon") wird fuer ALGO=RIM gebraucht, um die Flanken auf den
+// Piezo-Anker umzurechnen (shot_locator.h erwartet Zeiten relativ zum Piezo,
+// siehe simulator.go rimTimesFromPiezo) - unabhaengig davon, mit welchem
+// ALGO der Schuss urspruenglich erfasst wurde, da piezo_ns immer in der
+// CLASSIC-Zeitbasis gespeichert wird (Firmware Rev 4.11.0 aendert nur die
+// Zeitbasis der shot/reject-Telegramme, nicht die zugrundeliegenden rohen
+// Piezo-/Mic-Zeitstempel).
 type SimShotRaw struct {
 	ShotNo       int        `json:"shot_no"`
 	Kind         string     `json:"kind"`
@@ -2516,6 +2524,7 @@ type SimShotRaw struct {
 	Ring         int        `json:"ring"`
 	Decimal      float64    `json:"decimal"`
 	AirNs        [6][]int64 `json:"air_ns"`
+	PiezoNs      *int64     `json:"piezo_ns,omitempty"`
 	HasRaw       bool       `json:"has_raw"`
 	RejectReason string     `json:"reject_reason,omitempty"`
 }
@@ -2527,7 +2536,7 @@ type SimShotRaw struct {
 func (s *Store) SessionShotsRaw(ctx context.Context, sessionID string) ([]SimShotRaw, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT shot_no, kind::text, status::text, x_mm, y_mm, ring, decimal_value,
-		       air_ns, COALESCE(reject_reason,'')
+		       air_ns, piezo_ns, COALESCE(reject_reason,'')
 		FROM shots WHERE session_id=$1 ORDER BY shot_no`, sessionID)
 	if err != nil {
 		return nil, err
@@ -2538,7 +2547,7 @@ func (s *Store) SessionShotsRaw(ctx context.Context, sessionID string) ([]SimSho
 		var r SimShotRaw
 		var airNsRaw []byte
 		if err := rows.Scan(&r.ShotNo, &r.Kind, &r.Status, &r.XMM, &r.YMM,
-			&r.Ring, &r.Decimal, &airNsRaw, &r.RejectReason); err != nil {
+			&r.Ring, &r.Decimal, &airNsRaw, &r.PiezoNs, &r.RejectReason); err != nil {
 			return nil, err
 		}
 		if len(airNsRaw) > 0 {
@@ -2596,18 +2605,25 @@ func (s *Store) LoadTargetDef(ctx context.Context, targetID string) (*TargetDef,
 	return &t, rows.Err()
 }
 
-// SimulatorConfig: benannter, wiederverwendbarer Parametersatz.
+// SimulatorConfig: benannter, wiederverwendbarer Parametersatz. LaneNo (seit
+// Migration 068) wird aus der beim Speichern gerade geladenen Session
+// uebernommen (siehe api.go saveSimulatorConfig) - nil bei aelteren, davor
+// gespeicherten Configs oder wenn beim Speichern keine Session geladen war.
+// CreatedAt ist eigentlich "zuletzt gespeichert" (siehe SaveSimulatorConfig,
+// wird bei ON CONFLICT ebenfalls aktualisiert), damit eine Config nach dem
+// erneuten Ueberschreiben in einer nach Datum sortierten Liste vorne bleibt.
 type SimulatorConfig struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Params    SimParams `json:"params"`
+	LaneNo    *int      `json:"lane_no,omitempty"`
 	CreatedAt string    `json:"created_at"`
 }
 
 func (s *Store) ListSimulatorConfigs(ctx context.Context) ([]SimulatorConfig, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, name, params, created_at::text
-		FROM simulator_configs ORDER BY name`)
+		SELECT id::text, name, params, lane_no, created_at::text
+		FROM simulator_configs ORDER BY lane_no NULLS LAST, created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -2616,7 +2632,7 @@ func (s *Store) ListSimulatorConfigs(ctx context.Context) ([]SimulatorConfig, er
 	for rows.Next() {
 		var c SimulatorConfig
 		var paramsRaw []byte
-		if err := rows.Scan(&c.ID, &c.Name, &paramsRaw, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &paramsRaw, &c.LaneNo, &c.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(paramsRaw, &c.Params)
@@ -2626,17 +2642,19 @@ func (s *Store) ListSimulatorConfigs(ctx context.Context) ([]SimulatorConfig, er
 }
 
 // SaveSimulatorConfig legt einen Parametersatz an oder ueberschreibt ihn,
-// falls der Name bereits existiert ("Speichern unter existierendem Namen").
-func (s *Store) SaveSimulatorConfig(ctx context.Context, name string, params SimParams) (string, error) {
+// falls der Name bereits existiert ("Speichern unter existierendem Namen") -
+// lane_no/created_at werden dabei ebenfalls aktualisiert (siehe
+// SimulatorConfig-Kommentar).
+func (s *Store) SaveSimulatorConfig(ctx context.Context, name string, laneNo *int, params SimParams) (string, error) {
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return "", err
 	}
 	var id string
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO simulator_configs (name, params) VALUES ($1, $2)
-		ON CONFLICT (name) DO UPDATE SET params = EXCLUDED.params
-		RETURNING id::text`, name, paramsJSON).Scan(&id)
+		INSERT INTO simulator_configs (name, params, lane_no) VALUES ($1, $2, $3)
+		ON CONFLICT (name) DO UPDATE SET params = EXCLUDED.params, lane_no = EXCLUDED.lane_no, created_at = now()
+		RETURNING id::text`, name, paramsJSON, laneNo).Scan(&id)
 	return id, err
 }
 

@@ -170,6 +170,18 @@ type SessionManager struct {
 	sessionURL string
 	psURL      string
 	devModeURL string
+
+	// pollCycleMu serialisiert komplette Poll-Zyklen (poll+pollPreisschiessen+
+	// pollDevMode): der periodische 3s-Ticker (Run) und ein durch eine lokale
+	// Aktion ausgeloestes PollNow() (z.B. "Scheibe waehlen") liefen bisher
+	// unsynchronisiert nebenlaeufig. Traf eine noch laufende, VOR der Aktion
+	// gestartete Ticker-Anfrage erst NACH der PollNow()-Antwort ein, ueberschrieb
+	// ihr veralteter Preisschiessen-Stand (m.psInfo, per Broadcast an den
+	// Browser) den gerade frisch geholten, korrekten - das liess das
+	// Selbstbedienungs-Menue am Stand-PC unerwartet mit veralteten/leeren
+	// Daten wieder aufspringen. Mit dem Lock wartet PollNow() einen laufenden
+	// Ticker-Zyklus einfach ab und holt danach garantiert frische Daten.
+	pollCycleMu sync.Mutex
 }
 
 func NewSessionManager(cfg *Config, web *WebServer, disciplines []DisciplineDef) *SessionManager {
@@ -607,19 +619,27 @@ func (m *SessionManager) Run(ctx context.Context) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
-	m.poll(client, url)
-	m.pollPreisschiessen(client, psURL)
-	m.pollDevMode(client, devModeURL)
+	m.pollCycle(client, url, psURL, devModeURL)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.poll(client, url)
-			m.pollPreisschiessen(client, psURL)
-			m.pollDevMode(client, devModeURL)
+			m.pollCycle(client, url, psURL, devModeURL)
 		}
 	}
+}
+
+// pollCycle fuehrt einen kompletten Poll-Zyklus (Session, Preisschiessen,
+// Entwicklermodus) aus, unter pollCycleMu serialisiert gegen parallele
+// Zyklen aus Run() (Ticker) und PollNow() - siehe Kommentar bei
+// pollCycleMu fuer den damit behobenen Race-Bug.
+func (m *SessionManager) pollCycle(client *http.Client, url, psURL, devModeURL string) {
+	m.pollCycleMu.Lock()
+	defer m.pollCycleMu.Unlock()
+	m.poll(client, url)
+	m.pollPreisschiessen(client, psURL)
+	m.pollDevMode(client, devModeURL)
 }
 
 // PollNow zieht Session-, Preisschiessen- und Entwicklermodus-Zustand sofort
@@ -629,9 +649,7 @@ func (m *SessionManager) PollNow() {
 	if m.pollClient == nil {
 		return
 	}
-	m.poll(m.pollClient, m.sessionURL)
-	m.pollPreisschiessen(m.pollClient, m.psURL)
-	m.pollDevMode(m.pollClient, m.devModeURL)
+	m.pollCycle(m.pollClient, m.sessionURL, m.psURL, m.devModeURL)
 }
 
 // pollDevMode holt den globalen Entwicklermodus-Schalter (Schuesse per

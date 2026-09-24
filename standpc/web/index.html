@@ -1205,6 +1205,14 @@ es.onopen  = () => {
   // ankommen und die Anzeige bliebe unbemerkt auf altem Stand (Bugfix:
   // "Schuesse werden am Stand nach Probe->Wertung einfach weitergezaehlt").
   fetch('/status').then(r => r.json()).then(applyOrReloadOnHistoryChange);
+  // Dieselbe Luecke gibt es beim Preisschiessen-Zustand: ein waehrend der
+  // Verbindungsunterbrechung gesendetes 'preisschiessen'-Event (z.B. "Scheibe
+  // gewaehlt" -> pending=false) kommt sonst nie an, und ohne neuen Broadcast
+  // (naechste lokale Aktion oder der naechste 3s-Tick) bleibt das
+  // Selbstbedienungs-Menue am Stand-PC mit veraltetem Zustand haengen, bis
+  // die Seite manuell neu geladen wird (Bugfix: "Menü verschwindet nach
+  // Scheibenauswahl nicht").
+  fetch('/preisschiessen').then(r => r.json()).then(info => { psInfo = info; renderPSMenu(); });
 };
 es.onerror = () => { connEl.textContent = 'Verbindung unterbrochen – reconnect…'; connEl.className = ''; };
 

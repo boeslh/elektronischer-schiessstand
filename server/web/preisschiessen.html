@@ -1497,7 +1497,7 @@ async function tnRefreshDetail() {
         <td><span class="badge badge-${e.status}">${TN_STATUS_LABEL[e.status]||e.status}</span></td>
         <td style="font-size:.8rem">${e.shot_count}/${e.required_shots}</td>
         <td style="font-size:.82rem">${e.lane_no ? `Stand ${e.lane_no}` : '–'}</td>
-        <td style="font-size:.78rem">${e.schiesstag || '–'}${e.ist_vor_nachschuss ? ' <span class="hint">(V/N)</span>' : ''}</td>
+        <td style="font-size:.78rem">${e.schiesstag || '–'}${e.schiesstag_time ? ' ' + e.schiesstag_time : ''}${e.ist_vor_nachschuss ? ' <span class="hint">(V/N)</span>' : ''}</td>
         <td class="row-actions">
           <button class="btn-eval" title="Ergebnis ansehen" ${e.session_id ? `onclick="window.open('/ergebnis-ansicht?session_id=${e.session_id}','_blank')"` : 'disabled'}>👁</button>
           ${awCanManage ? `

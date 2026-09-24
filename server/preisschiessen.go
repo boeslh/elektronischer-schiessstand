@@ -141,6 +141,13 @@ type PSKaufScheibeEinheit struct {
 	// fuer die Admin-Aktionen "Datum korrigieren"/"Als Vor-/Nachschuss markieren",
 	// die fuer Preisschiessen wie Vereinsabend gleichermassen gelten.
 	Schiesstag       *string `json:"schiesstag"`
+	// SchiesstagTime: Uhrzeit (HH:MM) des tatsaechlichen Schusszeitpunkts
+	// (sessions.finished_at) - nur gesetzt, wenn KEINE manuelle Datums-
+	// korrektur (schiesstag_override) vorliegt, da ein von Hand gesetztes
+	// Datum keine sinnvolle Uhrzeit hat. Rein fuer die Anzeige (siehe
+	// preisschiessen.html Teilnehmer-Detail) - der Schiesstag-WERT bleibt
+	// weiterhin ein reines Datum (fuer den Wochentag-Abgleich).
+	SchiesstagTime   *string `json:"schiesstag_time"`
 	IstVorNachschuss bool    `json:"ist_vor_nachschuss"`
 	// ScoringMode der zugehoerigen Disziplin ("elektronisch"/"papier"/
 	// "teilnahme") - siehe PSScheibe.ScoringMode. Wird u.a. in
@@ -795,6 +802,7 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 		       (SELECT COUNT(*) FROM shots sh WHERE sh.session_id = ks.session_id AND sh.status <> 'rejected'),
 		       COALESCE(sr.shot_count, 0), d.match_shot_count,
 		       COALESCE(ks.schiesstag_override, se.finished_at::date)::text, ks.ist_vor_nachschuss,
+		       CASE WHEN ks.schiesstag_override IS NULL THEN to_char(se.finished_at, 'HH24:MI') END,
 		       d.scoring_mode
 		FROM ps_kauf_scheiben ks
 		JOIN ps_kaeufe k ON k.id = ks.kauf_id
@@ -816,7 +824,7 @@ func (s *Store) ListKaufScheibenEinheiten(ctx context.Context, teilnehmerID stri
 		var sessionStatus string
 		if err := rows.Scan(&x.ID, &x.KaufID, &x.ScheibeID, &x.ScheibeName, &x.TargetColor, &x.SerialNo, &x.PhysicalSerialNo, &x.SessionID,
 			&x.LaneNo, &sessionStatus, &anyShots, &matchShots, &required,
-			&x.Schiesstag, &x.IstVorNachschuss, &x.ScoringMode); err != nil {
+			&x.Schiesstag, &x.IstVorNachschuss, &x.SchiesstagTime, &x.ScoringMode); err != nil {
 			return nil, err
 		}
 		x.ShotCount = matchShots
@@ -855,7 +863,12 @@ type PSAbweichenderWochentag struct {
 	Nachname      string `json:"nachname"`
 	Vorname       string `json:"vorname"`
 	Schiesstag    string `json:"schiesstag"` // effektiver Tag, YYYY-MM-DD
-	Wochentag     int    `json:"wochentag"`  // ISO 1=Mo..7=So
+	// SchiesstagTime: Uhrzeit (HH:MM) des tatsaechlichen Schusszeitpunkts -
+	// wie PSKaufScheibeEinheit.SchiesstagTime, nur bei manueller Datums-
+	// korrektur (schiesstag_override) leer, da dann keine echte Uhrzeit
+	// existiert.
+	SchiesstagTime string `json:"schiesstag_time,omitempty"`
+	Wochentag      int    `json:"wochentag"` // ISO 1=Mo..7=So
 }
 
 // ListScheibenAbweichenderWochentag liefert die Pruefliste fuer eine
@@ -866,7 +879,8 @@ type PSAbweichenderWochentag struct {
 func (s *Store) ListScheibenAbweichenderWochentag(ctx context.Context, preisschiessenID string) ([]PSAbweichenderWochentag, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT ks.id, sc.name, pt.id, pt.teilnehmer_nr, sh.last_name, sh.first_name,
-		       COALESCE(ks.schiesstag_override, se.finished_at::date) AS tag
+		       COALESCE(ks.schiesstag_override, se.finished_at::date) AS tag,
+		       ks.schiesstag_override IS NULL AS has_time, se.finished_at
 		FROM ps_kauf_scheiben ks
 		JOIN preisschiessen p ON p.id = ks.preisschiessen_id
 		JOIN ps_kaeufe k      ON k.id = ks.kauf_id
@@ -889,12 +903,17 @@ func (s *Store) ListScheibenAbweichenderWochentag(ctx context.Context, preisschi
 	for rows.Next() {
 		var x PSAbweichenderWochentag
 		var tag time.Time
+		var hasTime bool
+		var finishedAt *time.Time
 		if err := rows.Scan(&x.KaufScheibeID, &x.ScheibeName, &x.TeilnehmerID, &x.TeilnehmerNr,
-			&x.Nachname, &x.Vorname, &tag); err != nil {
+			&x.Nachname, &x.Vorname, &tag, &hasTime, &finishedAt); err != nil {
 			return nil, err
 		}
 		x.Schiesstag = tag.Format("2006-01-02")
 		x.Wochentag = isoWeekday(tag)
+		if hasTime && finishedAt != nil {
+			x.SchiesstagTime = finishedAt.Format("15:04")
+		}
 		out = append(out, x)
 	}
 	return out, rows.Err()

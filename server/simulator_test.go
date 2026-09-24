@@ -71,7 +71,7 @@ func TestSolveShot_RegressionAgainstDevice(t *testing.T) {
 	p := DefaultSimParams()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := SolveShot(c.airNs, p)
+			got := SolveShot(c.airNs, nil, p)
 			if !got.PosValid {
 				t.Fatalf("PosValid=false, erwartet true")
 			}
@@ -101,7 +101,6 @@ func TestSolveShot_RegressionAgainstDevice(t *testing.T) {
 func TestSolveShot_SyntheticGroundTruth(t *testing.T) {
 	cases := []struct {
 		name           string
-		target         string
 		xMM, yMM       float64
 		standoffMM     float64
 		soundMps       float64
@@ -110,35 +109,28 @@ func TestSolveShot_SyntheticGroundTruth(t *testing.T) {
 		bulletShiftPct int
 		bulletShiftCap float64
 	}{
-		{name: "steel_center", target: "steel", xMM: 3, yMM: -2, standoffMM: 30, soundMps: 355, micHalfXMm: 115},
-		{name: "steel_offcenter", target: "steel", xMM: 40, yMM: -55, standoffMM: 30, soundMps: 355, micHalfXMm: 115},
-		{name: "paper_offcenter", target: "paper", xMM: -20, yMM: 30, standoffMM: 28, soundMps: 355, micHalfXMm: 115},
-		{name: "steel_with_mic_offsets", target: "steel", xMM: 10, yMM: 10, standoffMM: 30, soundMps: 348, micHalfXMm: 115,
+		{name: "center", xMM: 3, yMM: -2, standoffMM: 28, soundMps: 343, micHalfXMm: 115},
+		{name: "offcenter", xMM: 40, yMM: -55, standoffMM: 28, soundMps: 343, micHalfXMm: 115},
+		{name: "offcenter2", xMM: -20, yMM: 30, standoffMM: 28, soundMps: 343, micHalfXMm: 115},
+		{name: "with_mic_offsets", xMM: 10, yMM: 10, standoffMM: 28, soundMps: 348, micHalfXMm: 115,
 			micOffsetNs: [6]int64{120, -80, 50, 0, -150, 30}},
-		{name: "custom_mic_half_x", target: "steel", xMM: -8, yMM: 15, standoffMM: 30, soundMps: 355, micHalfXMm: 120},
+		{name: "custom_mic_half_x", xMM: -8, yMM: 15, standoffMM: 28, soundMps: 343, micHalfXMm: 120},
 		// Kugeldurchmesser-Korrektur (Default 50%/3mm) darf bei sauberen,
 		// widerspruchsfreien Daten (Rest-Fehler ~0 fuer alle Kombinationen)
 		// die Position nicht relevant verschieben.
-		{name: "steel_with_bullet_shift", target: "steel", xMM: 5, yMM: -5, standoffMM: 30, soundMps: 355, micHalfXMm: 115,
+		{name: "with_bullet_shift", xMM: 5, yMM: -5, standoffMM: 28, soundMps: 343, micHalfXMm: 115,
 			bulletShiftPct: 50, bulletShiftCap: 3.0},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			p := SimParams{
-				StandoffSteelMM:  30,
-				StandoffPaperMM:  28,
+				StandoffPaperMM:  c.standoffMM,
 				MicHalfXMm:       c.micHalfXMm,
 				SoundMps:         c.soundMps,
-				Target:           c.target,
 				MicOffsetNs:      c.micOffsetNs,
 				BulletShiftPct:   c.bulletShiftPct,
 				BulletShiftCapMm: c.bulletShiftCap,
-			}
-			if c.target == "steel" {
-				p.StandoffSteelMM = c.standoffMM
-			} else {
-				p.StandoffPaperMM = c.standoffMM
 			}
 
 			micX, micY, standoffMM := micGeometry(p)
@@ -165,7 +157,7 @@ func TestSolveShot_SyntheticGroundTruth(t *testing.T) {
 				airNs[i] = []int64{raw[i] - minT}
 			}
 
-			got := SolveShot(airNs, p)
+			got := SolveShot(airNs, nil, p)
 			if !got.PosValid {
 				t.Fatalf("PosValid=false, erwartet true")
 			}
@@ -200,11 +192,11 @@ func TestSolveShot_ClusterRadius(t *testing.T) {
 
 	tiny := base
 	tiny.ClusterRadiusUm = 1 // 0.001mm - so gut wie kein Kandidat ausser dem besten selbst
-	gotTiny := SolveShot(airNs, tiny)
+	gotTiny := SolveShot(airNs, nil, tiny)
 
 	huge := base
 	huge.ClusterRadiusUm = 500000 // Maximalwert laut SET RADIUS (0-500000)
-	gotHuge := SolveShot(airNs, huge)
+	gotHuge := SolveShot(airNs, nil, huge)
 
 	if !gotTiny.PosValid || !gotHuge.PosValid {
 		t.Fatalf("PosValid=false erwartet true (tiny=%v huge=%v)", gotTiny.PosValid, gotHuge.PosValid)
@@ -221,7 +213,6 @@ func TestSolveShot_ClusterRadius(t *testing.T) {
 // ausgeloestes behandelt werden, auch wenn Rohdaten dafuer vorliegen.
 func TestSolveShot_MicEnabled(t *testing.T) {
 	p := DefaultSimParams()
-	p.Target = "steel"
 
 	micX, micY, standoffMM := micGeometry(p)
 	soundMmPerNs := p.SoundMps * 1.0e-6
@@ -244,7 +235,7 @@ func TestSolveShot_MicEnabled(t *testing.T) {
 	}
 
 	t.Run("default_all_enabled", func(t *testing.T) {
-		got := SolveShot(airNs, p) // MicEnabled nil -> alle aktiv
+		got := SolveShot(airNs, nil, p) // MicEnabled nil -> alle aktiv
 		if !got.PosValid {
 			t.Fatalf("PosValid=false, erwartet true (keine Deaktivierung gesetzt)")
 		}
@@ -253,7 +244,7 @@ func TestSolveShot_MicEnabled(t *testing.T) {
 	t.Run("one_disabled_still_solves", func(t *testing.T) {
 		pp := p
 		pp.MicEnabled = []bool{true, true, true, true, false, true} // 5 aktiv
-		got := SolveShot(airNs, pp)
+		got := SolveShot(airNs, nil, pp)
 		if !got.PosValid {
 			t.Fatalf("PosValid=false, erwartet true (5 Mics reichen)")
 		}
@@ -266,7 +257,7 @@ func TestSolveShot_MicEnabled(t *testing.T) {
 	t.Run("only_two_enabled_invalid", func(t *testing.T) {
 		pp := p
 		pp.MicEnabled = []bool{true, true, false, false, false, false} // nur 2 aktiv
-		got := SolveShot(airNs, pp)
+		got := SolveShot(airNs, nil, pp)
 		if got.PosValid {
 			t.Fatalf("PosValid=true, erwartet false (nur 2 Mics aktiv, mind. 3 noetig)")
 		}
@@ -332,7 +323,7 @@ func TestCalibrateMicOffsets_SingleOffsetRecovered(t *testing.T) {
 		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueOffsetNs, p))
 	}
 
-	gotOffsets, cost := CalibrateMicOffsets(airNs, p)
+	gotOffsets, cost := CalibrateMicOffsets(airNs, nil, p)
 	t.Logf("gotOffsets=%v cost=%.4f want=%v", gotOffsets, cost, trueOffsetNs)
 
 	const tolNs = 30 // Endschrittweite der Koordinatensuche ~9.8ns, grosszuegige Toleranz
@@ -361,19 +352,22 @@ func TestCalibrateMicOffsets_ImprovesOverNoCalibration(t *testing.T) {
 		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueOffsetNs, p))
 	}
 
-	gotOffsets, cost := CalibrateMicOffsets(airNs, p)
+	gotOffsets, cost := CalibrateMicOffsets(airNs, nil, p)
 	t.Logf("gotOffsets=%v cost=%.4f want(eingespeist)=%v", gotOffsets, cost, trueOffsetNs)
 
 	if gotOffsets[0] != 0 {
 		t.Errorf("Mic0 (Referenz) = %d, want 0", gotOffsets[0])
 	}
 
-	// Kosten ohne jede Kalibrierung (Offsets 0) als Vergleichsbasis.
+	// Kosten ohne jede Kalibrierung (Offsets 0) als Vergleichsbasis - CorrResUm
+	// (nicht PosResUm), da CalibrateMicOffsets/calCostClassicFn seit Einbeziehung
+	// der Kugeldurchmesser-Korrektur gegen corrResMM statt resMM optimiert
+	// (siehe calCostClassicFn-Kommentar in simulator.go).
 	var zeroCost float64
 	for _, shot := range airNs {
-		r := SolveShot(shot, p) // p.MicOffsetNs ist hier der Nullwert
+		r := SolveShot(shot, nil, p) // p.MicOffsetNs ist hier der Nullwert
 		if r.PosValid {
-			zeroCost += float64(r.PosResUm) / 1000.0
+			zeroCost += float64(r.CorrResUm) / 1000.0
 		} else {
 			zeroCost += 1000.0
 		}
@@ -394,7 +388,7 @@ func TestCalibrateMicOffsets_TooFewShots(t *testing.T) {
 	airNs := [][6][]int64{
 		{{0}, {100}, nil, nil, nil, nil}, // nur 2 Mics -> in jedem Kalibrier-Schuss unloesbar
 	}
-	offsets, cost := CalibrateMicOffsets(airNs, p)
+	offsets, cost := CalibrateMicOffsets(airNs, nil, p)
 	t.Logf("offsets=%v cost=%.3f (Strafwert-Pfad erwartet, kein Crash)", offsets, cost)
 	if cost < 1000.0 {
 		t.Errorf("cost = %.3f, erwartet >=1000 (Strafwert fuer unloesbaren Schuss)", cost)
@@ -411,7 +405,7 @@ func TestSolveShotDetail_Candidates(t *testing.T) {
 	p := DefaultSimParams() // BulletShiftPct=50 (Firmware-Default)
 	airNs := genCalAirNs(6, -4, [6]int64{}, p) // trueOffset=0 -> bereits "kalibrierte" Zeiten
 
-	res, candidates, bulletShift := SolveShotDetail(airNs, p)
+	res, candidates, bulletShift := SolveShotDetail(airNs, nil, p)
 	if !res.PosValid {
 		t.Fatalf("PosValid=false, erwartet true")
 	}
@@ -453,7 +447,7 @@ func TestSolveShotDetail_Candidates(t *testing.T) {
 		t.Errorf("len(bulletShift) = %d, want 3 (6 Mics - 3 an der besten Loesung beteiligt)", len(bulletShift))
 	}
 
-	plain := SolveShot(airNs, p)
+	plain := SolveShot(airNs, nil, p)
 	if plain.XUm != res.XUm || plain.YUm != res.YUm {
 		t.Errorf("SolveShot()=%v und SolveShotDetail()=%v liefern unterschiedliche Positionen", plain, res)
 	}

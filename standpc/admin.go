@@ -1,6 +1,6 @@
 // ============================================================================
 // admin.go – passwortgeschuetzte Admin-GUI direkt auf dem Stand-PC (Plan
-// Phase C, siehe protokoll-referenz.md Firmware Rev 4.9.0). Erlaubt
+// Phase C, siehe protokoll-referenz.md Firmware Rev 4.11.2). Erlaubt
 // Kalibrierung + Konfigurationsaenderungen auch im Offline-Betrieb, da die
 // Befehle lokal vom Stand-PC ausgehen statt vom Server ferngesteuert zu
 // werden. Das Passwort wird zentral vom Server gesetzt und per
@@ -41,18 +41,20 @@ type adminConfigKey struct {
 // adminConfigKeys: Betriebsparameter (wirken sofort, kein Reboot noetig).
 var adminConfigKeys = []adminConfigKey{
 	{"LANE", "1-999", "1", false, "Bahnnummer"},
-	{"DEBOUNCE", "10-5000 (ms)", "100", false, "Sperrzeit nach einer Ausloesung"},
+	{"DEBOUNCE", "10-5000 (ms)", "100", false, "Sperrzeit NACH einem gueltigen Schuss"},
+	{"REJECTLOCK", "0-2000 (ms)", "5", false, "Sperrzeit NACH einem Reject (z.B. Muendungsknall) - bewusst kurz, siehe DEBOUNCE"},
 	{"WINDOW", "1-50 (ms)", "1", false, "Mindest-Sammelfenster"},
 	{"DEBUG", "0-3", "0", false, "3 = zusaetzliche Diagnosefelder"},
-	{"OUTLIER", "0-500000 (0.001mm)", "5000", false, "Schwelle fuer pos_res_um in clean-Bewertung"},
-	{"RADIUS", "0-500000 (0.001mm)", "200", false, "Umkreis fuer cluster_hits"},
-	{"MINCLUSTER", "0-20", "2", false, "Mindest-cluster_hits fuer clean"},
-	{"MAXPRECISION", "0-500000 (0.001mm)", "2000", false, "Max. precision_um fuer clean"},
+	{"OUTLIER", "0-500000 (0.001mm)", "5000", false, "Schwelle fuer pos_res_um in clean-Bewertung (nur ALGO=CLASSIC)"},
+	{"RADIUS", "0-500000 (0.001mm)", "200", false, "Umkreis fuer cluster_hits (nur ALGO=CLASSIC)"},
+	{"MINCLUSTER", "0-20", "2", false, "Mindest-cluster_hits fuer clean (nur ALGO=CLASSIC)"},
+	{"MAXPRECISION", "0-500000 (0.001mm)", "2000", false, "Max. precision_um fuer clean (nur ALGO=CLASSIC)"},
 	{"MINMICS", "3-6", "5", false, "Mindestzahl Mics, sonst reject"},
 	{"TDOA", "100-5000 (us)", "750", false, "Geometrie-Plausibilitaetsfenster"},
-	{"TARGET", "STEEL|PAPER", "STEEL", false, "Geometrie-Preset"},
-	{"STANDOFFSTEEL", "5.0-100.0 (mm)", "30.0", false, "Mic-Standoff im STEEL-Modus"},
-	{"STANDOFFPAPER", "5.0-100.0 (mm)", "28.0", false, "Mic-Standoff im PAPER-Modus"},
+	{"ALGO", "CLASSIC|RIM", "CLASSIC", false, "Auswertepfad - RIM: Ringpuffer+Piezo-Anker-Trigger, robuster gegen Muendungsknall"},
+	{"PELLETR", "0.0-10.0 (mm)", "2.25", false, "Akustischer Lochrand-Radius fuer ALGO=RIM (2.25 = 4,5mm-Diabolo, 0=Punktquelle)"},
+	{"MAXSIGMA", "0.0-50.0 (mm)", "2.0", false, "'clean'-Schwelle fuer ALGO=RIM (Gegenstueck zu MAXPRECISION/RADIUS/MINCLUSTER)"},
+	{"STANDOFFPAPER", "5.0-100.0 (mm)", "28.0", false, "Mic-Standoff (rechtwinklig zur Scheibe)"},
 	{"MICHALFX", "5.0-300.0 (mm)", "115.0", false, "horizontaler Mic-Abstand zur Mittellinie"},
 	{"BSHIFTPCT", "0-100 (%)", "50", false, "Kugeldurchmesser-Korrektur, 0=aus"},
 	{"BSHIFTCAP", "0.0-20.0 (mm)", "3.0", false, "Kappung der Korrektur je Mikrofon"},
@@ -61,14 +63,14 @@ var adminConfigKeys = []adminConfigKey{
 	{"PIEZOMAX", "0-5000 (us)", "1400", false, "Ausreisser-Obergrenze, beide Modi"},
 	{"OFFSETX", "-50000..50000 (0.001mm)", "0", false, "konstanter Nachkorrektur-Offset x"},
 	{"OFFSETY", "-50000..50000 (0.001mm)", "0", false, "konstanter Nachkorrektur-Offset y"},
-	{"SOUNDSPEED", "300-400 (m/s)", "355", false, "rein manuell, wird von CAL START nicht veraendert"},
+	{"SOUNDSPEED", "300-400 (m/s)", "343", false, "rein manuell, wird von CAL START nicht veraendert"},
 	{"PAPERFEED", "10.0-100.0 (mm)", "50.0", false, "Vorschubstrecke je Ausloesung"},
 	{"PAPERSPEED", "0.5-30.0 (mm/s)", "5.0", false, "Geschwindigkeit 1. Haelfte"},
 	{"PAPERAUTO", "0|1", "1", false, "automatischen Vorschub ueberhaupt ausfuehren"},
 	{"PAPERTRIGGER", "ANY|PIEZO|CLEAN", "PIEZO", false, "wann automatisch vorgeschoben wird"},
 	{"PAPERDIR", "0|1", "1", false, "Vorschub-Drehrichtung invertieren"},
 	{"PAPERJOGSPEED", "1.0-100.0 (mm/s)", "75.0", false, "Geschwindigkeit manueller Dauerbetrieb"},
-	{"CALSHOTS", "3-20", "5", false, "Anzahl Kalibrier-Schuesse fuer CAL START"},
+	{"CALSHOTS", "3-20", "10", false, "Anzahl Kalibrier-Schuesse fuer CAL START"},
 	{"MICEN0", "0|1", "1", false, "Mikrofonkanal 0 beruecksichtigen"},
 	{"MICEN1", "0|1", "1", false, "Mikrofonkanal 1 beruecksichtigen"},
 	{"MICEN2", "0|1", "1", false, "Mikrofonkanal 2 beruecksichtigen"},

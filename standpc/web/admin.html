@@ -210,10 +210,10 @@ function renderTable(tableId, keys, msgId, valueFn) {
 // Tabelle den tatsaechlich am Geraet aktiven Wert als Vorgabe anbietet statt
 // nur den statischen Schema-Default.
 const CONFIG_FIELD_MAP = {
-  LANE:'lane', DEBOUNCE:'debounce_ms', WINDOW:'window_ms', DEBUG:'debug',
+  LANE:'lane', DEBOUNCE:'debounce_ms', REJECTLOCK:'reject_lockout_ms', WINDOW:'window_ms', DEBUG:'debug',
   OUTLIER:'outlier_um', RADIUS:'cluster_radius_um', MINCLUSTER:'min_cluster_hits',
   MAXPRECISION:'max_precision_um', MINMICS:'min_mics', TDOA:'tdoa_us',
-  TARGET:'target', STANDOFFSTEEL:'standoff_steel_mm', STANDOFFPAPER:'standoff_paper_mm',
+  ALGO:'algo', PELLETR:'pellet_r_mm', MAXSIGMA:'max_sigma_um', STANDOFFPAPER:'standoff_paper_mm',
   MICHALFX:'mic_half_x_mm', BSHIFTPCT:'bullet_shift_pct', BSHIFTCAP:'bullet_shift_cap_mm',
   PIEZO:'use_piezo', PIEZOMIN:'piezo_min_us', PIEZOMAX:'piezo_max_us',
   OFFSETX:'offset_x_um', OFFSETY:'offset_y_um', SOUNDSPEED:'sound_mps',
@@ -230,6 +230,11 @@ function currentConfigValue(key, cfg) {
   if (!cfg) return undefined;
   const m = key.match(/^MICEN([0-5])$/);
   if (m) return cfg.mic_enabled ? cfg.mic_enabled[+m[1]] : undefined;
+  // MAXSIGMA: SET erwartet mm (0.0-50.0), das Telegramm liefert max_sigma_um
+  // in 0.001mm (siehe ConfigTelegram-Kommentar) - Vorgabewert entsprechend
+  // umrechnen, sonst wuerde "Speichern" ohne Aenderung einen um Faktor 1000
+  // zu grossen, vom Geraet abgelehnten Wert senden.
+  if (key === 'MAXSIGMA') return cfg.max_sigma_um != null ? cfg.max_sigma_um / 1000 : undefined;
   const field = CONFIG_FIELD_MAP[key];
   return field ? cfg[field] : undefined;
 }

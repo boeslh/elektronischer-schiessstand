@@ -31,11 +31,16 @@ if [[ ! -d .git ]]; then
   exit 1
 fi
 
-echo "==> Sammle Dateiliste (git-verfolgte Dateien, aktueller Arbeitsstand)..."
+echo "==> Sammle Dateiliste (git-verfolgte + neue, noch nicht committete Dateien)..."
 FILELIST="$(mktemp)"
 trap 'rm -f "${FILELIST}"' EXIT
 
-git ls-files -z > "${FILELIST}"
+# --cached: bereits getrackte Dateien (unabhaengig davon, ob committet).
+# --others --exclude-standard: neue Dateien, die "git add" noch nicht gesehen
+# hat, aber NICHT von .gitignore ausgeschlossen sind - ohne diese zweite
+# Gruppe wuerden frisch angelegte, noch nicht committete Dateien (z.B. eine
+# neue .go-Datei) im Archiv fehlen, obwohl sie auf der Platte liegen.
+git ls-files -z --cached --others --exclude-standard > "${FILELIST}"
 
 # install.sh/package.sh selbst mitnehmen, auch falls (noch) nicht committet -
 # ohne sie waere ein frisch gepacktes Archiv nicht selbst installierbar.

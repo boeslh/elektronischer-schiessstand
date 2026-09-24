@@ -27,11 +27,15 @@ type StatusTelegram struct {
 
 // ConfigTelegram: siehe Abschnitt 4.3 - Feldnamen 1:1 wie im Telegramm
 // (snake_case ueber json-Tag), Bedeutung siehe SET-Tabelle Abschnitt 5.2.
+// Seit Firmware Rev 4.11.2: "target"/"standoff_steel_mm" entfallen (TARGET_STEEL
+// komplett entfernt, Papier ist die einzige Geometrie) - seit Rev 4.11.0 neu:
+// RejectLockoutMs/Algo/PelletRMm/MaxSigmaUm (SET REJECTLOCK/ALGO/PELLETR/MAXSIGMA).
 type ConfigTelegram struct {
 	Type              string  `json:"type"`
 	MAC               string  `json:"mac"`
 	Lane              int     `json:"lane"`
 	DebounceMs        int     `json:"debounce_ms"`
+	RejectLockoutMs   int     `json:"reject_lockout_ms"`
 	WindowMs          int     `json:"window_ms"`
 	Debug             int     `json:"debug"`
 	OutlierUm         int     `json:"outlier_um"`
@@ -43,12 +47,13 @@ type ConfigTelegram struct {
 	MicOffsetNs       [6]int  `json:"mic_offset_ns"`
 	MicEnabled        [6]int  `json:"mic_enabled"`
 	CalShots          int     `json:"cal_shots"`
-	Target            string  `json:"target"`
-	StandoffSteelMm   float64 `json:"standoff_steel_mm"`
 	StandoffPaperMm   float64 `json:"standoff_paper_mm"`
 	MicHalfXMm        float64 `json:"mic_half_x_mm"`
 	BulletShiftPct    int     `json:"bullet_shift_pct"`
 	BulletShiftCapMm  float64 `json:"bullet_shift_cap_mm"`
+	Algo              string  `json:"algo"`
+	PelletRMm         float64 `json:"pellet_r_mm"`
+	MaxSigmaUm        int64   `json:"max_sigma_um"`
 	UsePiezo          int     `json:"use_piezo"`
 	PiezoMinUs        int     `json:"piezo_min_us"`
 	PiezoMaxUs        int     `json:"piezo_max_us"`
