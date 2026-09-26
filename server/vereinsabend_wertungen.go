@@ -97,16 +97,16 @@ func weekdayAllowed(t time.Time, allowed []int) bool {
 // Datenbank fuer eine der der Wertung zugeordneten Scheiben gelesen wird -
 // vor der Zusammenfassung auf effektive Schiesstage (siehe dayKey/dayAgg).
 type saisonRawRow struct {
-	teilnehmerID string
-	startNr      int
-	nachname     string
-	vorname      string
-	verein       string
-	klasse       string
-	schiesstag   time.Time
+	teilnehmerID  string
+	startNr       int
+	nachname      string
+	vorname       string
+	verein        string
+	klasse        string
+	schiesstag    time.Time
 	vorNachschuss bool
-	ringWert     *float64
-	teilerWert   *float64
+	ringWert      *float64
+	teilerWert    *float64
 }
 
 // loadPunkteSaisonRows liest die Rohdaten fuer eine typ='punkte_saison'-
@@ -186,40 +186,45 @@ func loadPunkteSaisonRows(ctx context.Context, pool *pgxpool.Pool, w PSWertung) 
 	return out, nil
 }
 
-// computePunkteSaison berechnet die Punkte-Jahreswertung: Rohdaten je
-// Kauf-Scheibe auf effektive Schiesstage zusammenfassen (bester Ring, bester
-// (kleinster) Teiler, Anwesenheitsbonus nur einmal pro Tag und nur wenn an
-// diesem Tag keine Scheibe als Vor-/Nachschuss markiert ist), auf die
-// Saison-Wochentage filtern, je Tag in einen Punktewert umrechnen (Ring-
-// Punkte + Teiler-Punkte + Anwesenheits-Punkte) und danach ueber
-// rankByBestNValues platzieren (ps.BesteXAbende = "beste X Abende zaehlen",
-// nil = alle zaehlenden Tage).
-func computePunkteSaison(ctx context.Context, pool *pgxpool.Pool, w PSWertung, ps Preisschiessen) ([]PSWertungErgebnis, error) {
-	raw, err := loadPunkteSaisonRows(ctx, pool, w)
-	if err != nil {
-		return nil, err
-	}
+// saisonTag ist das Ergebnis eines Teilnehmers an EINEM effektiven
+// Schiesstag innerhalb einer punkte_saison-Wertung (bester Ring, bester
+// Teiler, Anwesenheit) samt der daraus nachgeschlagenen Punkte - gemeinsame
+// Grundlage fuer die Jahreswertung (computePunkteSaison) und die
+// Tageswertung im Vereinsabend (vereinsabend_tag.go).
+type saisonTag struct {
+	meta         saisonRawRow
+	tag          string // schiesstag.Format("2006-01-02")
+	ringWert     *float64
+	teilerWert   *float64
+	anwesendOK   bool // true, sobald mindestens eine Scheibe dieses Tages kein Vor-/Nachschuss ist
+	ringPunkte   float64
+	teilerPunkte float64
+	anwPunkte    float64
+}
 
+func (t saisonTag) punkte() float64 { return t.ringPunkte + t.teilerPunkte + t.anwPunkte }
+
+// aggregatePunkteSaisonTage fasst die Rohdaten je Kauf-Scheibe auf
+// effektive Schiesstage zusammen (bester Ring, bester (kleinster) Teiler,
+// Anwesenheitsbonus nur einmal pro Tag und nur wenn an diesem Tag keine
+// Scheibe als Vor-/Nachschuss markiert ist), filtert auf die Saison-
+// Wochentage und rechnet je Tag die Punkte aus (Ring-Punkte + Teiler-Punkte
+// + Anwesenheits-Punkte). Reihenfolge = erstes Auftreten in raw.
+func aggregatePunkteSaisonTage(raw []saisonRawRow, w PSWertung, wochentage []int) []saisonTag {
 	type dayKey struct {
 		teilnehmerID string
-		tag          string // schiesstag.Format("2006-01-02"), Tagesgranularitaet als Schluessel
+		tag          string // Tagesgranularitaet als Schluessel
 	}
-	type dayAgg struct {
-		meta       saisonRawRow
-		ringWert   *float64
-		teilerWert *float64
-		anwesendOK bool // true, sobald mindestens eine Scheibe dieses Tages kein Vor-/Nachschuss ist
-	}
-	days := map[dayKey]*dayAgg{}
+	days := map[dayKey]*saisonTag{}
 	var order []dayKey
 	for _, r := range raw {
-		if !weekdayAllowed(r.schiesstag, ps.SaisonWochentage) {
+		if !weekdayAllowed(r.schiesstag, wochentage) {
 			continue
 		}
 		key := dayKey{teilnehmerID: r.teilnehmerID, tag: r.schiesstag.Format("2006-01-02")}
 		a, ok := days[key]
 		if !ok {
-			a = &dayAgg{meta: r}
+			a = &saisonTag{meta: r, tag: key.tag}
 			days[key] = a
 			order = append(order, key)
 		}
@@ -234,19 +239,36 @@ func computePunkteSaison(ctx context.Context, pool *pgxpool.Pool, w PSWertung, p
 		}
 	}
 
-	dayRows := make([]wertungRow, 0, len(order))
+	out := make([]saisonTag, 0, len(order))
 	for _, key := range order {
 		a := days[key]
-		pts := 0.0
 		if a.ringWert != nil {
-			pts += lookupPunkteAb(w.PunkteRing, *a.ringWert)
+			a.ringPunkte = lookupPunkteAb(w.PunkteRing, *a.ringWert)
 		}
 		if a.teilerWert != nil {
-			pts += lookupPunkteBis(w.PunkteTeiler, *a.teilerWert)
+			a.teilerPunkte = lookupPunkteBis(w.PunkteTeiler, *a.teilerWert)
 		}
 		if a.anwesendOK {
-			pts += w.AnwesenheitPunkte
+			a.anwPunkte = w.AnwesenheitPunkte
 		}
+		out = append(out, *a)
+	}
+	return out
+}
+
+// computePunkteSaison berechnet die Punkte-Jahreswertung: je Teilnehmer und
+// effektivem Schiesstag einen Punktewert (aggregatePunkteSaisonTage), danach
+// ueber rankByBestNValues platziert (ps.BesteXAbende = "beste X Abende
+// zaehlen", nil = alle zaehlenden Tage).
+func computePunkteSaison(ctx context.Context, pool *pgxpool.Pool, w PSWertung, ps Preisschiessen) ([]PSWertungErgebnis, error) {
+	raw, err := loadPunkteSaisonRows(ctx, pool, w)
+	if err != nil {
+		return nil, err
+	}
+
+	tage := aggregatePunkteSaisonTage(raw, w, ps.SaisonWochentage)
+	dayRows := make([]wertungRow, 0, len(tage))
+	for _, a := range tage {
 		dayRows = append(dayRows, wertungRow{
 			teilnehmerID: a.meta.teilnehmerID,
 			startNr:      a.meta.startNr,
@@ -255,7 +277,7 @@ func computePunkteSaison(ctx context.Context, pool *pgxpool.Pool, w PSWertung, p
 			verein:       a.meta.verein,
 			klasse:       a.meta.klasse,
 			scheibeName:  a.meta.schiesstag.Format("02.01.2006"),
-			wert:         pts,
+			wert:         a.punkte(),
 		})
 	}
 

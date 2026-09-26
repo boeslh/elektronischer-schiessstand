@@ -489,7 +489,12 @@ func main() {
 
 	web := NewWebServer(cfg, dc.Disciplines, targets, *fontSizes, fontFile,
 		cmds, deviceState, adminPasswordHash, adminPasswordFile)
-	deviceState.SetCalDoneHandler(web.uploadCalibrationBackup)
+	deviceState.SetCalDoneHandler(func(c CalTelegram) {
+		web.uploadCalibrationBackup(c)
+		web.requestConfigSnapshot() // neue Offsets auch im Konfigurationsverlauf festhalten
+	})
+	deviceState.SetConfigHandler(web.onDeviceConfig)
+	go web.runConfigBackupLoop(ctx)
 
 	// Session + Kalibrierung vom zentralen Server (oder statisch/lokal)
 	sessions := NewSessionManager(cfg, web, dc.Disciplines)

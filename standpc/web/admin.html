@@ -98,6 +98,35 @@
   </div>
 
   <div class="section">
+    <h2>Kalibrierung vom Simulator übernehmen</h2>
+    <div class="kv" style="color:var(--dim);margin-bottom:10px">
+      Im Simulator des Servers für diesen Stand freigegebene Parameter prüfen und auf das Gerät schreiben
+      (Mikrofon-Offsets und Schallgeschwindigkeit gemeinsam per CAL IMPORT, alles andere per SET).
+      Es werden nur abweichende Werte geschrieben.
+    </div>
+    <div class="row">
+      <button onclick="transferCheck()">Freigabe prüfen</button>
+      <button id="btn-transfer-apply" style="display:none" onclick="transferApply()">Abweichende Werte übernehmen</button>
+    </div>
+    <div id="transfer-info" class="kv"></div>
+    <table id="transfer-table"></table>
+    <div id="msg-transfer" class="msg"></div>
+  </div>
+
+  <div class="section">
+    <h2>Konfigurationsverlauf (Sicherung beim Server)</h2>
+    <div class="kv" style="color:var(--dim);margin-bottom:10px">
+      Der Stand-PC sichert die komplette Gerätekonfiguration regelmäßig und nach jeder Änderung beim Server –
+      gespeichert werden nur geänderte Werte. So ist nachvollziehbar, wann kalibriert oder etwas verstellt
+      wurde, und nach einem Platinentausch lässt sich der frühere Zustand vollständig wiederherstellen.
+    </div>
+    <div class="row"><button onclick="historyLoad()">Verlauf laden</button></div>
+    <div id="restore-box"></div>
+    <div id="msg-history" class="msg"></div>
+    <table id="history-table"></table>
+  </div>
+
+  <div class="section">
     <h2>Aktionen</h2>
     <div class="row">
       <button onclick="action('LIGHT=ON')">Licht an</button>
@@ -230,6 +259,8 @@ function currentConfigValue(key, cfg) {
   if (!cfg) return undefined;
   const m = key.match(/^MICEN([0-5])$/);
   if (m) return cfg.mic_enabled ? cfg.mic_enabled[+m[1]] : undefined;
+  const o = key.match(/^OFS([0-5])$/);
+  if (o) return cfg.mic_offset_ns ? cfg.mic_offset_ns[+o[1]] : undefined;
   // MAXSIGMA: SET erwartet mm (0.0-50.0), das Telegramm liefert max_sigma_um
   // in 0.001mm (siehe ConfigTelegram-Kommentar) - Vorgabewert entsprechend
   // umrechnen, sonst wuerde "Speichern" ohne Aenderung einen um Faktor 1000
@@ -332,13 +363,218 @@ async function calAction(action) {
   }
 }
 
-async function calRestore() {
+// calRestore: Sicherung dieser Platine zurueckschreiben. Gibt es fuer die
+// Platine keine (typisch nach Platinentausch), bietet der Stand-PC die
+// juengste Sicherung des Stands an (HTTP 409) - erst nach Bestaetigung
+// wird sie uebernommen (siehe admin.go handleAdminCalRestore).
+async function calRestore(fromLane) {
+  let r;
   try {
-    await api('/admin/api/cal/restore', {});
-    showMsg('msg-cal', 'Kalibrierung vom Server wiederhergestellt.', 'ok');
-    refreshStatus();
+    r = await fetch('/admin/api/cal/restore', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({from_lane: !!fromLane}),
+    });
   } catch(e) {
     showMsg('msg-cal', 'Fehler: ' + e.message, 'err');
+    return;
+  }
+  if (r.status === 409) {
+    const info = await r.json();
+    const b = info.backup;
+    const when = b.updated_at ? new Date(b.updated_at).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) : '?';
+    const ok = confirm(
+      `Für dieses Gerät (${info.current_mac}) ist keine Kalibrierung gesichert – z.B. nach einem Platinentausch.\n\n`
+      + `Es gibt aber eine Sicherung für Stand ${info.lane_no} von Gerät ${b.mac} (${when}):\n`
+      + `OFS ${b.offsets_ns.join(', ')} ns, Schall ${b.sound_mps} m/s\n\n`
+      + `Übernehmen? Die Mikrofon-Offsets gleichen auch Unterschiede der Platinen-Eingänge aus – `
+      + `danach bitte mit CAL START oder der Foto-Kalibrierung überprüfen.`);
+    if (ok) calRestore(true);
+    return;
+  }
+  if (!r.ok) {
+    showMsg('msg-cal', 'Fehler: ' + (await r.text()), 'err');
+    return;
+  }
+  const res = await r.json();
+  showMsg('msg-cal', res.source === 'lane'
+    ? `Kalibrierung von Gerät ${res.backup_mac} übernommen und für dieses Gerät gesichert – bitte überprüfen.`
+    : 'Kalibrierung vom Server wiederhergestellt.', 'ok');
+  refreshStatus();
+}
+
+// ── Kalibrierung vom Simulator (siehe calibration_transfer.go) ─────────
+let transferData = null;
+// Ergebnis bleibt stehen (showMsg blendet nach 4 s aus - zu kurz fuer eine Fehlerliste)
+function transferMsg(text, type) {
+  const el = document.getElementById('msg-transfer');
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = text ? 'block' : 'none';
+}
+function fmtTs(s) { return s ? new Date(s).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) : ''; }
+
+function renderTransferItems(items, showAll) {
+  const rows = items.filter(it => showAll || it.changed);
+  document.getElementById('transfer-table').innerHTML = rows.length
+    ? '<tr><td class="desc">Parameter</td><td class="desc">aktuell am Gerät</td><td class="desc">Freigabe</td></tr>'
+      + rows.map(it => `<tr><td class="key">${esc(it.key)}</td>
+          <td>${it.current === '' ? '<span style="color:var(--dim)">unbekannt</span>' : esc(it.current)}</td>
+          <td style="${it.changed ? 'color:var(--warn);font-weight:600' : ''}">${esc(it.target)}</td></tr>`).join('')
+    : '';
+}
+
+async function transferCheck() {
+  const info = document.getElementById('transfer-info');
+  const btn = document.getElementById('btn-transfer-apply');
+  btn.style.display = 'none';
+  transferData = null;
+  info.textContent = 'Frage Server und Gerät ab…';
+  transferMsg('', 'ok');
+  document.getElementById('transfer-table').innerHTML = '';
+  try {
+    const r = await fetch('/admin/api/transfer');
+    if (!r.ok) throw new Error(await r.text());
+    transferData = await r.json();
+  } catch(e) {
+    info.textContent = '';
+    transferMsg(e.message, 'err');
+    return;
+  }
+  const t = transferData.transfer;
+  // je Zeile ein eigenes Element - .kv ist ein Grid, lose Text-/Inline-
+  // Knoten wuerden sonst einzeln umbrechen
+  const lines = [`Stand ${transferData.lane_no}: freigegeben am ${fmtTs(t.created_at)}`
+    + (t.created_by ? ` (${esc(t.created_by)})` : '') + (t.note ? ` – „${esc(t.note)}“` : '')];
+  if (t.applied_at) lines.push(`Bereits am ${fmtTs(t.applied_at)} auf Gerät ${esc(t.applied_mac || '?')} ${t.applied_ok ? 'übernommen' : 'teilweise übernommen (Fehler)'}.`);
+  if (!transferData.device_connected) {
+    lines.push(`<span style="color:var(--err)">Gerät nicht erreichbar${transferData.device_error ? ': ' + esc(transferData.device_error) : ''} – Übernahme nicht möglich.</span>`);
+  } else if (transferData.changed === 0) {
+    lines.push('<span style="color:var(--acc)">Das Gerät hat bereits genau diese Einstellungen.</span>');
+  } else {
+    lines.push(`<span style="color:var(--warn);font-weight:600">${transferData.changed} Wert(e) weichen ab (gelb markiert):</span>`);
+    btn.style.display = '';
+  }
+  info.innerHTML = lines.map(l => `<div>${l}</div>`).join('');
+  renderTransferItems(transferData.items, !transferData.device_connected);
+}
+
+async function transferApply() {
+  if (!transferData) return;
+  if (!confirm(`${transferData.changed} Wert(e) jetzt auf das Gerät schreiben?\n\nBitte nicht während eines laufenden Schießens übernehmen.`)) return;
+  document.getElementById('btn-transfer-apply').style.display = 'none';
+  try {
+    const r = await api('/admin/api/transfer/apply', {created_at: transferData.transfer.created_at});
+    const failed = r.steps.filter(st => !st.ok);
+    let msg = r.ok
+      ? `Übernommen (${r.steps.length} Befehl(e)), Kontrolle per SHOW ohne Abweichung.`
+      : `Nicht vollständig übernommen: ` + [
+          ...failed.map(st => `${st.cmd}: ${st.error}`),
+          ...(r.remaining.length ? [`weiterhin abweichend: ${r.remaining.map(it => it.key).join(', ')}`] : []),
+        ].join(' · ');
+    if (r.report_error) msg += ' · ' + r.report_error;
+    transferMsg(msg, r.ok && !r.report_error ? 'ok' : 'err');
+    document.getElementById('transfer-info').textContent = '';
+    renderTransferItems(r.remaining, false);
+    refreshStatus(true);
+  } catch(e) {
+    transferMsg('Fehler: ' + e.message, 'err');
+  }
+}
+
+// ── Konfigurationsverlauf (siehe config_backup.go) ───────────────────────
+const HISTORY_KIND = {erstmalig:'Erstsicherung', platinentausch:'Platinentausch',
+                      kalibrierung:'Kalibrierung', einstellungen:'Einstellungen'};
+let historyCurrentMAC = '';
+
+function historyMsg(text, type) {
+  const el = document.getElementById('msg-history');
+  el.textContent = text; el.className = 'msg ' + type; el.style.display = text ? 'block' : 'none';
+}
+
+function historyChanges(e) {
+  const keys = Object.keys(e.changes).sort();
+  if (e.kind === 'erstmalig') return `${keys.length} Werte gesichert`;
+  if (!keys.length) return '<span style="color:var(--dim)">keine Werteänderung</span>';
+  const parts = keys.map(k => `${k}: ${e.previous[k] ?? '–'} → ${e.changes[k]}`);
+  const shown = parts.slice(0, 6).map(esc).join('<br>');
+  return parts.length > 6
+    ? `${shown}<br><span style="color:var(--dim)" title="${esc(parts.slice(6).join('\n'))}">+ ${parts.length - 6} weitere</span>`
+    : shown;
+}
+
+async function historyLoad() {
+  historyMsg('', 'ok');
+  document.getElementById('restore-box').innerHTML = '';
+  const table = document.getElementById('history-table');
+  let data;
+  try {
+    const r = await fetch('/admin/api/config-history');
+    if (!r.ok) throw new Error(await r.text());
+    data = await r.json();
+  } catch(e) { historyMsg('Fehler: ' + e.message, 'err'); return; }
+  historyCurrentMAC = data.current_mac || '';
+  if (!data.entries.length) {
+    table.innerHTML = '';
+    historyMsg(`Für Stand ${data.lane_no} ist noch keine Konfiguration gesichert.`, 'ok');
+    return;
+  }
+  table.innerHTML = '<tr><td class="desc">Zeitpunkt</td><td class="desc">Art</td><td class="desc">Gerät</td><td class="desc">Änderungen</td><td></td></tr>'
+    + data.entries.map(e => {
+      const other = historyCurrentMAC && e.mac !== historyCurrentMAC;
+      return `<tr>
+        <td style="white-space:nowrap">${esc(fmtTs(e.created_at))}</td>
+        <td style="white-space:nowrap;${e.kind === 'platinentausch' || e.kind === 'kalibrierung' ? 'color:var(--warn)' : ''}">${esc(HISTORY_KIND[e.kind] || e.kind)}</td>
+        <td style="font-family:monospace;font-size:11px">${esc(e.mac)}${other ? '<br><span style="color:var(--warn)">andere Platine</span>' : ''}</td>
+        <td style="font-size:12px">${historyChanges(e)}</td>
+        <td><button class="secondary" onclick="restoreCheck(${e.id})">Diesen Stand wiederherstellen</button></td>
+      </tr>`;
+    }).join('');
+}
+
+async function restoreCheck(id) {
+  const box = document.getElementById('restore-box');
+  historyMsg('', 'ok');
+  box.innerHTML = '<div class="kv">Vergleiche mit dem Gerät…</div>';
+  let d;
+  try {
+    const r = await fetch('/admin/api/config-restore?id=' + id);
+    if (!r.ok) throw new Error(await r.text());
+    d = await r.json();
+  } catch(e) { box.innerHTML = ''; historyMsg('Fehler: ' + e.message, 'err'); return; }
+  const head = `Zustand nach ${esc(fmtTs(d.state.created_at))} (Gerät ${esc(d.state.mac)}): `;
+  if (!d.device_connected) {
+    box.innerHTML = `<div class="kv" style="color:var(--err)">${head}Gerät nicht erreichbar – Wiederherstellen nicht möglich.</div>`;
+    return;
+  }
+  if (!d.changed) {
+    box.innerHTML = `<div class="kv" style="color:var(--acc)">${head}das Gerät hat bereits genau diese Einstellungen.</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="kv"><div>${head}<b style="color:var(--warn)">${d.changed} Wert(e) weichen ab:</b></div></div>
+    <table><tr><td class="desc">Parameter</td><td class="desc">aktuell am Gerät</td><td class="desc">wird zurückgeschrieben</td></tr>${d.items.filter(it => it.changed).map(it => `<tr><td class="key">${esc(it.key)}</td>
+      <td>${esc(it.current)}</td><td style="color:var(--warn);font-weight:600">${esc(it.target)}</td></tr>`).join('')}</table>
+    <div class="row" style="margin-top:10px">
+      <button onclick="restoreApply(${id}, ${d.changed})">Abweichende Werte zurückschreiben</button>
+      <button class="secondary" onclick="document.getElementById('restore-box').innerHTML=''">Abbrechen</button>
+    </div>`;
+}
+
+async function restoreApply(id, n) {
+  if (!confirm(`${n} Wert(e) auf das Gerät zurückschreiben?\n\nBitte nicht während eines laufenden Schießens.`)) return;
+  const box = document.getElementById('restore-box');
+  try {
+    const r = await api('/admin/api/config-restore/apply', {id});
+    const failed = r.steps.filter(st => !st.ok);
+    box.innerHTML = '';
+    historyMsg(r.ok
+      ? `Wiederhergestellt (${r.steps.length} Befehl(e)), Kontrolle per SHOW ohne Abweichung.`
+      : 'Nicht vollständig wiederhergestellt: ' + [
+          ...failed.map(st => `${st.cmd}: ${st.error}`),
+          ...(r.remaining.length ? [`weiterhin abweichend: ${r.remaining.map(it => it.key).join(', ')}`] : []),
+        ].join(' · '), r.ok ? 'ok' : 'err');
+    refreshStatus(true);
+    // die neue Sicherung entsteht asynchron nach der Kontroll-Abfrage
+    setTimeout(async () => { const m = document.getElementById('msg-history').textContent; await historyLoad(); historyMsg(m, r.ok ? 'ok' : 'err'); }, 1500);
+  } catch(e) {
+    historyMsg('Fehler: ' + e.message, 'err');
   }
 }
 

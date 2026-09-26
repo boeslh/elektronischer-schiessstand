@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gerätekonfiguration</title>
+<style>
+  :root{
+    --bg:#0f0f1a; --panel:#1a1a2e; --line:#2a2a45; --text:#e0e0f0;
+    --dim:#7070a0; --acc:#7ba7ff; --green:#3dcc6e; --red:#e04040; --warn:#ffb347;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+  header{display:flex;align-items:center;gap:14px;padding:14px 20px;
+         background:var(--panel);border-bottom:1px solid var(--line)}
+  header a{color:var(--dim);text-decoration:none;font-size:18px}
+  header a:hover{color:var(--text)}
+  header h1{font-size:18px}
+  main{max-width:1300px;margin:0 auto;padding:18px 20px;display:flex;flex-direction:column;gap:16px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px}
+  section h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);margin-bottom:12px;
+             display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .hint{color:var(--dim);font-size:12px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);
+     padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr.sel td{background:#20203a}
+  tbody.click tr{cursor:pointer}
+  tbody.click tr:hover td{background:#1c1c34}
+  .mono{font-family:monospace;font-size:12px}
+  .kind{white-space:nowrap}
+  .kind-platinentausch,.kind-kalibrierung{color:var(--warn)}
+  .kind-erstmalig{color:var(--dim)}
+  .chg{font-size:12px;line-height:1.5}
+  .chg b{font-family:monospace;font-weight:500;color:var(--acc)}
+  .old{color:var(--dim)}
+  .diff td{background:rgba(255,179,71,.09)}
+  .diff td.v{color:var(--warn);font-weight:600}
+  .group td{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding-top:12px}
+  select,input[type=checkbox]{accent-color:var(--acc)}
+  select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:4px 8px;font-size:13px}
+  .ab{text-align:center;width:34px}
+  .empty{color:var(--dim);text-align:center;padding:16px}
+  .cmp-head{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+  .cmp-head div{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:13px}
+  .cmp-head b{color:var(--acc)}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" title="Zur Startseite">←</a>
+  <h1>Gerätekonfiguration</h1>
+  <a href="/simulator" style="margin-left:auto;font-size:13px">Simulator →</a>
+</header>
+
+<main>
+  <section>
+    <h2>Übersicht aller Stände</h2>
+    <div class="hint" style="margin-bottom:10px">
+      Die Stand-PCs sichern die komplette ESP32-Konfiguration regelmäßig und nach jeder Änderung; gespeichert
+      werden nur geänderte Werte. Stand anklicken für Verlauf und Vergleich.
+    </div>
+    <table>
+      <thead><tr><th>Stand</th><th>Aktuelle Platine</th><th>Letzte Änderung</th><th>Letzte Kalibrierung</th>
+        <th>Platinentausche</th><th>Einträge</th><th>Gesichert seit</th></tr></thead>
+      <tbody id="ov-body" class="click"><tr><td colspan="7" class="empty">Lade…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section id="hist-section" style="display:none">
+    <h2><span id="hist-title">Verlauf</span>
+      <span class="hint" style="text-transform:none;letter-spacing:0">A und B wählen, um zwei Versionen zu vergleichen</span></h2>
+    <table>
+      <thead><tr><th class="ab">A</th><th class="ab">B</th><th>Zeitpunkt</th><th>Art</th><th>Platine</th><th>Änderungen (alt → neu)</th></tr></thead>
+      <tbody id="hist-body"></tbody>
+    </table>
+  </section>
+
+  <section id="cmp-section" style="display:none">
+    <h2>Vergleich
+      <label class="hint" style="text-transform:none;letter-spacing:0;display:flex;align-items:center;gap:6px">
+        B stattdessen: <select id="cmp-other" onchange="compare()"></select></label>
+      <label class="hint" style="text-transform:none;letter-spacing:0;display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="cmp-only" checked onchange="renderCompare()"> nur Unterschiede</label>
+    </h2>
+    <div class="cmp-head"><div id="cmp-a"></div><div id="cmp-b"></div></div>
+    <table>
+      <thead><tr><th>Parameter</th><th>A</th><th>B</th></tr></thead>
+      <tbody id="cmp-body"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+async function api(path) {
+  const r = await fetch(path);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = s => s ? new Date(s).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) : '–';
+const KIND = {erstmalig:'Erstsicherung', platinentausch:'Platinentausch', kalibrierung:'Kalibrierung', einstellungen:'Einstellungen'};
+
+// Reihenfolge/Gruppen der Parameter (wie die Konfigurationstabelle der
+// Stand-PC-Admin-GUI, standpc/admin.go adminConfigKeys) - unbekannte
+// Schluessel landen unter "Sonstige".
+const GROUPS = [
+  ['Kalibrierung', ['STANDOFFPAPER','MICHALFX','OFFSETX','OFFSETY','SOUNDSPEED','OFS0','OFS1','OFS2','OFS3','OFS4','OFS5']],
+  ['Auswertung', ['ALGO','MINMICS','TDOA','RADIUS','OUTLIER','MINCLUSTER','MAXPRECISION','PELLETR','MAXSIGMA',
+                  'BSHIFTPCT','BSHIFTCAP','MICEN0','MICEN1','MICEN2','MICEN3','MICEN4','MICEN5']],
+  ['Piezo', ['PIEZO','PIEZOMIN','PIEZOMAX']],
+  ['Allgemein', ['LANE','DEBOUNCE','REJECTLOCK','WINDOW','DEBUG','CALSHOTS']],
+  ['Papiervorschub', ['PAPERFEED','PAPERSPEED','PAPERAUTO','PAPERTRIGGER','PAPERDIR','PAPERJOGSPEED']],
+];
+const KEY_ORDER = GROUPS.flatMap(g => g[1]);
+
+let overview = [];
+let lane = null;       // ausgewaehlter Stand
+let entries = [];      // Verlauf des Stands, neueste zuerst
+let selA = null, selB = null;
+let stateA = null, stateB = null;
+
+// ── Uebersicht ──────────────────────────────────────────────────────────
+async function loadOverview() {
+  const body = document.getElementById('ov-body');
+  try { overview = await api('/api/esp32-config/overview'); }
+  catch (e) { body.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--red)">Fehler: ${esc(e.message)}</td></tr>`; return; }
+  if (!overview.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">Noch keine Konfiguration gesichert – die Sicherung beginnt, sobald ein ESP32 mit seinem Stand-PC verbunden ist.</td></tr>';
+    return;
+  }
+  body.innerHTML = overview.map(o => `<tr data-lane="${o.lane_no}" class="${o.lane_no === lane ? 'sel' : ''}">
+    <td><b>Stand ${o.lane_no}</b></td>
+    <td class="mono">${esc(o.current_mac)}</td>
+    <td>${fmt(o.last.created_at)} <span class="kind kind-${o.last.kind}">${esc(KIND[o.last.kind] || o.last.kind)}</span></td>
+    <td>${fmt(o.last_calibration)}</td>
+    <td>${o.board_swaps || '–'}</td>
+    <td>${o.entries}</td>
+    <td>${fmt(o.first_at)}</td>
+  </tr>`).join('');
+  body.querySelectorAll('tr[data-lane]').forEach(tr => tr.onclick = () => selectLane(+tr.dataset.lane));
+  const sel = document.getElementById('cmp-other');
+  sel.innerHTML = '<option value="">– gewählte Version B –</option>'
+    + overview.map(o => `<option value="${o.lane_no}">aktueller Stand von Stand ${o.lane_no}</option>`).join('');
+}
+
+// ── Verlauf ─────────────────────────────────────────────────────────────
+function changesHTML(e) {
+  const keys = Object.keys(e.changes).sort((a, b) => (KEY_ORDER.indexOf(a) + 1 || 999) - (KEY_ORDER.indexOf(b) + 1 || 999));
+  if (e.kind === 'erstmalig') return `<span class="hint">${keys.length} Werte gesichert</span>`;
+  if (!keys.length) return '<span class="hint">keine Werteänderung</span>';
+  return keys.map(k => `<b>${esc(k)}</b> <span class="old">${esc(e.previous[k] ?? '–')}</span> → ${esc(e.changes[k])}`).join('<br>');
+}
+
+async function selectLane(n) {
+  lane = n;
+  document.querySelectorAll('#ov-body tr').forEach(tr => tr.classList.toggle('sel', +tr.dataset.lane === n));
+  document.getElementById('hist-section').style.display = '';
+  document.getElementById('hist-title').textContent = `Verlauf Stand ${n}`;
+  const body = document.getElementById('hist-body');
+  body.innerHTML = '<tr><td colspan="6" class="empty">Lade…</td></tr>';
+  try { entries = await api(`/api/esp32-config/history?lane_no=${n}`); }
+  catch (e) { body.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--red)">Fehler: ${esc(e.message)}</td></tr>`; return; }
+  const cur = entries[0]?.mac;
+  body.innerHTML = entries.map(e => `<tr>
+    <td class="ab"><input type="radio" name="selA" value="${e.id}"></td>
+    <td class="ab"><input type="radio" name="selB" value="${e.id}"></td>
+    <td style="white-space:nowrap">${fmt(e.created_at)}</td>
+    <td class="kind kind-${e.kind}">${esc(KIND[e.kind] || e.kind)}</td>
+    <td class="mono">${esc(e.mac)}${e.mac !== cur ? '<br><span class="hint">frühere Platine</span>' : ''}</td>
+    <td class="chg">${changesHTML(e)}</td>
+  </tr>`).join('');
+  body.querySelectorAll('input[name=selA]').forEach(r => r.onchange = () => { selA = +r.value; compare(); });
+  body.querySelectorAll('input[name=selB]').forEach(r => r.onchange = () => {
+    selB = +r.value; document.getElementById('cmp-other').value = ''; compare();
+  });
+  // Vorbelegung: B = aktueller Stand, A = Version davor
+  selB = entries[0]?.id ?? null;
+  selA = entries[1]?.id ?? entries[0]?.id ?? null;
+  const ra = body.querySelector(`input[name=selA][value="${selA}"]`); if (ra) ra.checked = true;
+  const rb = body.querySelector(`input[name=selB][value="${selB}"]`); if (rb) rb.checked = true;
+  document.getElementById('cmp-other').value = '';
+  compare();
+}
+
+// ── Vergleich ───────────────────────────────────────────────────────────
+async function compare() {
+  if (selA == null || selB == null) return;
+  document.getElementById('cmp-section').style.display = '';
+  const other = document.getElementById('cmp-other').value;
+  try {
+    stateA = await api(`/api/esp32-config/state?lane_no=${lane}&until_id=${selA}`);
+    stateA.lane_no = lane;
+    if (other) {
+      const o = overview.find(x => x.lane_no === +other);
+      stateB = await api(`/api/esp32-config/state?lane_no=${other}&until_id=${o.last.id}`);
+      stateB.lane_no = +other;
+    } else {
+      stateB = await api(`/api/esp32-config/state?lane_no=${lane}&until_id=${selB}`);
+      stateB.lane_no = lane;
+    }
+  } catch (e) {
+    document.getElementById('cmp-body').innerHTML = `<tr><td colspan="3" class="empty" style="color:var(--red)">Fehler: ${esc(e.message)}</td></tr>`;
+    return;
+  }
+  renderCompare();
+}
+
+function renderCompare() {
+  if (!stateA || !stateB) return;
+  const head = (s, label) => `<b>${label}</b> · Stand ${s.lane_no} · ${fmt(s.created_at)}<br><span class="mono">${esc(s.mac)}</span>`;
+  document.getElementById('cmp-a').innerHTML = head(stateA, 'A');
+  document.getElementById('cmp-b').innerHTML = head(stateB, 'B');
+  const a = Object.fromEntries(stateA.settings.map(s => [s.key, s.value]));
+  const b = Object.fromEntries(stateB.settings.map(s => [s.key, s.value]));
+  const all = new Set([...Object.keys(a), ...Object.keys(b)]);
+  const groups = GROUPS.map(([name, keys]) => [name, keys.filter(k => all.has(k))]);
+  const known = new Set(KEY_ORDER);
+  const rest = [...all].filter(k => !known.has(k)).sort();
+  if (rest.length) groups.push(['Sonstige', rest]);
+  const only = document.getElementById('cmp-only').checked;
+  let nDiff = 0, html = '';
+  for (const [name, keys] of groups) {
+    const rows = keys.map(k => {
+      const d = a[k] !== b[k];
+      if (d) nDiff++;
+      if (only && !d) return '';
+      return `<tr class="${d ? 'diff' : ''}"><td class="mono">${esc(k)}</td>
+        <td class="${d ? 'v' : ''}">${esc(a[k] ?? '–')}</td><td class="${d ? 'v' : ''}">${esc(b[k] ?? '–')}</td></tr>`;
+    }).join('');
+    if (rows) html += `<tr class="group"><td colspan="3">${esc(name)}</td></tr>` + rows;
+  }
+  document.getElementById('cmp-body').innerHTML = html
+    || `<tr><td colspan="3" class="empty">${nDiff ? '' : 'Keine Unterschiede – A und B sind identisch.'}</td></tr>`;
+}
+
+loadOverview();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

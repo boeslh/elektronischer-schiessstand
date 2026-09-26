@@ -35,6 +35,8 @@
   .btn-sec{background:transparent;color:var(--dim);border:1px solid var(--line);
             border-radius:5px;padding:7px 14px;font-size:13px;cursor:pointer}
   .btn-sec:hover{color:var(--text);border-color:var(--text)}
+  .foto-controls{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
+  #foto-modes button.foto-active{color:var(--acc);border-color:var(--acc)}
 
   table{width:100%;border-collapse:collapse}
   thead th{text-align:left;font-size:11px;text-transform:uppercase;
@@ -62,7 +64,7 @@
   .series-box{background:var(--bg);border:1px solid var(--line);border-radius:6px;
               padding:10px 14px;min-width:180px}
   .series-box .series-label{font-size:11px;color:var(--dim);margin-bottom:6px}
-  .series-box .shots{display:flex;flex-wrap:wrap;gap:4px}
+  .series-box .shots{display:flex;flex-wrap:wrap;gap:10px 9px}
   .shot-chip{position:relative;background:var(--line);border-radius:3px;padding:2px 6px;
              font-size:12px;font-variant-numeric:tabular-nums;cursor:pointer}
   .shot-chip.ten{background:#1a3a1a;color:#3dcc6e}
@@ -73,6 +75,13 @@
   .shot-chip .chip-no{position:absolute;top:-6px;left:-4px;font-size:8px;line-height:1.2;
              color:var(--dim);background:var(--bg);border:1px solid var(--line);
              border-radius:2px;padding:0 2px}
+  /* Schnittpunkt-Cluster Σ9 (siehe cluster9Class) - analog zur Schussnummer */
+  .shot-chip .chip-q{position:absolute;bottom:-7px;right:-7px;font-size:8px;line-height:1.2;
+             background:var(--bg);border:1px solid currentColor;border-radius:2px;padding:0 2px;
+             text-decoration:none}
+  .q-good{color:#3dcc6e}
+  .q-mid{color:#e8a030}
+  .q-bad{color:#e04040}
   .delta-up{color:#e04040}
   .delta-down{color:#3dcc6e}
 
@@ -115,6 +124,7 @@
 <header>
   <a href="/" title="Zurück">←</a>
   <h1>Simulator</h1>
+  <a href="/geraetekonfiguration" style="margin-left:auto;font-size:13px">Gerätekonfiguration der Stände →</a>
 </header>
 
 <main>
@@ -129,6 +139,12 @@
     <div class="filter-group">
       <label>Schütze</label>
       <input type="text" id="f-name" placeholder="Name…" style="min-width:200px">
+    </div>
+    <div class="filter-group">
+      <label>&nbsp;</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Nur Sessions, die in der Standsteuerung mit dem Wartungs-Schützen belegt wurden">
+        <input type="checkbox" id="f-maint" onchange="searchResults()"> nur Wartungs-Schütze
+      </label>
     </div>
     <div class="filter-group">
       <label>&nbsp;</label>
@@ -195,10 +211,23 @@
   <div class="params-grid" id="rimParams" style="display:none">
     <div class="filter-group"><label>Lochrand-Radius PELLETR (mm)</label><input type="number" id="p-pelletR" step="0.01" min="0" max="10" value="2.25"></div>
     <div class="filter-group"><label>"clean"-Schwelle MAXSIGMA (mm)</label><input type="number" id="p-maxSigma" step="0.01" min="0" max="50" value="2.0"></div>
-    <div class="filter-group"><label>Piezo-Verzögerung min. (us)</label><input type="number" id="p-piezoMin" step="1" min="0" max="5000" value="100"></div>
-    <div class="filter-group"><label>Piezo-Verzögerung max. (us)</label><input type="number" id="p-piezoMax" step="1" min="0" max="5000" value="1400"></div>
     <div class="filter-group"><label>Mindestzahl Mics MINMICS</label><input type="number" id="p-minMics" step="1" min="3" max="6" value="5"></div>
   </div>
+
+  <!-- Piezo-Bestaetigung: bei ALGO=RIM ohnehin zwingend (rimGate()) - bei
+       ALGO=CLASSIC seit dem realen Vorfall mit Luftschall-Fehlmessungen
+       benachbarter Staende (siehe SimParams.UsePiezo-Kommentar) ebenfalls
+       standardmaessig Pflicht, hier aber abschaltbar. Deshalb ein
+       gemeinsamer, immer sichtbarer Block statt Teil von classicParams/
+       rimParams. -->
+  <div class="params-grid" id="piezoParams">
+    <div class="filter-group">
+      <label><input type="checkbox" id="p-usePiezo" checked onchange="onUsePiezoChange()"> Piezo-Bestätigung erforderlich (SET PIEZO)</label>
+    </div>
+    <div class="filter-group"><label>Piezo-Verzögerung min. (us)</label><input type="number" id="p-piezoMin" step="1" min="0" max="5000" value="100"></div>
+    <div class="filter-group"><label>Piezo-Verzögerung max. (us)</label><input type="number" id="p-piezoMax" step="1" min="0" max="5000" value="1400"></div>
+  </div>
+  <div class="hint" id="usePiezoHint" style="margin:2px 0 10px"></div>
 
   <div class="filter-group" style="margin-bottom:6px"><label>Mikrofon-Timing-Offsets OFS0–OFS5 (ns)</label></div>
   <div class="ofs-grid">
@@ -231,6 +260,13 @@
     Mic0 bleibt als Referenz immer 0.
   </div>
   <div id="calShotList" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
+  <div class="row-actions" style="align-items:center;margin-bottom:8px">
+    <span class="hint">Optimierungsziel</span>
+    <select id="calMode" title="Σ9 nur bei ALGO=CLASSIC - bei RIM wird immer der Firmware-Weg genutzt">
+      <option value="residual">Rest-Fehler (wie Firmware CAL START)</option>
+      <option value="cluster9">Schnittpunkt-Cluster Σ9 (9 nächste Schnittpunkte möglichst eng)</option>
+    </select>
+  </div>
   <div class="row-actions">
     <button class="btn" onclick="runCalibration()">Kalibrieren</button>
     <button class="btn-sec" onclick="clearCalSelection()">Auswahl zurücksetzen</button>
@@ -243,8 +279,22 @@
       Alle aktuell eingestellten Parameter (inkl. OFS0–5, egal ob kalibriert oder manuell
       eingegeben) als SET-Befehle für die serielle Konsole des ESP32:
     </div>
+    <div class="row-actions" style="margin-bottom:10px;align-items:center;flex-wrap:wrap">
+      <span class="hint">An Stand</span>
+      <input type="number" id="xfer-lane" min="1" max="999" style="width:70px" oninput="loadTransferStatus()">
+      <input type="text" id="xfer-note" placeholder="Notiz (optional, z.B. Foto-Kalibrierung 26.09.)" style="width:280px">
+      <button class="btn" onclick="sendTransfer()">Zur Übernahme freigeben</button>
+    </div>
+    <div id="xfer-status" class="hint" style="margin:-4px 0 10px"></div>
     <div class="row-actions">
       <button class="btn-sec" onclick="showEsp32Export()">Als SET-Befehle anzeigen</button>
+      <button class="btn-sec" onclick="downloadFirmwareExport()">JSON-Export für Firmware-Entwicklung</button>
+      <span id="fwExportStatus" class="hint"></span>
+    </div>
+    <div class="hint" style="margin-top:6px">
+      Der JSON-Export enthält je Schuss Rohdaten (air_ns/piezo_ns), offset-korrigierte
+      Eingangszeiten, das damalige Geräte-Ergebnis und die Neuberechnung mit den aktuellen
+      Parametern inkl. aller Zwischenwerte (Kandidaten, Kugelkorrektur) - als Testvektoren.
     </div>
     <div id="esp32ExportBox" style="display:none;margin-top:8px">
       <textarea id="esp32ExportText" readonly rows="16"
@@ -253,6 +303,83 @@
         <button class="btn-sec" onclick="copyEsp32Export()">In Zwischenablage kopieren</button>
         <span id="esp32CopyStatus" class="hint"></span>
       </div>
+    </div>
+  </div>
+</section>
+
+<section id="photoSection" style="display:none">
+  <h2>3b. Foto-Kalibrierung (optional)</h2>
+  <div class="hint" style="margin-bottom:10px;line-height:1.5">
+    Alternative zur Kalibrierung oben: Die tatsächlichen Einschusspositionen werden aus einem Foto der
+    beschossenen Scheibe bestimmt und die Parameter so optimiert, dass die Neuberechnung darauf fällt.
+    Referenz ist der Durchmesser des schwarzen Innenkreises; die 4 Befestigungsschrauben (als Ecken eines
+    Rechtecks) korrigieren eine schräge Aufnahme.<br>
+    <strong>Kalibrierschüsse</strong> auf den hellen Bereich abgeben (rund um den Innenkreis verteilt, möglichst
+    10+ Schuss, Treffer mindestens ca. 5 mm auseinander) – Treffer im schwarzen Band sind auf dem Foto nicht sichtbar.
+    Dann das Foto möglichst frontal und formatfüllend aufnehmen, Scheibe nicht bewegen. Löcher früherer Versuche
+    dürfen auf der Scheibe bleiben: sie werden keinem Schuss zugeordnet (bei mehreren Versuchen in einer Sitzung
+    den Schussbereich angeben).
+  </div>
+  <div class="foto-controls">
+    <div class="filter-group"><label>Foto</label><input type="file" id="foto-file" accept="image/*"></div>
+    <div class="filter-group"><label>Ø Innenkreis (mm)</label>
+      <input type="number" id="foto-diameter" value="59.5" step="0.1" min="5" max="200" style="width:90px" list="foto-diam-list">
+      <datalist id="foto-diam-list"><option value="59.5">LP 10m</option><option value="30.5">LG 10m</option></datalist></div>
+    <div class="filter-group"><label title="Mittenabstand der Befestigungsschrauben (gemessen 141,5 mm). Leer lassen = aus dem Kreisdurchmesser bestimmen.">Schraubenabstand B × H (mm)</label>
+      <div style="display:flex;gap:4px;align-items:center">
+        <input type="number" id="foto-screwW" step="0.01" value="141.5" placeholder="aus Kreis" style="width:95px"> ×
+        <input type="number" id="foto-screwH" step="0.01" value="141.5" placeholder="aus Kreis" style="width:95px"></div></div>
+  </div>
+  <div id="foto-work" style="display:none">
+    <div class="row-actions" id="foto-modes" style="margin:10px 0 6px;flex-wrap:wrap">
+      <button class="btn-sec" data-mode="screws">1. Schrauben</button>
+      <button class="btn-sec" data-mode="circle">2. Innenkreis</button>
+      <button class="btn-sec" data-mode="holes">3. Einschusslöcher</button>
+      <button class="btn-sec" data-mode="pan">Nur verschieben</button>
+      <span style="width:12px"></span>
+      <button class="btn-sec" id="foto-autoholes">Löcher automatisch suchen</button>
+      <button class="btn-sec" id="foto-fit">Ansicht einpassen</button>
+      <button class="btn-sec" id="foto-reset">Markierungen löschen</button>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)"
+             title="Schraubenmitte automatisch bestimmen - Schatten können das Ergebnis verfälschen, im Zweifel lieber genau klicken">
+        <input type="checkbox" id="foto-snap-screws"> Schrauben einrasten</label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)">
+        <input type="checkbox" id="foto-snap-holes" checked> Löcher einrasten</label>
+    </div>
+    <div id="foto-status" class="hint" style="margin-bottom:6px;min-height:18px"></div>
+    <div style="width:100%;border:1px solid var(--line);border-radius:6px;overflow:hidden">
+      <canvas id="foto-canvas" style="display:block;cursor:crosshair;touch-action:none"></canvas>
+    </div>
+    <div id="foto-geo" class="hint" style="margin-top:6px"></div>
+    <div class="hint" style="margin-top:4px">Legende: gelb = Schrauben, grün = erkannter Innenkreis mit Achsen und
+      10-mm-Ringen (Kontrolle der Entzerrung), Kreis grün/rot = Loch mit/ohne Zuordnung, blau = Neuberechnung mit
+      aktuellen Parametern, violett = nach Optimierung.</div>
+
+    <div class="row-actions" style="margin-top:12px;align-items:center">
+      <span class="hint">Schüsse Nr.</span>
+      <input type="number" id="foto-shot-from" min="1" placeholder="von" style="width:70px">
+      <span class="hint">–</span>
+      <input type="number" id="foto-shot-to" min="1" placeholder="bis" style="width:70px">
+      <span class="hint" style="margin-left:8px">max. Zuordnungsabstand</span>
+      <input type="number" id="foto-maxdist" value="15" min="1" max="60" step="1" style="width:70px"> <span class="hint">mm</span>
+      <button class="btn" id="foto-match">Löcher den Schüssen zuordnen</button>
+    </div>
+    <div id="foto-pairs" style="margin-top:8px;max-height:320px;overflow:auto"></div>
+
+    <div id="foto-optbox" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+      <div class="hint" style="margin-bottom:6px">Zu optimierende Parameter (Startwerte = aktuelle Parameter aus Abschnitt 2):</div>
+      <div class="row-actions" style="flex-wrap:wrap;gap:14px">
+        <label><input type="checkbox" id="foto-opt-ofs" checked> Mikrofon-Offsets OFS1–5</label>
+        <label><input type="checkbox" id="foto-opt-offset" checked> Nachkorrektur OFFSETX/Y</label>
+        <label><input type="checkbox" id="foto-opt-sound"> Schallgeschwindigkeit</label>
+        <label><input type="checkbox" id="foto-opt-standoff"> Standoff Papier</label>
+        <label><input type="checkbox" id="foto-opt-michalfx"> Mikrofon-Halbabstand X</label>
+      </div>
+      <div class="row-actions" style="margin-top:8px">
+        <button class="btn" id="foto-optimize">Parameter optimieren</button>
+        <span id="foto-optstatus" class="hint"></span>
+      </div>
+      <div id="foto-result" style="display:none;margin-top:10px"></div>
     </div>
   </div>
 </section>
@@ -275,6 +402,8 @@
           <option value="4">Fein</option>
           <option value="5">Maximal</option>
         </select>
+        <button class="btn-sec" onclick="stepShot(-1)" title="Vorheriger Schuss">◀</button>
+        <button class="btn-sec" onclick="stepShot(1)" title="Nächster Schuss">▶</button>
         <button class="btn-sec" id="unfocusBtn" style="display:none" onclick="clearShotFocus()">Alle Schüsse</button>
       </div>
       <svg id="targetSvg" viewBox="-30 -30 60 60"></svg>
@@ -288,6 +417,10 @@
         <label class="detail-toggle">
           <input type="checkbox" id="showDetailToggle" checked onchange="onDetailToggleChange()">
           Details &amp; Schnittpunkte beim Anklicken einblenden
+        </label>
+        <label class="detail-toggle" style="margin-left:0" title="Scheibe zeigt nur den angeklickten Schuss (Original, Simuliert, Schnittpunkte) samt aller Details - hilfreich bei eng zusammenliegenden Schüssen. ◀ ▶ blättert durch die Schüsse.">
+          <input type="checkbox" id="singleShotToggle" onchange="onSingleShotToggleChange()">
+          Einzelschuss
         </label>
       </div>
       <div class="hint" style="margin:2px 0 6px">
@@ -342,6 +475,11 @@ let lastRenderShots = [];
 // leicht zu uebersehen, die Detailinfos sollen direkt beim ersten Klick auf
 // einen Schuss sichtbar sein.
 let showExtraDetail = true;
+// Einzelschuss-Modus: Scheibe zeigt nur den fokussierten Schuss (bei eng
+// zusammenliegenden Schuessen sonst kaum unterscheidbar) und laedt dessen
+// Details unabhaengig von der Detail-Checkbox immer mit.
+let singleShotMode = false;
+function detailOn() { return showExtraDetail || singleShotMode; }
 let detailCandidates = []; // [{x_um,y_um}, ...] des aktuell angeklickten Schusses
 let detailCandShotNo = null;
 
@@ -351,8 +489,13 @@ function todayISO() {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 document.getElementById('f-date').value = todayISO();
+// Direktsprung aus der Standsteuerung (Wartungsbelegung, ?wartung=1)
+if (new URLSearchParams(location.search).get('wartung') === '1') {
+  document.getElementById('f-maint').checked = true;
+}
 searchResults();
 loadConfigOptions();
+onUsePiezoChange(); // Hinweistext initial befuellen (sonst leer bis zur ersten Aenderung)
 
 // ── 1. Ergebnis-Auswahl ─────────────────────────────────────────────────
 async function searchResults() {
@@ -362,6 +505,9 @@ async function searchResults() {
   if (date) params.set('date', date);
   if (name) params.set('name', name);
   params.set('raw_data_only', '1'); // Simulator kann ohne air_ns-Rohdaten nichts neu berechnen
+  // Wartungs-Sessions (Standsteuerung, nur Admin) sind hier - anders als in
+  // der Ergebnisuebersicht - ausdruecklich erwuenscht: dafuer gibt es sie.
+  params.set('maintenance', document.getElementById('f-maint').checked ? 'only' : 'include');
 
   setStatus('Lade…');
   try {
@@ -383,7 +529,7 @@ function renderResultsTable(rows) {
     const dt = r.started_at ? new Date(r.started_at) : null;
     const date = dt ? dt.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'}) : '–';
     const score = r.total_rings ? String(r.total_rings) : '–';
-    tr.innerHTML = `<td>${esc(r.shooter_name)}</td><td>${date}</td><td>${esc(r.discipline)}</td>
+    tr.innerHTML = `<td>${r.maintenance ? '🔧 ' : ''}${esc(r.shooter_name)}${r.maintenance && r.lane_no != null ? ` <span style="opacity:.6">(Stand ${r.lane_no})</span>` : ''}</td><td>${date}</td><td>${esc(r.discipline)}</td>
       <td class="num">${r.shot_count||'–'}</td><td class="num">${score}</td>`;
     tr.onclick = () => selectSession(tr, r);
     tbody.appendChild(tr);
@@ -400,6 +546,10 @@ async function selectSession(tr, r) {
   const laneHintEl = document.getElementById('cfgSaveLaneHint');
   if (laneHintEl) {
     laneHintEl.textContent = currentLoadedLaneNo != null ? `wird als Stand ${currentLoadedLaneNo} gespeichert` : '';
+  }
+  if (currentLoadedLaneNo != null) {
+    document.getElementById('xfer-lane').value = currentLoadedLaneNo;
+    loadTransferStatus();
   }
   // Filter der gespeicherten Kalibrierungen auf den Stand dieses Ergebnisses
   // vorbelegen (Liste wird sonst schnell sehr lang) - und die Liste selbst
@@ -422,6 +572,8 @@ async function selectSession(tr, r) {
 
   document.getElementById('resultSection').style.display = 'none';
   document.getElementById('calSection').style.display = 'none';
+  document.getElementById('photoSection').style.display = 'none';
+  if (window.fotoSessionChanged) window.fotoSessionChanged();
   const info = document.getElementById('selectedInfo');
   info.textContent = 'Lade Rohdaten…';
   try {
@@ -440,6 +592,7 @@ async function selectSession(tr, r) {
       + `${shots.length} Schuss/Schüsse, davon ${withRaw} mit Rohdaten (nur diese können neu berechnet werden).`;
     document.getElementById('paramsSection').style.display = '';
     document.getElementById('calSection').style.display = withRaw ? '' : 'none';
+    document.getElementById('photoSection').style.display = withRaw ? '' : 'none';
     renderCalShotList();
   } catch(e) {
     info.textContent = 'Fehler: ' + e.message;
@@ -466,7 +619,19 @@ function currentParams() {
     piezo_min_us: parseInt(document.getElementById('p-piezoMin').value) || 0,
     piezo_max_us: parseInt(document.getElementById('p-piezoMax').value) || 0,
     min_mics: parseInt(document.getElementById('p-minMics').value) || 0,
+    use_piezo: document.getElementById('p-usePiezo').checked,
   };
+}
+
+// onUsePiezoChange: Hinweistext zur Piezo-Pflicht (SET PIEZO) - siehe
+// SimParams.UsePiezo-Kommentar in simulator.go zum realen Vorfall
+// (Luftschall benachbarter Staende wurde ohne Piezo-Pflicht als gueltiger
+// Treffer gewertet).
+function onUsePiezoChange() {
+  const on = document.getElementById('p-usePiezo').checked;
+  document.getElementById('usePiezoHint').textContent = on
+    ? 'Schüsse ohne Piezo-Bestätigung (oder außerhalb des Zeitfensters) gelten als ungültig - schützt vor Fehlmessungen durch Luftschall benachbarter Stände.'
+    : 'ACHTUNG: Schüsse ohne jede lokale Piezo-Bestätigung werden trotzdem gewertet - nur für Aufbauten ohne Piezo-Hardware sinnvoll.';
 }
 
 // onAlgoChange: RIM nutzt eine andere Geometrie-/Fenster-Parametrisierung
@@ -481,6 +646,12 @@ function onAlgoChange() {
   document.getElementById('algoHint').textContent = rim
     ? 'RIM (Firmware Rev 4.11.0): braucht gespeicherte Piezo-Zeiten (piezo_ns) - Schüsse ohne Piezo-Auslösung (z.B. SET PIEZO=0) können nicht neu berechnet werden. Liefert Sigma-Unsicherheit statt Cluster-Hits/Precision.'
     : '';
+  // RIM verlangt Piezo IMMER (rimGate(), unabhaengig von SET PIEZO) - die
+  // Checkbox waere dort irrelevant, deshalb deaktiviert statt editierbar.
+  const usePiezoCb = document.getElementById('p-usePiezo');
+  usePiezoCb.disabled = rim;
+  if (rim) usePiezoCb.checked = true;
+  onUsePiezoChange();
 }
 
 function applyParams(p) {
@@ -508,6 +679,11 @@ function applyParams(p) {
   if (p.piezo_min_us != null) document.getElementById('p-piezoMin').value = p.piezo_min_us;
   if (p.piezo_max_us != null) document.getElementById('p-piezoMax').value = p.piezo_max_us;
   if (p.min_mics != null) document.getElementById('p-minMics').value = p.min_mics;
+  // use_piezo fehlt bei alten gespeicherten Configs (vor Einfuehrung dieser
+  // Option) - Checkbox bleibt dann auf ihrem HTML-Default (checked), passend
+  // zum Server-Fallback (SimParams.UsePiezo nil -> true, siehe dortigen
+  // Kommentar).
+  if (p.use_piezo != null) document.getElementById('p-usePiezo').checked = !!p.use_piezo;
   onAlgoChange();
 }
 
@@ -644,17 +820,24 @@ async function runCalibration() {
     const params = currentParams();
     const resp = await api(`/api/sessions/${currentSessionId}/calibrate`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({params: params, shot_nos: Array.from(calSelected)})
+      body: JSON.stringify({params: params, shot_nos: Array.from(calSelected),
+                            mode: document.getElementById('calMode').value})
     });
     const ofs = resp.mic_offset_ns;
+    const c9mode = params.algo !== 'rim' && document.getElementById('calMode').value === 'cluster9';
     // ALGO=CLASSIC: cost = Rest-Fehlersumme in mm. ALGO=RIM: cost = Summe
     // der quadrierten RMS-Residuen in ns^2 (siehe calCostRimFn() in
     // simulator.go) - andere Einheit, nicht direkt vergleichbar.
     const costLabel = params.algo === 'rim'
       ? `Kostensumme ${resp.cost.toFixed(0)} ns²`
+      : c9mode ? `Σ9-Summe ${resp.cost.toFixed(2)} mm`
       : `Rest-Fehlersumme ${resp.cost.toFixed(3)} mm`;
+    const c9 = (resp.cluster_sum_before_mm != null && resp.cluster_sum_after_mm != null)
+      ? ` Σ9 Ø der Kalibrier-Schüsse: ${resp.cluster_sum_before_mm.toFixed(2)} mm → `
+        + `<strong class="${cluster9Class(resp.cluster_sum_after_mm)}">${resp.cluster_sum_after_mm.toFixed(2)} mm</strong>.`
+      : '';
     box.innerHTML = `Neue Offsets (ns): <strong>${ofs.join(', ')}</strong> · `
-      + `${costLabel} über ${resp.shots_used} Schuss/Schüsse. `;
+      + `${costLabel} über ${resp.shots_used} Schuss/Schüsse.${c9} `;
     const applyBtn = document.createElement('button');
     applyBtn.className = 'btn-sec';
     applyBtn.textContent = 'In OFS0–5 übernehmen';
@@ -691,13 +874,99 @@ function buildSetCommands() {
   lines.push(`SET PIEZOMIN=${p.piezo_min_us}`);
   lines.push(`SET PIEZOMAX=${p.piezo_max_us}`);
   lines.push(`SET MINMICS=${p.min_mics}`);
+  lines.push(`SET PIEZO=${p.use_piezo ? 1 : 0}`);
   return lines.join('\n');
+}
+
+// ── Uebertragung an den Stand (ohne serielle Verbindung) ────────────────
+// Der Server merkt sich den Parametersatz als Freigabe fuer den Stand; am
+// Stand-PC (Admin-Oberflaeche, "Kalibrierung vom Simulator uebernehmen")
+// wird er abgeholt, mit der Geraetekonfiguration verglichen und per
+// CAL IMPORT/SET geschrieben - siehe calibration_transfer.go.
+function fmtDateTime(s) {
+  return s ? new Date(s).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) : '';
+}
+function renderTransferStatus(t) {
+  const el = document.getElementById('xfer-status');
+  if (!t) { el.textContent = ''; return; }
+  let txt = `Freigegeben am ${fmtDateTime(t.created_at)}${t.created_by ? ' (' + t.created_by + ')' : ''}`
+    + (t.note ? ` – „${t.note}“` : '') + ' · ';
+  if (!t.applied_at) txt += 'noch nicht am Stand übernommen (Stand-PC → Admin → „Kalibrierung vom Simulator übernehmen“).';
+  else if (t.applied_ok) txt += `✓ am ${fmtDateTime(t.applied_at)} auf Gerät ${t.applied_mac || '?'} übernommen.`;
+  else txt += `⚠ Übernahme am ${fmtDateTime(t.applied_at)} unvollständig – Details in der Admin-Oberfläche des Stand-PCs.`;
+  el.textContent = txt;
+  // Freigegebene Parameter wieder in den Simulator laden (Freigaben vor
+  // dieser Aenderung stehen nicht in der Liste der gespeicherten Kalibrierungen).
+  const btn = document.createElement('button');
+  btn.className = 'btn-sec';
+  btn.style.cssText = 'padding:2px 10px;font-size:12px;margin-left:8px';
+  btn.textContent = 'Freigegebene Parameter laden';
+  btn.onclick = () => {
+    applyParams(t.params);
+    currentLoadedLaneNo = t.lane_no;
+  };
+  el.appendChild(btn);
+}
+let xferTimer = null;
+function loadTransferStatus() {
+  clearTimeout(xferTimer);
+  xferTimer = setTimeout(async () => {
+    const lane = parseInt(document.getElementById('xfer-lane').value);
+    if (!lane) { renderTransferStatus(null); return; }
+    try {
+      renderTransferStatus(await api(`/api/lanes/${lane}/calibration-transfer`));
+    } catch (e) {
+      document.getElementById('xfer-status').textContent = `Für Stand ${lane} ist derzeit keine Kalibrierung freigegeben.`;
+    }
+  }, 250);
+}
+async function sendTransfer() {
+  const lane = parseInt(document.getElementById('xfer-lane').value);
+  if (!lane) { alert('Bitte die Standnummer angeben.'); return; }
+  if (!confirm(`Aktuelle Parameter für Stand ${lane} zur Übernahme freigeben?\n\n`
+      + 'Am Gerät ändert sich erst etwas, wenn die Freigabe in der Admin-Oberfläche des Stand-PCs übernommen wird. '
+      + 'Eine ältere, noch nicht übernommene Freigabe für diesen Stand wird ersetzt.')) return;
+  try {
+    const t = await api(`/api/lanes/${lane}/calibration-transfer`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({params: currentParams(), note: document.getElementById('xfer-note').value.trim()}),
+    });
+    renderTransferStatus(t);
+    await loadConfigOptions(); // Freigabe wurde auch als gespeicherte Kalibrierung abgelegt
+  } catch (e) { alert('Fehler: ' + e.message); }
 }
 
 function showEsp32Export() {
   document.getElementById('esp32ExportText').value = buildSetCommands();
   document.getElementById('esp32ExportBox').style.display = 'block';
   document.getElementById('esp32CopyStatus').textContent = '';
+}
+
+// downloadFirmwareExport: komplette Session + aktuelle Parameter als JSON-
+// Datei (siehe sim_export.go) - Testvektoren fuer die Firmware-Entwicklung.
+async function downloadFirmwareExport() {
+  const status = document.getElementById('fwExportStatus');
+  if (!currentSessionId) { status.textContent = 'Bitte zuerst ein Ergebnis auswählen.'; return; }
+  status.textContent = 'Export wird erstellt…';
+  try {
+    const r = await fetch(`/api/sessions/${currentSessionId}/simulator-export`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({params: currentParams(), set_commands: buildSetCommands().split('\n')}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '');
+    const blob = new Blob([JSON.stringify(await r.json(), null, 2)], {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? m[1] : 'sim-export.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    status.textContent = 'Export heruntergeladen.';
+  } catch(e) {
+    status.textContent = 'Fehler: ' + e.message;
+  }
 }
 
 async function copyEsp32Export() {
@@ -734,7 +1003,8 @@ async function runSimulation() {
       zoomFocusShot = lastSimShots.find(s => s.shot_no === zoomFocusShot.shot_no) || null;
       if (!zoomFocusShot) document.getElementById('unfocusBtn').style.display = 'none';
     }
-    renderSeries(resp.shots_per_series || 10, lastSimShots);
+    lastShotsPerSeries = resp.shots_per_series || 10;
+    renderSeries(lastShotsPerSeries, lastSimShots);
     renderTargetSVG(currentTargetGeometry, lastSimShots);
     if (zoomFocusShot) {
       showDetail(zoomFocusShot);
@@ -747,7 +1017,7 @@ async function runSimulation() {
       detailSolveResp = null;
       detailShotNoForResp = null;
     }
-    resultStatus.textContent = `${lastSimShots.length} Schuss/Schüsse. Klick auf einen Schuss für Details.`;
+    updateResultStatus();
     updateApplySimVisibility();
   } catch(e) {
     resultStatus.textContent = 'Fehler: ' + e.message;
@@ -873,6 +1143,7 @@ function renderTargetSVG(geo, shots) {
   const shotLayer = document.createElementNS(SVG_NS, 'g');
   for (const s of (shots || [])) {
     if (!s.has_raw) continue;
+    if (singleShotMode && zoomFocusShot && s.shot_no !== zoomFocusShot.shot_no) continue;
     const valid = s.sim.pos_valid;
 
     if (valid) {
@@ -889,7 +1160,8 @@ function renderTargetSVG(geo, shots) {
       sg.setAttribute('fill', '#7ba7ff'); sg.setAttribute('stroke', '#000'); sg.setAttribute('stroke-width', strokeW*0.5);
       sg.setAttribute('opacity', 0.55);
       sg.appendChild(document.createElementNS(SVG_NS, 'title')).textContent =
-        `Schuss ${s.shot_no}: Ring ${s.sim.ring} (Original: ${s.orig.ring})`;
+        `Schuss ${s.shot_no}: Ring ${s.sim.ring} (Original: ${s.orig.ring})`
+        + (cluster9MM(s) != null ? ` · Σ9 ${cluster9MM(s).toFixed(2)} mm` : '');
       shotLayer.appendChild(sg);
 
       const label = document.createElementNS(SVG_NS, 'text');
@@ -941,7 +1213,7 @@ function renderTargetSVG(geo, shots) {
   // wurde bei der Mittelung ignoriert - orange/groesser = die "beste"
   // Kombination (Stufe-1-Loesung, geringster Rest-Fehler), zuletzt gezeichnet
   // damit sie oben liegt (siehe in_cluster/best in server/simulator.go).
-  if (showExtraDetail && detailCandidates.length) {
+  if (detailOn() && detailCandidates.length) {
     const cs = CALIBER * 0.16;
     const drawOrder = detailCandidates.filter(c => !c.best).concat(detailCandidates.filter(c => c.best));
     for (const c of drawOrder) {
@@ -1042,6 +1314,7 @@ function selectShot(s, chipEl) {
     zoomFocusShot = s;
     document.getElementById('unfocusBtn').style.display = '';
     applyViewBox();
+    if (singleShotMode) renderTargetSVG(currentTargetGeometry, lastSimShots);
   }
   loadDetailExtra(s);
 }
@@ -1065,11 +1338,33 @@ function clearDetailExtra() {
 
 function onDetailToggleChange() {
   showExtraDetail = document.getElementById('showDetailToggle').checked;
-  if (!showExtraDetail) {
+  if (!detailOn()) {
     clearDetailExtra();
   } else if (zoomFocusShot) {
     loadDetailExtra(zoomFocusShot);
   }
+}
+
+function onSingleShotToggleChange() {
+  singleShotMode = document.getElementById('singleShotToggle').checked;
+  if (singleShotMode && !zoomFocusShot) {
+    stepShot(1); // direkt mit dem ersten Schuss beginnen
+    return;
+  }
+  onDetailToggleChange(); // Details laden bzw. (ohne Detail-Checkbox) wieder ausblenden
+  renderTargetSVG(currentTargetGeometry, lastSimShots);
+}
+
+// stepShot: zum vorherigen/naechsten Schuss mit Rohdaten blaettern (in
+// Schussreihenfolge) - ohne aktuellen Fokus beginnt ▶ beim ersten, ◀ beim
+// letzten Schuss.
+function stepShot(dir) {
+  const list = lastSimShots.filter(s => s.has_raw).sort((a, b) => a.shot_no - b.shot_no);
+  if (!list.length) return;
+  let i = zoomFocusShot ? list.findIndex(s => s.shot_no === zoomFocusShot.shot_no) : -1;
+  i = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
+  const s = list[i];
+  selectShot(s, document.querySelector(`#seriesGrid [data-shot-no="${s.shot_no}"]`));
 }
 
 // loadDetailExtra: laedt fuer den angeklickten Schuss die vollstaendige
@@ -1087,7 +1382,7 @@ let candRefMode = 'target'; // 'target' = Scheibenzentrum, 'shot' = Schusszentru
 let candCorrected = false;
 
 async function loadDetailExtra(s) {
-  if (!showExtraDetail || !s.has_raw) {
+  if (!detailOn() || !s.has_raw) {
     detailCandidates = [];
     detailCandShotNo = null;
     detailSolveResp = null;
@@ -1128,6 +1423,16 @@ function setCandCorrected(v) {
   candCorrected = v;
   renderDetailExtra();
   renderTargetSVG(currentTargetGeometry, lastSimShots);
+  // Σ9 (Chips, Detail, Zusammenfassung) folgt derselben Umschaltung
+  renderSeries(lastShotsPerSeries, lastSimShots);
+  if (zoomFocusShot) showDetail(zoomFocusShot);
+  updateResultStatus();
+}
+
+let lastShotsPerSeries = 10;
+function updateResultStatus() {
+  document.getElementById('resultStatus').textContent =
+    `${lastSimShots.length} Schuss/Schüsse${cluster9Summary(lastSimShots)}. Klick auf einen Schuss für Details.`;
 }
 
 // renderDetailExtra baut die Detail-Box aus der zuletzt geladenen Antwort
@@ -1228,6 +1533,7 @@ function renderSeries(shotsPerSeries, shots) {
     const span = document.createElement('span');
     span.className = cls.join(' ');
     span.title = `Schuss ${s.shot_no}`;
+    span.dataset.shotNo = s.shot_no;
     span.onclick = () => selectShot(s, span);
     span.appendChild(document.createTextNode(label));
     if (valid) {
@@ -1235,6 +1541,15 @@ function renderSeries(shotsPerSeries, shots) {
       no.className = 'chip-no';
       no.textContent = s.shot_no;
       span.appendChild(no);
+      const q = cluster9MM(s);
+      if (q != null) {
+        const b = document.createElement('span');
+        b.className = 'chip-q ' + cluster9Class(q);
+        b.textContent = q.toFixed(1);
+        b.title = `Schnittpunkt-Cluster Σ9 = ${q.toFixed(2)} mm (${cluster9Variant()}, ${cluster9N(s)}/9 im Cluster-Radius)`;
+        span.appendChild(b);
+        span.title += ` · Σ9 ${q.toFixed(2)} mm`;
+      }
     }
     if (focused) selectedChipEl = span;
     return span;
@@ -1282,6 +1597,30 @@ function renderSeries(shotsPerSeries, shots) {
   }
 }
 
+// Schnittpunkt-Cluster Σ9 (server/simulator.go clusterSum9): Summe der
+// Abstaende der 9 naechsten Schnittpunkte im Cluster-Radius zum Schusszentrum,
+// fehlende mit je 5mm - < 10mm sehr gut, bis 20mm mäßig, darueber schlecht.
+const CLUSTER9_GOOD_MM = 10, CLUSTER9_MID_MM = 20;
+// Folgt der Umschaltung "Rohwerte / nach Kugeldurchm.-Korrektur" (candCorrected)
+// in der Detailanzeige - Σ9 wird serverseitig fuer beide Varianten berechnet.
+function cluster9MM(s) {
+  if (!s.has_raw || !s.sim.pos_valid) return null;
+  const v = candCorrected ? s.sim.cluster_sum_corr_um : s.sim.cluster_sum_um;
+  return v != null ? v / 1000 : null;
+}
+function cluster9N(s) { return (candCorrected ? s.sim.cluster_sum_corr_n : s.sim.cluster_sum_n) || 0; }
+function cluster9Variant() { return candCorrected ? 'nach Kugeldurchm.-Korrektur' : 'Rohwerte'; }
+function cluster9Class(mm) {
+  return mm < CLUSTER9_GOOD_MM ? 'q-good' : mm < CLUSTER9_MID_MM ? 'q-mid' : 'q-bad';
+}
+function cluster9Summary(shots) {
+  const v = shots.map(cluster9MM).filter(x => x != null);
+  if (!v.length) return '';
+  const avg = v.reduce((a, b) => a + b, 0) / v.length;
+  const good = v.filter(x => x < CLUSTER9_GOOD_MM).length;
+  return ` · Schnittpunkt-Cluster Σ9 (${cluster9Variant()}): Ø ${avg.toFixed(1)} mm, ${good}/${v.length} Schüsse < ${CLUSTER9_GOOD_MM} mm`;
+}
+
 function showDetail(s) {
   const box = document.getElementById('detailBox');
   box.style.display = 'block';
@@ -1303,13 +1642,16 @@ function showDetail(s) {
           <td>${s.sim.pos_valid ? s.sim.decimal.toFixed(1) : '–'}</td>
           <td>${s.sim.pos_valid ? 'ja' : 'nein'}</td><td>${s.sim.cluster_hits}</td></tr>
     </table>
-    ${s.sim.pos_valid ? `<div class="hint">Δ = ${dist.toFixed(2)} mm gegenüber Original</div>` : ''}`;
+    ${s.sim.pos_valid ? `<div class="hint">Δ = ${dist.toFixed(2)} mm gegenüber Original</div>` : ''}
+    ${cluster9MM(s) != null ? `<div class="hint">Schnittpunkt-Cluster Σ9 = <strong class="${cluster9Class(cluster9MM(s))}">${cluster9MM(s).toFixed(2)} mm</strong>
+      (${cluster9Variant()}; ${cluster9N(s)} von 9 Schnittpunkten im Cluster-Radius, fehlende je 5 mm) – Ziel &lt; ${CLUSTER9_GOOD_MM} mm</div>` : ''}`;
 }
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 </script>
+<script src="/simulator-foto.js"></script>
 <script src="/role.js"></script>
 </body>
 </html>

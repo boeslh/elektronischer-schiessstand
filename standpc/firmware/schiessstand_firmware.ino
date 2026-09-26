@@ -1,6 +1,39 @@
 /*
  * ============================================================================
  *  Elektronischer Schießstand – ESP32 Firmware
+ *  Rev 4.11.5(?) – Versionsnummer vor dem Flashen gegen den tatsaechlich auf
+ *              den Staenden laufenden Stand pruefen, siehe bereits fruehere
+ *              Versions-Diskrepanz-Hinweise in diesem Header.
+ *              processShot(): Piezo-Pflicht (SET PIEZO, Default 1) wirkt
+ *              jetzt auf "pos_valid" (nicht mehr nur auf "clean") - realer
+ *              Vorfall: Luftschall benachbarter Staende ohne jeden lokalen
+ *              Einschlag (piezoOk durchgehend false ueber eine komplette
+ *              Wertungs-Scheibe, 40/40 Schuesse) wurde trotz stark erhoehtem
+ *              Rest-Fehler (im Schnitt 56mm statt ueblich 1-2mm) als
+ *              "gueltige" Trefferposition gemeldet und in der Wertung
+ *              gezaehlt, weil piezoOk bislang nur in "clean" einfloss.
+ *              posOk wird jetzt direkt nach solveAirPosition() auf false
+ *              gesetzt, wenn cfg.usePiezo && !piezoOk - xUm/yUm/resUm/
+ *              precUm/clusterN/"pos_valid" verhalten sich dadurch wie beim
+ *              bestehenden "zu wenige Mics"-Fall. Nur bei SET PIEZO=1 (Firmware-
+ *              Default) wirksam - SET PIEZO=0 (Aufbauten ohne Piezo-Hardware)
+ *              unveraendert. Ursprung/Vorab-Test: Server-seitiger Simulator
+ *              (server/simulator.go SimParams.UsePiezo), dort mit den drei
+ *              tatsaechlichen Vorfall-Schuessen aus der Datenbank als
+ *              Regressionstest verifiziert (TestSolveShot_RequiresPiezoByDefault).
+ * ============================================================================
+ *
+ *  Rev 4.11.6 – emitLine(): Korrelations-ID ("corr") auch an lange Zeilen
+ *              anhaengen - der Hilfspuffer war mit 160 Byte zu klein fuer die
+ *              config-Antwort auf SHOW (bis ~900 Byte), die dadurch ohne corr
+ *              gesendet wurde. Folge am Stand-PC: "Gerät nicht erreichbar:
+ *              keine Antwort innerhalb von 2s" bei der Kalibrier-Uebernahme
+ *              aus dem Simulator. Der Stand-PC wertet seit derselben Aenderung
+ *              auch ein config-Telegramm ohne corr aus (calibration_transfer.go
+ *              queryConfig), funktioniert also auch mit aelterer Firmware.
+ *              FW_VERSION direkt auf 4.11.6 gesetzt - das Geraet meldete
+ *              bereits 4.11.5, obwohl hier noch 4.11.4 eingetragen war.
+ *
  *  Rev 4.11.4 – calCostClassic()/solveAirPosition(): Die Kugeldurchmesser-
  *              Korrektur (SET BSHIFTPCT/BSHIFTCAP) fliesst jetzt in die
  *              Timing-Offset-Kalibrierung (CAL START) mit ein. Bisher
@@ -861,7 +894,7 @@
 // Konstanten & Werks-Defaults (greifen nur bei leerem NVS)
 // ---------------------------------------------------------------------------
 
-#define FW_VERSION   "4.11.4"
+#define FW_VERSION   "4.11.6"
 #define SERIAL_BAUD  115200
 #define NVS_NS       "schiessstd"     // NVS-Namespace
 
@@ -1692,10 +1725,14 @@ static void emitLine(const char *line)
 
     // Korrelations-ID einfuegen (siehe pendingCorrId oben): nur moeglich,
     // wenn die Zeile mit "}" endet (jede JSON-Telegrammzeile dieser Firmware
-    // tut das) und in den Hilfspuffer passt - waehrend der Befehlsverarbeitung
-    // werden ausschliesslich kurze ok/error/cal/pin-Zeilen gesendet, nie die
-    // deutlich laengeren shot/config-Zeilen, daher reicht ein kleiner Puffer.
-    char corrBuf[160];
+    // tut das) und in den Hilfspuffer passt. Bis Rev 4.11.5 war der Puffer nur
+    // 160 Byte gross (Annahme: waehrend der Befehlsverarbeitung nur kurze
+    // ok/error/cal-Zeilen) - die Antwort auf SHOW (config, bis ~900 Byte,
+    // siehe sendShowConfig()) kam dadurch OHNE corr beim Stand-PC an und
+    // lief dort in den Timeout. Jetzt static (nicht auf dem Loop-Stack) und
+    // gross genug fuer die laengsten Telegramme (line[900]) plus corr-Feld;
+    // emitLine() wird nur aus loop() aufgerufen, ist also nicht reentrant.
+    static char corrBuf[1024];
     if (pendingCorrId >= 0 && len > 0 && line[len - 1] == '}'
         && len < sizeof(corrBuf) - 24) {
         int n = snprintf(corrBuf, sizeof(corrBuf), "%.*s,\"corr\":%ld}",
@@ -2946,6 +2983,21 @@ static void processShot()
                                     &posPrecision, &clusterHits,
                                     &posXPre, &posYPre, &posPrecisionPre, &clusterHitsPre,
                                     nullptr); // Korrigierter Rest-Fehler wird nur fuer die Kalibrierung gebraucht (calCostClassic())
+    // Piezo-Pflicht (SET PIEZO, Default 1): ohne Piezo-Bestaetigung ist die
+    // Position zwar geometrisch loesbar (posOk oben), aber NICHT vertrauens-
+    // wuerdig - bislang floss piezoOk nur in "clean" (weiter unten) ein,
+    // "pos_valid" blieb unberuehrt. Das erlaubte einen realen Vorfall:
+    // Luftschall benachbarter Staende ohne jeden lokalen Einschlag
+    // (piezoOk durchgehend false) wurde trotz stark erhoehtem Rest-Fehler
+    // als "gueltige" Trefferposition gemeldet und gewertet. Ab jetzt macht
+    // fehlende/unplausible Piezo-Bestaetigung den Schuss direkt ungueltig,
+    // sobald SET PIEZO=1 aktiv ist (Default) - wie ein normaler "zu wenige
+    // Mics"-Fall (xUm/yUm/resUm/precUm/clusterN werden unten einheitlich auf
+    // 0 gesetzt, "pos_valid":0 im Telegramm). Bei SET PIEZO=0 (Aufbauten ohne
+    // Piezo-Hardware) unveraendert wie bisher.
+    if (cfg.usePiezo && !piezoOk) {
+        posOk = false;
+    }
     long  xUm    = posOk ? lroundf(posX         * 1000.0f) : 0;
     long  yUm    = posOk ? lroundf(posY         * 1000.0f) : 0;
     long  resUm  = posOk ? lroundf(posRes       * 1000.0f) : 0;
@@ -3015,7 +3067,11 @@ static void processShot()
     // Mic-Kombinationen, precision_um innerhalb der Schwelle, und - falls
     // SET PIEZO=1 - vom Piezo im erwarteten Zeitfenster bestaetigt) - damit
     // muss die Anzeige diese Schwellenlogik nicht selbst nachbilden, um
-    // "gute" von "fragwuerdigen" Schuessen zu unterscheiden.
+    // "gute" von "fragwuerdigen" Schuessen zu unterscheiden. Das
+    // "(!cfg.usePiezo || piezoOk)"-Glied unten ist seit der Piezo-Pflicht
+    // oben (posOk=false bei fehlender Bestaetigung) genaugenommen redundant
+    // (posOk deckt es bereits ab) - bewusst stehengelassen, um die Bedeutung
+    // von "clean" unabhaengig von dieser Verschaltung explizit zu halten.
     bool isClean = posOk
                  && (unsigned long)resUm < cfg.airOutlierUm
                  && clusterN >= (int)cfg.minClusterHits

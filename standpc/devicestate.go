@@ -119,22 +119,68 @@ type DeviceState struct {
 	confignet *ConfignetTelegram
 	cal       *CalTelegram
 
+	// configSeq/configCh: Zaehler bzw. Benachrichtigung fuer jedes empfangene
+	// config-Telegramm (configCh wird bei SetConfig geschlossen und ersetzt) -
+	// fuer queryTelegram("SHOW"), siehe ConfigWatch.
+	configSeq uint64
+	configCh  chan struct{}
+
 	// onCalDone: einmalig in main() gesetzt (vor Start der Transport-Goroutinen,
 	// daher ohne eigenes Locking) - benachrichtigt WebServer.uploadCalibrationBackup
 	// ueber transport.go, ohne dass dispatchLine() den WebServer kennen muesste.
 	onCalDone func(CalTelegram)
+
+	// onConfig: wie onCalDone, fuer jedes empfangene config-Telegramm
+	// (Konfigurationssicherung, siehe config_backup.go).
+	onConfig func(ConfigTelegram)
 }
 
 func NewDeviceState() *DeviceState { return &DeviceState{} }
 
 func (d *DeviceState) SetStatus(s StatusTelegram)       { d.mu.Lock(); d.status = &s; d.mu.Unlock() }
-func (d *DeviceState) SetConfig(c ConfigTelegram)       { d.mu.Lock(); d.config = &c; d.mu.Unlock() }
+func (d *DeviceState) SetConfig(c ConfigTelegram) {
+	d.mu.Lock()
+	d.config = &c
+	d.configSeq++
+	if d.configCh != nil {
+		close(d.configCh)
+	}
+	d.configCh = make(chan struct{})
+	d.mu.Unlock()
+}
 func (d *DeviceState) SetConfignet(c ConfignetTelegram) { d.mu.Lock(); d.confignet = &c; d.mu.Unlock() }
 func (d *DeviceState) SetCal(c CalTelegram)             { d.mu.Lock(); d.cal = &c; d.mu.Unlock() }
+
+// ConfigWatch liefert den aktuellen config-Zaehler und einen Kanal, der beim
+// naechsten empfangenen config-Telegramm geschlossen wird.
+func (d *DeviceState) ConfigWatch() (uint64, <-chan struct{}) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.configCh == nil {
+		d.configCh = make(chan struct{})
+	}
+	return d.configSeq, d.configCh
+}
+
+// ConfigAfter liefert das zuletzt empfangene config-Telegramm, sofern es
+// nach dem per ConfigWatch gemerkten Zaehlerstand seq eingetroffen ist.
+func (d *DeviceState) ConfigAfter(seq uint64) *ConfigTelegram {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.configSeq > seq && d.config != nil {
+		c := *d.config
+		return &c
+	}
+	return nil
+}
 
 // SetCalDoneHandler registriert den Callback fuer abgeschlossene Kalibrierungen
 // (siehe transport.go dispatchLine, Fall "cal"/"done").
 func (d *DeviceState) SetCalDoneHandler(f func(CalTelegram)) { d.onCalDone = f }
+
+// SetConfigHandler registriert den Callback fuer empfangene config-Telegramme
+// (einmalig in main(), vor Start der Transport-Goroutinen).
+func (d *DeviceState) SetConfigHandler(f func(ConfigTelegram)) { d.onConfig = f }
 
 // Snapshot: konsistente Kopie aller vier Felder fuer die Admin-GUI-Antwort.
 type DeviceStateSnapshot struct {

@@ -46,6 +46,14 @@
   .state.sighting{background:var(--sighting);color:#fff6d8}
   .state.match{background:var(--match);color:#d8ffe8}
   .state.ps{background:#3a2a5a;color:#e0d0ff}
+  .state.maint{background:#6a3a1a;color:#ffe0c8}
+  .lane.maint{border-color:#8a5a2a}
+  /* Wartungs-Schütze (nur Admin) */
+  #maintBox{display:none;border-top:1px dashed var(--line);padding-top:12px;margin-top:4px}
+  #maintBox .hint,#maintHint{font-size:12px;color:var(--dim);margin-bottom:8px}
+  #maintHint{display:none;background:#2a1e14;border:1px solid #6a3a1a;border-radius:4px;
+             padding:8px 10px;color:#ffe0c8}
+  #maintHint a{color:var(--acc)}
   .lane.ps-locked{cursor:default}
   .lane.ps-locked:hover{border-color:var(--line)}
 
@@ -166,10 +174,23 @@
       <input id="newPass" placeholder="Passnr." size="10">
       <button class="sec" onclick="createShooter()">Neu anlegen</button>
     </div>
+    <!-- Wartungs-Schütze: nur für Admin sichtbar (siehe updateMaintVisibility) -->
+    <div id="maintBox">
+      <div class="hint">🔧 Wartung (nur Admin): Stand mit dem Wartungs-Schützen belegen.
+        Die Schüsse werden samt Rohdaten auf dem Server gespeichert, erscheinen nicht in
+        der Ergebnisübersicht und stehen anschließend im Simulator für die Kalibrierung bereit.</div>
+      <div class="row">
+        <select id="maintDiscSel"></select>
+        <button class="warn" onclick="assignMaintenance()">Mit Wartungs-Schützen belegen</button>
+      </div>
+    </div>
   </div>
 
   <!-- Steuern (wenn belegt) -->
   <div id="controlBox" style="display:none">
+    <div id="maintHint">🔧 Wartungsbelegung – die Schüsse werden für die Kalibrierung gespeichert.
+      Nach dem Freigeben im <a href="/simulator?wartung=1">Simulator</a> unter
+      „Wartungs-Schütze" auswählbar.</div>
     <div class="row">
       <button onclick="setStatus('sighting')">Probe</button>
       <button onclick="setStatus('match')">Wertung</button>
@@ -215,6 +236,10 @@ const STATUS_CSS = {
 function laneStatus(l) {
   if (l.ps_selfservice_name) return {cls: 'ps', label: 'Preisschießen'};
   if (!l.session_id) return {cls: 'frei', label: 'Frei'};
+  if (l.maintenance) {
+    const sub = l.live_mode === 'probe' ? ' · Probe' : l.live_mode === 'wertung' ? ' · Wertung' : '';
+    return {cls: 'maint', label: 'Wartung' + sub};
+  }
   if (l.live_mode === 'probe')   return {cls: 'sighting', label: 'Probe'};
   if (l.live_mode === 'wertung') return {cls: 'match',    label: 'Wertung'};
   const s = l.session_state || 'assigned';
@@ -281,7 +306,7 @@ async function refreshLanes() {
   for (const l of visible) {
     const {cls, label} = laneStatus(l);
     const d = document.createElement('div');
-    d.className = 'lane' + (l.ps_selfservice_name ? ' ps-locked' : '');
+    d.className = 'lane' + (l.ps_selfservice_name ? ' ps-locked' : '') + (l.maintenance ? ' maint' : '');
     d.innerHTML = `<div class="conn-dot ${connDotClass(l)}" data-lane-status="${l.lane_no}"></div>
       <div class="no">Stand ${l.lane_no}</div>
       <div class="who">${l.ps_selfservice_name ? esc(l.ps_selfservice_name) : (l.shooter_name || (l.session_id ? 'anonym' : '—'))}</div>
@@ -315,6 +340,27 @@ function renderDetail() {
     `Stand ${l.lane_no}` + (l.shooter_name ? ' – ' + l.shooter_name : '');
   document.getElementById('assignBox').style.display = l.session_id ? 'none' : '';
   document.getElementById('controlBox').style.display = l.session_id ? '' : 'none';
+  document.getElementById('maintHint').style.display = l.maintenance ? 'block' : 'none';
+  updateMaintVisibility();
+}
+
+// Wartungs-Schütze nur für Admin anbieten - der Server prüft zusätzlich
+// (api.go assignLaneMaintenance -> requireAdmin).
+function isAdmin() { return window.SCHIESSSTAND_ROLE?.role_key === 'admin'; }
+function updateMaintVisibility() {
+  document.getElementById('maintBox').style.display = isAdmin() ? 'block' : 'none';
+}
+
+async function assignMaintenance() {
+  if (!confirm(`Stand ${current.lane_no} mit dem Wartungs-Schützen belegen?`)) return;
+  try {
+    await api(`/lanes/${current.lane_no}/assign-maintenance`,
+      {method:'POST', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({discipline_id: document.getElementById('maintDiscSel').value})});
+    await refreshLanes();
+    current = lanes.find(x => x.lane_no === current.lane_no);
+    renderDetail(); loadShots();
+  } catch (e) { alert(e.message); }
 }
 
 async function loadShots() {
@@ -578,11 +624,13 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 (async () => {
   disciplines = await api('/disciplines') || [];
-  const sel = document.getElementById('discSel');
-  for (const d of disciplines) {
-    const o = document.createElement('option');
-    o.value = d.id; o.textContent = d.name;
-    sel.appendChild(o);
+  for (const selId of ['discSel', 'maintDiscSel']) {
+    const sel = document.getElementById(selId);
+    for (const d of disciplines) {
+      const o = document.createElement('option');
+      o.value = d.id; o.textContent = d.name;
+      sel.appendChild(o);
+    }
   }
   await loadShooters('');
   await refreshLanes();
@@ -605,7 +653,10 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 })();
 // role.js laedt die Korrektur-Berechtigung asynchron nach - Schussliste
 // neu rendern, sobald sie feststeht (fuer den annullieren-Button).
-window.addEventListener('schiessstand-role-ready', () => { if (current?.session_id) loadShots(); });
+window.addEventListener('schiessstand-role-ready', () => {
+  if (current) updateMaintVisibility();
+  if (current?.session_id) loadShots();
+});
 </script>
 <script src="/role.js"></script>
 </body>

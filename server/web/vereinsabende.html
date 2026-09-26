@@ -16,14 +16,21 @@ header a{color:var(--dim);text-decoration:none;font-size:13px}
 header a:hover{color:var(--text)}
 header h1{font-size:19px;font-weight:700}
 header .sub{font-size:12px;color:var(--dim)}
-main{flex:1;padding:20px;max-width:900px;margin:0 auto;width:100%}
+main{flex:1;padding:16px 20px;max-width:1200px;margin:0 auto;width:100%}
+
+.tabs{display:flex;gap:2px;margin-bottom:10px;flex-wrap:wrap}
+.tab-btn{background:#1a2230;border:1px solid var(--line);color:var(--dim);padding:8px 16px;
+         cursor:pointer;font-size:.83rem;border-radius:6px 6px 0 0}
+.tab-btn.active{color:var(--acc);border-bottom-color:var(--panel);background:var(--panel)}
+.tab-content{display:none}
+.tab-content.active{display:block}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:18px;margin-bottom:16px}
-.card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+.card h2{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
 
 label{display:block;font-size:.78rem;color:var(--dim);margin-bottom:4px;margin-top:10px}
 label:first-of-type{margin-top:0}
-input[type=text],input[type=number],input[type=date],select{
+input[type=text],input[type=number],input[type=date],input[type=search],select{
   width:100%;background:#0e1218;border:1px solid var(--line);border-radius:6px;
   color:var(--text);font-size:.85rem;padding:7px 10px;transition:border-color .15s
 }
@@ -36,11 +43,13 @@ input:focus,select:focus{outline:none;border-color:var(--acc)}
 .btn-link:hover{background:#263545}
 .btn-cancel{background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);cursor:pointer}
 .btn-cancel:hover{border-color:var(--text);color:var(--text)}
+.btn-small{padding:4px 10px;font-size:.75rem}
 
 .msg{font-size:.82rem;padding:7px 10px;border-radius:6px;display:none;margin-top:8px}
 .msg.ok{background:#1a3a2a;color:#4ab8a0}
 .msg.err{background:#3a1a1a;color:#e05c5c}
 .hint{color:var(--dim);font-size:.82rem;margin-top:6px}
+.warn-box{background:#2e2510;color:var(--warn);border-radius:6px;padding:8px 12px;font-size:.82rem;margin-bottom:12px}
 
 .wt-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
 .wt-grid label{margin:0;text-align:center;font-size:.78rem}
@@ -48,8 +57,49 @@ input:focus,select:focus{outline:none;border-color:var(--acc)}
 .badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
 .badge-active{background:#1a3a2a;color:#4ab8a0}
 .badge-inactive{background:#1e2530;color:#75879a}
+.badge-run{background:#2e2510;color:#e8a030}
+.badge-vn{background:#1a2a3a;color:#64b5f6}
+.badge-train{background:#1e2530;color:#75879a}
 
-.stub{color:var(--dim);font-size:.83rem;line-height:1.6}
+/* Datumsleiste (gilt fuer Tagesergebnisse/Tageswertung/Anwesenheit) */
+.datebar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.datebar input[type=date]{width:auto}
+.datebar .wd{color:var(--dim);font-size:.85rem;min-width:90px}
+.datebar button{background:#1e2a38;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 11px;cursor:pointer;font-size:.83rem}
+.datebar button:hover{background:#263545}
+.datebar .spacer{flex:1}
+
+table{width:100%;border-collapse:collapse}
+th{text-align:left;color:var(--dim);font-weight:500;padding:5px 8px;font-size:.78rem;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;font-size:.85rem;border-bottom:1px solid #1e2530;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.strong{font-weight:700}
+td.dim{color:var(--dim)}
+.empty{color:var(--dim);text-align:center;padding:14px}
+
+/* Anwesenheit */
+.anw-top{display:grid;grid-template-columns:1fr 260px auto;gap:10px;align-items:end;margin-bottom:10px}
+@media (max-width:700px){.anw-top{grid-template-columns:1fr}}
+.anw-count{font-size:1.3rem;font-weight:700;color:var(--acc);white-space:nowrap}
+.anw-count small{font-size:.75rem;color:var(--dim);font-weight:400}
+.anw-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px}
+.anw-item{display:flex;align-items:center;gap:10px;background:#0e1218;border:1px solid var(--line);border-radius:7px;
+          padding:8px 10px;cursor:pointer;user-select:none}
+.anw-item:hover{border-color:#3a4a5c}
+.anw-item.on{border-color:var(--acc);background:#132620}
+.anw-item.implicit{border-color:#2a4a3e}
+.anw-item.busy{opacity:.5;pointer-events:none}
+.anw-item.first{outline:2px solid var(--warn);outline-offset:1px}
+.anw-box{width:22px;height:22px;border-radius:5px;border:2px solid var(--line);display:flex;align-items:center;
+         justify-content:center;font-weight:700;color:#0d1a16;flex:0 0 auto}
+.anw-item.on .anw-box{background:var(--acc);border-color:var(--acc)}
+.anw-item.implicit .anw-box{border-color:var(--acc);color:var(--acc)}
+.anw-name{flex:1;min-width:0}
+.anw-name .n{font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.anw-name .s{font-size:.72rem;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.anw-nr{color:var(--acc);font-weight:700;font-size:.85rem;min-width:30px}
+.anw-neg{color:var(--err);font-size:.72rem}
 </style>
 </head>
 <body>
@@ -57,79 +107,150 @@ input:focus,select:focus{outline:none;border-color:var(--acc)}
 <header>
   <a href="/vereinsabende-liste">← Alle Saisons</a>
   <h1 id="pg-title">Vereinsabend-Saison</h1>
+  <span id="pg-badge" class="badge"></span>
   <span class="sub" id="pg-sub"></span>
 </header>
 
 <main>
-  <div class="card">
-    <h2>Saison <span id="pg-badge" class="badge"></span></h2>
-    <div class="form-actions" style="margin-top:0;margin-bottom:6px">
-      <a class="btn-link" id="btn-open-ps" href="#">Kasse / Teilnehmer / Scheiben / Wertungen verwalten →</a>
+  <div class="tabs" id="main-tabs">
+    <button class="tab-btn" data-tab="ergebnisse">Tagesergebnisse</button>
+    <button class="tab-btn" data-tab="wertung">Tageswertung</button>
+    <button class="tab-btn" data-tab="anwesenheit">Anwesenheit</button>
+    <button class="tab-btn" data-tab="verwaltung">Verwaltung</button>
+  </div>
+
+  <!-- Gemeinsame Datumsleiste fuer die drei Tages-Tabs -->
+  <div class="datebar" id="datebar">
+    <button type="button" onclick="stepAbend(-1)" title="Vorheriger Vereinsabend">‹</button>
+    <input type="date" id="tag-datum" onchange="setDatum(this.value)">
+    <button type="button" onclick="stepAbend(1)" title="Nächster Vereinsabend">›</button>
+    <button type="button" onclick="setDatum(todayISO())">Heute</button>
+    <span class="wd" id="tag-wd"></span>
+    <span class="spacer"></span>
+    <button type="button" onclick="reloadActiveTab()" title="Neu laden">↻</button>
+  </div>
+  <div id="wd-warn" class="warn-box" style="display:none"></div>
+
+  <!-- ── Tagesergebnisse ─────────────────────────────────────────── -->
+  <div id="tab-ergebnisse" class="tab-content">
+    <div class="card">
+      <h2><span>Ergebnisse des Tages</span>
+        <select id="er-filter" style="width:auto;font-size:.78rem;padding:4px 8px" onchange="renderErgebnisse()"></select>
+      </h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th class="num">Nr</th><th>Name</th><th>Verein</th><th>Klasse</th><th>Scheibe</th>
+            <th>Serien</th><th class="num">Ringe</th><th class="num">Zehntel</th><th class="num">Bester Teiler</th><th></th>
+          </tr></thead>
+          <tbody id="er-tbody"></tbody>
+        </table>
+      </div>
     </div>
-    <p class="hint">Verkauf, Guthaben, Teilnehmerverwaltung und Wertungen werden über die
-      gemeinsame Preisschießen-Oberfläche gepflegt (identische Mechanik, nur andere Auswertelogik).</p>
   </div>
 
-  <div class="card">
-    <h2>Saison-Einstellungen</h2>
-    <form id="saison-form" onsubmit="saveSaison(event)">
-      <label for="pf-name">Name</label>
-      <input type="text" id="pf-name" required>
-      <div class="form-row2">
-        <div><label for="pf-start">Datum von</label><input type="date" id="pf-start"></div>
-        <div><label for="pf-end">Datum bis</label><input type="date" id="pf-end"></div>
-      </div>
-      <label>Vereinsabend-Wochentag(e)</label>
-      <div class="wt-grid">
-        <label><input type="checkbox" value="1" class="pf-wt"><br>Mo</label>
-        <label><input type="checkbox" value="2" class="pf-wt"><br>Di</label>
-        <label><input type="checkbox" value="3" class="pf-wt"><br>Mi</label>
-        <label><input type="checkbox" value="4" class="pf-wt"><br>Do</label>
-        <label><input type="checkbox" value="5" class="pf-wt"><br>Fr</label>
-        <label><input type="checkbox" value="6" class="pf-wt"><br>Sa</label>
-        <label><input type="checkbox" value="7" class="pf-wt"><br>So</label>
-      </div>
-      <p class="hint">Nur Scheiben, deren tatsächlicher Schießtag auf einen dieser Wochentage fällt, gehen in die Jahreswertung ein.</p>
-      <div class="form-row2" style="margin-top:10px">
-        <div>
-          <label style="display:flex;align-items:center;gap:6px;margin-top:0">
-            <input type="checkbox" id="pf-vorschiessen" style="width:auto"> Vorschießen erlaubt
-          </label>
-        </div>
-        <div>
-          <label style="display:flex;align-items:center;gap:6px;margin-top:0">
-            <input type="checkbox" id="pf-nachschiessen" style="width:auto"> Nachschießen erlaubt
-          </label>
-        </div>
-      </div>
-      <label for="pf-beste-x">Beste X Abende zählen (leer = alle)</label>
-      <input type="number" id="pf-beste-x" min="1" placeholder="alle">
-      <div class="form-actions">
-        <button type="submit" class="btn-save">Speichern</button>
-      </div>
-      <div id="pf-msg" class="msg"></div>
-    </form>
+  <!-- ── Tageswertung ────────────────────────────────────────────── -->
+  <div id="tab-wertung" class="tab-content">
+    <div id="tw-container"></div>
   </div>
 
-  <div class="card">
-    <h2>Abweichender Wochentag
-      <button type="button" class="btn-link" style="padding:4px 10px;font-size:.75rem" onclick="loadAbweichenderWochentag()">↻ Neu laden</button>
-    </h2>
-    <p class="hint">Scheiben, deren tatsächlicher Schießtag nicht auf einen der Saison-Wochentage fällt -
-      hier können sie per "Vor-/Nachschuss markieren" einem korrekten Datum zugeordnet werden (die
-      Anwesenheit zählt dann für diesen Tag nicht), oder einfach ignoriert werden (sie fließen dann
-      weiterhin nicht in die Jahreswertung ein).</p>
-    <table style="width:100%;border-collapse:collapse;margin-top:10px">
-      <thead>
-        <tr style="text-align:left;font-size:.78rem;color:var(--dim)">
-          <th style="padding:5px 8px;border-bottom:1px solid var(--line)">Teilnehmer</th>
-          <th style="padding:5px 8px;border-bottom:1px solid var(--line)">Scheibe</th>
-          <th style="padding:5px 8px;border-bottom:1px solid var(--line)">Geschossen am</th>
-          <th style="padding:5px 8px;border-bottom:1px solid var(--line)"></th>
-        </tr>
-      </thead>
-      <tbody id="abw-tbody"></tbody>
-    </table>
+  <!-- ── Anwesenheit ─────────────────────────────────────────────── -->
+  <div id="tab-anwesenheit" class="tab-content">
+    <div class="card">
+      <div id="anw-noscheibe" class="warn-box" style="display:none">
+        Für diese Saison ist noch keine aktive Teilnahme-Scheibe angelegt. Bitte in der
+        Preisschießen-Oberfläche (Tab „Verwaltung“) eine Scheibe mit einer Disziplin der
+        Wertungsart „Teilnahme“ anlegen.
+      </div>
+      <div class="anw-top">
+        <div>
+          <label for="anw-search">Suchen (Name oder Nr.) – Enter trägt den ersten Treffer ein</label>
+          <input type="search" id="anw-search" autocomplete="off" placeholder="z.B. 12 oder Müller"
+                 oninput="renderAnwesenheit()" onkeydown="anwSearchKey(event)">
+        </div>
+        <div>
+          <label for="anw-scheibe">Teilnahme-Scheibe</label>
+          <select id="anw-scheibe" onchange="renderAnwesenheit()"></select>
+        </div>
+        <div class="anw-count" id="anw-count"></div>
+      </div>
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;margin:0">
+          <input type="checkbox" id="anw-only" onchange="renderAnwesenheit()"> nur Anwesende zeigen
+        </label>
+        <span class="hint" style="margin:0">Klick auf einen Namen trägt ein bzw. aus.
+          Schützen mit einer geschossenen Scheibe an diesem Tag gelten bereits als anwesend (gestrichelt).</span>
+      </div>
+      <div class="anw-list" id="anw-list"></div>
+      <div id="anw-msg" class="msg"></div>
+    </div>
+  </div>
+
+  <!-- ── Verwaltung (bisherige Einstellungsseite) ────────────────── -->
+  <div id="tab-verwaltung" class="tab-content">
+    <div class="card">
+      <h2>Kasse / Teilnehmer / Scheiben / Wertungen</h2>
+      <div class="form-actions" style="margin-top:0;margin-bottom:6px">
+        <a class="btn-link" id="btn-open-ps" href="/preisschiessen">Preisschießen-Oberfläche öffnen →</a>
+      </div>
+      <p class="hint">Verkauf, Guthaben, Teilnehmerverwaltung und Wertungen werden über die
+        gemeinsame Preisschießen-Oberfläche gepflegt (identische Mechanik, nur andere Auswertelogik).</p>
+    </div>
+
+    <div class="card">
+      <h2>Saison-Einstellungen</h2>
+      <form id="saison-form" onsubmit="saveSaison(event)">
+        <label for="pf-name">Name</label>
+        <input type="text" id="pf-name" required>
+        <div class="form-row2">
+          <div><label for="pf-start">Datum von</label><input type="date" id="pf-start"></div>
+          <div><label for="pf-end">Datum bis</label><input type="date" id="pf-end"></div>
+        </div>
+        <label>Vereinsabend-Wochentag(e)</label>
+        <div class="wt-grid">
+          <label><input type="checkbox" value="1" class="pf-wt"><br>Mo</label>
+          <label><input type="checkbox" value="2" class="pf-wt"><br>Di</label>
+          <label><input type="checkbox" value="3" class="pf-wt"><br>Mi</label>
+          <label><input type="checkbox" value="4" class="pf-wt"><br>Do</label>
+          <label><input type="checkbox" value="5" class="pf-wt"><br>Fr</label>
+          <label><input type="checkbox" value="6" class="pf-wt"><br>Sa</label>
+          <label><input type="checkbox" value="7" class="pf-wt"><br>So</label>
+        </div>
+        <p class="hint">Nur Scheiben, deren tatsächlicher Schießtag auf einen dieser Wochentage fällt, gehen in die Jahreswertung ein.</p>
+        <div class="form-row2" style="margin-top:10px">
+          <div>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:0">
+              <input type="checkbox" id="pf-vorschiessen" style="width:auto"> Vorschießen erlaubt
+            </label>
+          </div>
+          <div>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:0">
+              <input type="checkbox" id="pf-nachschiessen" style="width:auto"> Nachschießen erlaubt
+            </label>
+          </div>
+        </div>
+        <label for="pf-beste-x">Beste X Abende zählen (leer = alle)</label>
+        <input type="number" id="pf-beste-x" min="1" placeholder="alle">
+        <div class="form-actions">
+          <button type="submit" class="btn-save">Speichern</button>
+        </div>
+        <div id="pf-msg" class="msg"></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Abweichender Wochentag
+        <button type="button" class="btn-link btn-small" onclick="loadAbweichenderWochentag()">↻ Neu laden</button>
+      </h2>
+      <p class="hint">Scheiben, deren tatsächlicher Schießtag nicht auf einen der Saison-Wochentage fällt -
+        hier können sie per "Vor-/Nachschuss markieren" einem korrekten Datum zugeordnet werden (die
+        Anwesenheit zählt dann für diesen Tag nicht), oder einfach ignoriert werden (sie fließen dann
+        weiterhin nicht in die Jahreswertung ein).</p>
+      <table style="margin-top:10px">
+        <thead><tr><th>Teilnehmer</th><th>Scheibe</th><th>Geschossen am</th><th></th></tr></thead>
+        <tbody id="abw-tbody"></tbody>
+      </table>
+    </div>
   </div>
 </main>
 
@@ -146,6 +267,16 @@ function showMsg(id, text, type) {
   el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 4000);
 }
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// Zahl ohne unnoetige Nachkommastellen (Ring-Werte koennen per Faktor
+// gebrochen sein, Punkte ebenso), deutsches Komma.
+function fmtNum(v, maxFrac = 2) {
+  if (v == null) return '–';
+  return Number(v).toLocaleString('de-DE', {maximumFractionDigits: maxFrac});
+}
+const fmtTeiler = v => v == null ? '–' : Number(v).toLocaleString('de-DE', {minimumFractionDigits:1, maximumFractionDigits:1});
 
 const id = new URLSearchParams(location.search).get('id');
 if (!id) {
@@ -155,6 +286,293 @@ if (!id) {
 
 let saison = null;
 
+// ══════════════════════════════════════════════════════════════════════
+// Tabs + Datum
+// ══════════════════════════════════════════════════════════════════════
+const WOCHENTAG_LABEL = {1:'Mo',2:'Di',3:'Mi',4:'Do',5:'Fr',6:'Sa',7:'So'};
+const WOCHENTAG_LANG = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+const TAB_KEY = 'va_tab';
+let activeTab = 'ergebnisse';
+let datum = todayISO();
+let refreshTimer = null;
+
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function parseISO(s) { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); }
+function toISO(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function isoWd(d) { return d.getDay() === 0 ? 7 : d.getDay(); }
+
+function switchTab(name) {
+  activeTab = name;
+  try { localStorage.setItem(TAB_KEY, name); } catch (e) {}
+  document.querySelectorAll('#main-tabs .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('main > .tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + name));
+  const isDayTab = name !== 'verwaltung';
+  document.getElementById('datebar').style.display = isDayTab ? '' : 'none';
+  if (!isDayTab) document.getElementById('wd-warn').style.display = 'none';
+  reloadActiveTab();
+  if (name === 'anwesenheit') setTimeout(() => document.getElementById('anw-search').focus(), 0);
+}
+document.querySelectorAll('#main-tabs .tab-btn').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+
+function setDatum(val) {
+  if (!val) return;
+  datum = val;
+  document.getElementById('tag-datum').value = val;
+  document.getElementById('tag-wd').textContent = WOCHENTAG_LANG[parseISO(val).getDay()] + (val === todayISO() ? ' (heute)' : '');
+  reloadActiveTab();
+}
+
+// stepAbend springt zum vorherigen/naechsten Saison-Wochentag (ohne
+// konfigurierte Wochentage: einfach einen Tag weiter).
+function stepAbend(dir) {
+  const wt = new Set(saison?.saison_wochentage || []);
+  const d = parseISO(datum);
+  for (let i = 0; i < 7; i++) {
+    d.setDate(d.getDate() + dir);
+    if (!wt.size || wt.has(isoWd(d))) break;
+  }
+  setDatum(toISO(d));
+}
+
+function showWdWarn(zaehlt) {
+  const el = document.getElementById('wd-warn');
+  if (zaehlt || activeTab === 'verwaltung') { el.style.display = 'none'; return; }
+  const tage = (saison?.saison_wochentage || []).map(w => WOCHENTAG_LABEL[w]).join(', ') || '–';
+  el.textContent = `Dieser Tag ist kein Vereinsabend-Wochentag der Saison (${tage}) – Ergebnisse dieses Tages zählen nicht für die Jahreswertung.`;
+  el.style.display = '';
+}
+
+function reloadActiveTab() {
+  clearTimeout(refreshTimer);
+  const run = {ergebnisse: loadErgebnisse, wertung: loadTageswertung, anwesenheit: loadAnwesenheit,
+               verwaltung: loadAbweichenderWochentag}[activeTab];
+  if (run) run();
+  // Am laufenden Abend automatisch aktualisieren (Ergebnisse/Wertung) -
+  // Anwesenheit nicht, damit die Liste beim Eintragen nicht springt.
+  if ((activeTab === 'ergebnisse' || activeTab === 'wertung') && datum === todayISO()) {
+    refreshTimer = setTimeout(reloadActiveTab, 30000);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Tagesergebnisse
+// ══════════════════════════════════════════════════════════════════════
+let erRows = [];
+
+async function loadErgebnisse() {
+  const tbody = document.getElementById('er-tbody');
+  try {
+    const res = await api(`/preisschiessen/${id}/vereinsabend/tagesergebnisse?datum=${datum}`);
+    erRows = res.ergebnisse || [];
+    showWdWarn(res.wochentag_zaehlt);
+    const sel = document.getElementById('er-filter');
+    const prev = sel.value;
+    const names = [...new Set(erRows.map(r => r.scheibe_name))].sort();
+    sel.innerHTML = '<option value="">Alle Scheiben</option>' + names.map(n => `<option>${esc(n)}</option>`).join('');
+    if (names.includes(prev)) sel.value = prev;
+    renderErgebnisse();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="10" class="empty" style="color:var(--err)">Fehler: ${esc(err.message)}</td></tr>`;
+  }
+}
+
+function renderErgebnisse() {
+  const tbody = document.getElementById('er-tbody');
+  const f = document.getElementById('er-filter').value;
+  const rows = erRows.filter(r => !f || r.scheibe_name === f);
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="10" class="empty">Keine Ergebnisse an diesem Tag</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const teilnahme = r.scoring_mode === 'teilnahme';
+    const badges = [];
+    if (!r.finished_at) badges.push('<span class="badge badge-run">läuft</span>');
+    if (r.vor_nachschuss) badges.push('<span class="badge badge-vn">Vor-/Nachschuss</span>');
+    else if (r.schiesstag_override) badges.push('<span class="badge badge-vn" title="Schießtag manuell zugeordnet">zugeordnet</span>');
+    if (r.auswertung_unsichtbar) badges.push('<span class="badge badge-train">Training</span>');
+    if (teilnahme) badges.push('<span class="badge badge-active">Anwesenheit</span>');
+    const serien = teilnahme ? '' : (r.serien || []).join(' · ');
+    return `<tr>
+      <td class="num dim">${r.teilnehmer_nr}</td>
+      <td>${esc(r.nachname)}, ${esc(r.vorname)}</td>
+      <td class="dim">${esc(r.verein)}</td>
+      <td class="dim">${esc(r.klasse)}</td>
+      <td>${esc(r.scheibe_name)}</td>
+      <td class="dim" style="font-size:.78rem">${serien}</td>
+      <td class="num strong">${teilnahme ? '' : fmtNum(r.ringe, 0)}</td>
+      <td class="num">${teilnahme || r.zehntel == null ? '' : fmtNum(r.zehntel, 1)}</td>
+      <td class="num">${teilnahme ? '' : fmtTeiler(r.bester_teiler)}</td>
+      <td style="white-space:nowrap">${badges.join(' ')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Tageswertung
+// ══════════════════════════════════════════════════════════════════════
+async function loadTageswertung() {
+  const box = document.getElementById('tw-container');
+  try {
+    const res = await api(`/preisschiessen/${id}/vereinsabend/tageswertung?datum=${datum}`);
+    showWdWarn(res.wochentag_zaehlt);
+    const wl = res.wertungen || [];
+    if (!wl.length) {
+      box.innerHTML = `<div class="card"><p class="hint" style="margin:0">Für diese Saison ist noch keine Wertung vom Typ
+        „Punkte-Saison“ angelegt (Preisschießen-Oberfläche → Auswertung).</p></div>`;
+      return;
+    }
+    box.innerHTML = wl.map(w => {
+      const ringFrac = w.wertungsfeld === 'ring_decimal' ? 1 : 2;
+      const rows = w.eintraege.length ? w.eintraege.map(e => `<tr>
+          <td class="num strong">${e.platz}.</td>
+          <td class="num dim">${e.teilnehmer_nr}</td>
+          <td>${esc(e.nachname)}, ${esc(e.vorname)}
+            ${e.vor_nachschuss ? '<span class="badge badge-vn" title="Nur Vor-/Nachschuss an diesem Tag - kein Anwesenheitsbonus">V/N</span>' : ''}</td>
+          <td class="dim">${esc(e.verein)}</td>
+          <td class="dim">${esc(e.klasse)}</td>
+          <td class="num">${fmtNum(e.ring, ringFrac)}</td>
+          <td class="num">${fmtTeiler(e.teiler)}</td>
+          <td class="num dim">${fmtNum(e.ring_punkte)}</td>
+          <td class="num dim">${fmtNum(e.teiler_punkte)}</td>
+          <td class="num dim">${fmtNum(e.anwesenheit_punkte)}</td>
+          <td class="num strong">${fmtNum(e.punkte)}</td>
+        </tr>`).join('')
+        : `<tr><td colspan="11" class="empty">Keine Wertungsergebnisse an diesem Tag</td></tr>`;
+      return `<div class="card">
+        <h2><span>${esc(w.short_desc)}${w.long_desc ? ' – ' + esc(w.long_desc) : ''}</span></h2>
+        <div style="overflow-x:auto"><table>
+          <thead><tr>
+            <th class="num">Platz</th><th class="num">Nr</th><th>Name</th><th>Verein</th><th>Klasse</th>
+            <th class="num">Ring</th><th class="num">Teiler</th>
+            <th class="num">Ring-Pkt.</th><th class="num">Teiler-Pkt.</th><th class="num">Anw.-Pkt.</th><th class="num">Punkte</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    box.innerHTML = `<div class="card"><p style="color:var(--err)">Fehler: ${esc(err.message)}</p></div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Anwesenheit
+// ══════════════════════════════════════════════════════════════════════
+let anwData = null;
+const anwBusy = new Set();
+
+async function loadAnwesenheit() {
+  try {
+    anwData = await api(`/preisschiessen/${id}/vereinsabend/anwesenheit?datum=${datum}`);
+    showWdWarn(anwData.wochentag_zaehlt);
+    const sel = document.getElementById('anw-scheibe');
+    const prev = sel.value;
+    const sc = anwData.teilnahme_scheiben || [];
+    sel.innerHTML = sc.map(s => `<option value="${s.id}">${esc(s.name)}${s.price ? ' (' + fmtNum(s.price) + ' €)' : ''}</option>`).join('');
+    if (sc.some(s => s.id === prev)) sel.value = prev;
+    document.getElementById('anw-noscheibe').style.display = sc.length ? 'none' : '';
+    renderAnwesenheit();
+  } catch (err) {
+    document.getElementById('anw-list').innerHTML = `<p style="color:var(--err)">Fehler: ${esc(err.message)}</p>`;
+  }
+}
+
+function anwEintrag(t) {
+  const sid = document.getElementById('anw-scheibe').value;
+  return t.anwesenheit.find(a => a.scheibe_id === sid) || null;
+}
+function anwFiltered() {
+  if (!anwData) return [];
+  const q = document.getElementById('anw-search').value.trim().toLowerCase();
+  const only = document.getElementById('anw-only').checked;
+  return anwData.teilnehmer.filter(t => {
+    if (only && !t.anwesenheit.length && !t.geschossen) return false;
+    if (!q) return true;
+    if (/^\d+$/.test(q)) return String(t.teilnehmer_nr) === q;
+    return `${t.nachname} ${t.vorname} ${t.vorname} ${t.nachname}`.toLowerCase().includes(q);
+  });
+}
+
+function renderAnwesenheit() {
+  if (!anwData) return;
+  const list = document.getElementById('anw-list');
+  const all = anwData.teilnehmer;
+  const present = all.filter(t => t.anwesenheit.length || t.geschossen).length;
+  document.getElementById('anw-count').innerHTML = `${present} <small>von ${all.length} anwesend</small>`;
+  const rows = anwFiltered();
+  const q = document.getElementById('anw-search').value.trim();
+  if (!rows.length) {
+    list.innerHTML = `<p class="hint">${all.length ? 'Keine Treffer.' : 'Noch keine Teilnehmer in dieser Saison (Anmeldung über die Preisschießen-Oberfläche).'}</p>`;
+    return;
+  }
+  const price = (anwData.teilnahme_scheiben.find(s => s.id === document.getElementById('anw-scheibe').value) || {}).price || 0;
+  list.innerHTML = rows.map((t, i) => {
+    const e = anwEintrag(t);
+    const other = t.anwesenheit.filter(a => a !== e);
+    const cls = ['anw-item'];
+    if (e) cls.push('on'); else if (t.geschossen || other.length) cls.push('implicit');
+    if (anwBusy.has(t.teilnehmer_id)) cls.push('busy');
+    if (q && i === 0) cls.push('first');
+    const sub = [t.verein, t.klasse].filter(Boolean).join(' · ');
+    const info = [];
+    if (t.geschossen) info.push(`${t.geschossen} Scheibe${t.geschossen > 1 ? 'n' : ''} geschossen`);
+    other.forEach(a => info.push(a.scheibe_name));
+    if (e && e.vor_nachschuss) info.push('Vor-/Nachschuss');
+    const neg = price > 0 && !e && t.guthaben < price ? `<span class="anw-neg" title="Guthaben reicht nicht">${fmtNum(t.guthaben)} €</span>` : '';
+    return `<div class="${cls.join(' ')}" onclick="anwToggle('${t.teilnehmer_id}')">
+      <div class="anw-box">${e ? '✓' : (t.geschossen || other.length ? '✓' : '')}</div>
+      <div class="anw-nr">${t.teilnehmer_nr}</div>
+      <div class="anw-name"><div class="n">${esc(t.nachname)}, ${esc(t.vorname)}</div>
+        <div class="s">${esc([sub, ...info].filter(Boolean).join(' · '))}</div></div>
+      ${neg}
+    </div>`;
+  }).join('');
+}
+
+async function anwToggle(tid) {
+  const t = anwData?.teilnehmer.find(x => x.teilnehmer_id === tid);
+  const sid = document.getElementById('anw-scheibe').value;
+  if (!t || !sid || anwBusy.has(tid)) return;
+  const e = anwEintrag(t);
+  anwBusy.add(tid);
+  renderAnwesenheit();
+  try {
+    if (e) {
+      await api(`/preisschiessen/${id}/vereinsabend/anwesenheit/${e.kauf_scheibe_id}`, {method: 'DELETE'});
+    } else {
+      const res = await api(`/preisschiessen/${id}/vereinsabend/anwesenheit`,
+        jsonOpts('POST', {datum, scheibe_id: sid, teilnehmer_ids: [tid]}));
+      const r = (res.results || [])[0];
+      if (r && !r.ok) throw new Error(r.fehler);
+    }
+  } catch (err) {
+    showMsg('anw-msg', `${t.nachname}, ${t.vorname}: ${err.message}`, 'err');
+  } finally {
+    anwBusy.delete(tid);
+    await loadAnwesenheit();
+  }
+}
+
+function anwSearchKey(ev) {
+  if (ev.key === 'Escape') { ev.target.value = ''; renderAnwesenheit(); return; }
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  const first = anwFiltered()[0];
+  if (!first) return;
+  // Enter traegt nur EIN (nie aus) - versehentliches Austragen per Tastatur vermeiden.
+  if (!anwEintrag(first)) anwToggle(first.teilnehmer_id);
+  else showMsg('anw-msg', `${first.nachname}, ${first.vorname} ist bereits eingetragen.`, 'ok');
+  ev.target.value = '';
+  renderAnwesenheit();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Verwaltung
+// ══════════════════════════════════════════════════════════════════════
 async function load() {
   saison = await api('/preisschiessen/' + id);
   document.getElementById('pg-title').textContent = saison.name;
@@ -169,7 +587,6 @@ async function load() {
   document.getElementById('btn-open-ps').onclick = () => {
     localStorage.setItem('ps_current_id', id);
   };
-  document.getElementById('btn-open-ps').href = '/preisschiessen';
 
   document.getElementById('pf-name').value = saison.name || '';
   document.getElementById('pf-start').value = (saison.starts_on || '').slice(0, 10);
@@ -209,31 +626,29 @@ async function saveSaison(e) {
   } catch (err) { showMsg('pf-msg', 'Fehler: ' + err.message, 'err'); }
 }
 
-const WOCHENTAG_LABEL = {1:'Mo',2:'Di',3:'Mi',4:'Do',5:'Fr',6:'Sa',7:'So'};
-
 async function loadAbweichenderWochentag() {
   const tbody = document.getElementById('abw-tbody');
-  tbody.innerHTML = '<tr><td colspan="4" style="color:var(--dim);text-align:center;padding:10px">Lade…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="4" class="empty">Lade…</td></tr>';
   try {
     const rows = await api(`/preisschiessen/${id}/abweichender-wochentag`) || [];
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="4" style="color:var(--dim);text-align:center;padding:10px">Keine abweichenden Schießtage</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">Keine abweichenden Schießtage</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map(r => `
       <tr data-ks-id="${r.kauf_scheibe_id}">
-        <td style="padding:6px 8px;font-size:.85rem">#${r.teilnehmer_nr} ${esc(r.nachname)}, ${esc(r.vorname)}</td>
-        <td style="padding:6px 8px;font-size:.85rem">${esc(r.scheibe_name)}</td>
-        <td style="padding:6px 8px;font-size:.85rem">${r.schiesstag}${r.schiesstag_time ? ' ' + r.schiesstag_time : ''} (${WOCHENTAG_LABEL[r.wochentag] || r.wochentag})</td>
-        <td style="padding:6px 8px;white-space:nowrap">
-          <button type="button" class="btn-link" style="padding:4px 10px;font-size:.75rem"
+        <td>#${r.teilnehmer_nr} ${esc(r.nachname)}, ${esc(r.vorname)}</td>
+        <td>${esc(r.scheibe_name)}</td>
+        <td>${r.schiesstag}${r.schiesstag_time ? ' ' + r.schiesstag_time : ''} (${WOCHENTAG_LABEL[r.wochentag] || r.wochentag})</td>
+        <td style="white-space:nowrap">
+          <button type="button" class="btn-link btn-small"
                   onclick="abwMarkVorNachschuss('${r.kauf_scheibe_id}')">Vor-/Nachschuss markieren</button>
-          <button type="button" class="btn-cancel" style="padding:4px 10px;font-size:.75rem"
+          <button type="button" class="btn-cancel btn-small"
                   onclick="this.closest('tr').remove()">Ignorieren</button>
         </td>
       </tr>`).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--err);text-align:center;padding:10px">Fehler: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty" style="color:var(--err)">Fehler: ${esc(err.message)}</td></tr>`;
   }
 }
 
@@ -251,8 +666,20 @@ async function abwMarkVorNachschuss(ksId) {
   } catch (err) { alert('Fehler: ' + err.message); }
 }
 
-load().catch(err => showMsg('pf-msg', 'Fehler beim Laden: ' + err.message, 'err'));
-loadAbweichenderWochentag();
+// ── Start ───────────────────────────────────────────────────────────────
+(async () => {
+  try { await load(); } catch (err) { showMsg('pf-msg', 'Fehler beim Laden: ' + err.message, 'err'); }
+  let tab = 'ergebnisse';
+  try { tab = localStorage.getItem(TAB_KEY) || tab; } catch (e) {}
+  if (location.hash.length > 1) tab = location.hash.slice(1); // Direktlink, z.B. #anwesenheit
+  if (!document.getElementById('tab-' + tab)) tab = 'ergebnisse';
+  // ?datum=JJJJ-MM-TT im Link waehlt einen anderen Starttag als heute
+  const qd = new URLSearchParams(location.search).get('datum');
+  datum = /^\d{4}-\d{2}-\d{2}$/.test(qd || '') ? qd : todayISO();
+  document.getElementById('tag-datum').value = datum;
+  document.getElementById('tag-wd').textContent = WOCHENTAG_LANG[parseISO(datum).getDay()] + (datum === todayISO() ? ' (heute)' : '');
+  switchTab(tab);
+})();
 </script>
 <script src="/role.js"></script>
 </body>

@@ -782,7 +782,7 @@ func buildSeriesJoin(wertungsfeld, serienModus, alias string) (string, error) {
 					SELECT session_id, best_teiler,
 					       ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY series_no) AS ord
 					FROM v_series_best_teiler
-				) x WHERE x.ord <= $5
+				) x WHERE x.ord <= $4
 				GROUP BY session_id
 			) %[1]s ON %[1]s.session_id = ks.session_id`, alias), nil
 		case "beste_n":
@@ -792,7 +792,7 @@ func buildSeriesJoin(wertungsfeld, serienModus, alias string) (string, error) {
 					       ROW_NUMBER() OVER (PARTITION BY vsbt.session_id ORDER BY vser.rings DESC) AS ord
 					FROM v_series_best_teiler vsbt
 					JOIN v_series_results vser ON vser.session_id = vsbt.session_id AND vser.series_no = vsbt.series_no
-				) vsbt WHERE vsbt.ord <= $5
+				) vsbt WHERE vsbt.ord <= $4
 				GROUP BY vsbt.session_id
 			) %[1]s ON %[1]s.session_id = ks.session_id`, alias), nil
 		}
@@ -815,7 +815,7 @@ func buildSeriesJoin(wertungsfeld, serienModus, alias string) (string, error) {
 			SELECT session_id, SUM(%[1]s) AS wert FROM (
 				SELECT session_id, %[1]s, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY series_no) AS ord
 				FROM v_series_results
-			) x WHERE x.ord <= $5
+			) x WHERE x.ord <= $4
 			GROUP BY session_id
 		) %[2]s ON %[2]s.session_id = ks.session_id`, col, alias), nil
 	case "beste_n":
@@ -823,7 +823,7 @@ func buildSeriesJoin(wertungsfeld, serienModus, alias string) (string, error) {
 			SELECT session_id, SUM(%[1]s) AS wert FROM (
 				SELECT session_id, %[1]s, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY %[1]s DESC) AS ord
 				FROM v_series_results
-			) x WHERE x.ord <= $5
+			) x WHERE x.ord <= $4
 			GROUP BY session_id
 		) %[2]s ON %[2]s.session_id = ks.session_id`, col, alias), nil
 	}

@@ -8,16 +8,20 @@
 // Kalibrierung (cal/"done", siehe transport.go dispatchLine) beim zentralen
 // Server, adressiert per mac (stabile Geraete-ID, ueberlebt einen
 // Geraetetausch NICHT, wohl aber Lane-Umsteckungen). fetchCalibrationBackup()
-// liest sie fuer den Restore-Button der Admin-GUI wieder zurueck.
+// liest sie fuer den Restore-Button der Admin-GUI wieder zurueck; nach einem
+// Platinentausch hilft fetchCalibrationBackupByLane() (juengste Sicherung
+// des Stands, nach Rueckfrage in der Admin-GUI).
 // ============================================================================
 package main
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -59,25 +63,22 @@ func (ws *WebServer) uploadCalibrationBackup(cal CalTelegram) {
 	log.Printf("Kalibrierungs-Backup fuer %s beim Server gesichert", cal.MAC)
 }
 
-// esp32Calibration: Antwortformat von GET /api/esp32-calibrations/{mac}
-// (server/esp32calibrations.go) - Grundlage fuer "CAL IMPORT" im Restore.
+// esp32Calibration: Antwortformat von GET /api/esp32-calibrations/{mac} bzw.
+// ?lane_no=N (server/esp32calibrations.go) - Grundlage fuer "CAL IMPORT" im
+// Restore.
 type esp32Calibration struct {
-	MAC       string `json:"mac"`
-	OffsetsNs [6]int `json:"offsets_ns"`
-	SoundMps  int    `json:"sound_mps"`
+	MAC       string     `json:"mac"`
+	OffsetsNs [6]int     `json:"offsets_ns"`
+	SoundMps  int        `json:"sound_mps"`
+	LaneNo    *int       `json:"lane_no"`
+	UpdatedAt *time.Time `json:"updated_at"`
 }
 
-// fetchCalibrationBackup holt das zuletzt gesicherte Kalibrierungs-Backup
-// fuer die angegebene MAC vom Server (fuer den "Vom Server wiederherstellen"
-// -Button der Admin-GUI, siehe admin.go handleAdminCalRestore).
-func fetchCalibrationBackup(serverURL, mac string) (*esp32Calibration, error) {
-	if serverURL == "" {
-		return nil, fmt.Errorf("kein Server konfiguriert")
-	}
-	if mac == "" {
-		return nil, fmt.Errorf("Geraete-ID (mac) noch unbekannt - Status abrufen und erneut versuchen")
-	}
-	url := serverURL + "/api/esp32-calibrations/" + mac
+// errNoBackup: fuer diese Geraete-ID bzw. diesen Stand ist keine Sicherung
+// hinterlegt (Server 404) - im Gegensatz zu Verbindungsfehlern.
+var errNoBackup = errors.New("keine Sicherung hinterlegt")
+
+func getCalibrationBackup(url string) (*esp32Calibration, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -85,7 +86,7 @@ func fetchCalibrationBackup(serverURL, mac string) (*esp32Calibration, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("kein Backup fuer %s beim Server hinterlegt", mac)
+		return nil, errNoBackup
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Server antwortete mit %s", resp.Status)
@@ -95,4 +96,22 @@ func fetchCalibrationBackup(serverURL, mac string) (*esp32Calibration, error) {
 		return nil, err
 	}
 	return &cal, nil
+}
+
+// fetchCalibrationBackup holt die Sicherung genau dieser Platine (mac).
+func fetchCalibrationBackup(serverURL, mac string) (*esp32Calibration, error) {
+	if serverURL == "" {
+		return nil, fmt.Errorf("kein Server konfiguriert")
+	}
+	return getCalibrationBackup(serverURL + "/api/esp32-calibrations/" + url.PathEscape(mac))
+}
+
+// fetchCalibrationBackupByLane holt die juengste Sicherung des Stands, egal
+// von welcher Platine - Fallback nach einem Platinentausch (die neue
+// Platine hat eine neue mac und noch keine eigene Sicherung).
+func fetchCalibrationBackupByLane(serverURL string, laneNo int) (*esp32Calibration, error) {
+	if serverURL == "" {
+		return nil, fmt.Errorf("kein Server konfiguriert")
+	}
+	return getCalibrationBackup(fmt.Sprintf("%s/api/esp32-calibrations?lane_no=%d", serverURL, laneNo))
 }

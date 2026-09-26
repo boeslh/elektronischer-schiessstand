@@ -59,6 +59,9 @@ func dispatchLine(line []byte, out chan<- RawShot, cmds *CommandManager, state *
 		var cfg ConfigTelegram
 		if err := json.Unmarshal(line, &cfg); err == nil && state != nil {
 			state.SetConfig(cfg)
+			if state.onConfig != nil {
+				go state.onConfig(cfg)
+			}
 		}
 		log.Printf("ESP32: %s", line)
 	case "confignet":

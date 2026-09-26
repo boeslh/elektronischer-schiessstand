@@ -14,6 +14,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -64,6 +65,12 @@ var adminConfigKeys = []adminConfigKey{
 	{"OFFSETX", "-50000..50000 (0.001mm)", "0", false, "konstanter Nachkorrektur-Offset x"},
 	{"OFFSETY", "-50000..50000 (0.001mm)", "0", false, "konstanter Nachkorrektur-Offset y"},
 	{"SOUNDSPEED", "300-400 (m/s)", "343", false, "rein manuell, wird von CAL START nicht veraendert"},
+	{"OFS0", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 0 (Referenz, normalerweise 0) - sonst per CAL START/Kalibrierung vom Server"},
+	{"OFS1", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 1 - sonst per CAL START/Kalibrierung vom Server"},
+	{"OFS2", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 2 - sonst per CAL START/Kalibrierung vom Server"},
+	{"OFS3", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 3 - sonst per CAL START/Kalibrierung vom Server"},
+	{"OFS4", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 4 - sonst per CAL START/Kalibrierung vom Server"},
+	{"OFS5", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 5 - sonst per CAL START/Kalibrierung vom Server"},
 	{"PAPERFEED", "10.0-100.0 (mm)", "50.0", false, "Vorschubstrecke je Ausloesung"},
 	{"PAPERSPEED", "0.5-30.0 (mm/s)", "5.0", false, "Geschwindigkeit 1. Haelfte"},
 	{"PAPERAUTO", "0|1", "1", false, "automatischen Vorschub ueberhaupt ausfuehren"},
@@ -104,6 +111,11 @@ func (ws *WebServer) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/api/set", ws.requireAdmin(ws.handleAdminSet))
 	mux.HandleFunc("POST /admin/api/cal", ws.requireAdmin(ws.handleAdminCal))
 	mux.HandleFunc("POST /admin/api/cal/restore", ws.requireAdmin(ws.handleAdminCalRestore))
+	mux.HandleFunc("GET /admin/api/transfer", ws.requireAdmin(ws.handleAdminTransfer))
+	mux.HandleFunc("POST /admin/api/transfer/apply", ws.requireAdmin(ws.handleAdminTransferApply))
+	mux.HandleFunc("GET /admin/api/config-history", ws.requireAdmin(ws.handleAdminConfigHistory))
+	mux.HandleFunc("GET /admin/api/config-restore", ws.requireAdmin(ws.handleAdminConfigRestoreCheck))
+	mux.HandleFunc("POST /admin/api/config-restore/apply", ws.requireAdmin(ws.handleAdminConfigRestoreApply))
 	mux.HandleFunc("POST /admin/api/action", ws.requireAdmin(ws.handleAdminAction))
 	mux.HandleFunc("POST /admin/api/net", ws.requireAdmin(ws.handleAdminNet))
 }
@@ -251,6 +263,7 @@ func (ws *WebServer) handleAdminSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ws.sendAdminCommand(w, fmt.Sprintf("SET %s=%s", body.Key, body.Value))
+	go ws.requestConfigSnapshot() // Aenderung im Konfigurationsverlauf festhalten
 }
 
 // handleAdminCal: CAL START/ABORT/RESET - fuer den atomaren Restore siehe
@@ -271,20 +284,82 @@ func (ws *WebServer) handleAdminCal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAdminCalRestore holt das zuletzt gesicherte Kalibrierungs-Backup vom
-// Server (fuer die aktuell bekannte Geraete-ID) und schreibt es atomar per
-// CAL IMPORT zurueck (siehe calibration_backup.go fetchCalibrationBackup).
+// currentOrQueriedMAC liefert die Geraete-ID; ist sie noch unbekannt (kein
+// Telegramm seit Start des Stand-PCs), wird sie per STATUS aktiv erfragt.
+// "" = kein Geraet erreichbar.
+func (ws *WebServer) currentOrQueriedMAC() string {
+	if mac := ws.deviceState.CurrentMAC(); mac != "" {
+		return mac
+	}
+	var st StatusTelegram
+	if err := ws.queryTelegram("STATUS", "status", &st); err != nil {
+		return ""
+	}
+	return st.MAC
+}
+
+// handleAdminCalRestore holt die Kalibrierungs-Sicherung vom Server und
+// schreibt sie atomar per CAL IMPORT zurueck. Reihenfolge:
+//  1. Sicherung genau dieser Platine (mac) - Normalfall.
+//  2. Gibt es keine (typisch: Platine getauscht, neue mac), die juengste
+//     Sicherung des STANDS - aber nur nach ausdruecklicher Bestaetigung
+//     (Body {"from_lane":true}): Die Mikrofon-Offsets gleichen Laufzeit-
+//     unterschiede von Mikrofonen, Kabeln UND Eingangsstufen der Platine
+//     aus - nach einem Tausch sind sie ein guter Ausgangspunkt, sollten aber
+//     per CAL START oder Foto-Kalibrierung ueberprueft werden. Ohne
+//     Bestaetigung antwortet der Handler mit 409 und den Daten der
+//     gefundenen Sicherung, damit die Oberflaeche nachfragen kann.
+//
+// Nach einer Uebernahme vom Stand wird die Sicherung zusaetzlich unter der
+// neuen mac abgelegt - beim naechsten Mal greift dann direkt Schritt 1.
 func (ws *WebServer) handleAdminCalRestore(w http.ResponseWriter, r *http.Request) {
-	mac := ws.deviceState.CurrentMAC()
-	cal, err := fetchCalibrationBackup(ws.cfg.ServerURL, mac)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	var body struct {
+		FromLane bool `json:"from_lane"`
+	}
+	json.NewDecoder(r.Body).Decode(&body) // leerer Body = Normalfall
+
+	mac := ws.currentOrQueriedMAC()
+	if mac == "" {
+		http.Error(w, "Kein ESP32 verbunden - die Kalibrierung kann nur auf ein erreichbares Gerät zurückgeschrieben werden.", http.StatusBadGateway)
 		return
 	}
+	source := "mac"
+	cal, err := fetchCalibrationBackup(ws.cfg.ServerURL, mac)
+	if errors.Is(err, errNoBackup) {
+		laneCal, laneErr := fetchCalibrationBackupByLane(ws.cfg.ServerURL, ws.cfg.LaneNo)
+		if errors.Is(laneErr, errNoBackup) {
+			http.Error(w, fmt.Sprintf("Weder für dieses Gerät (%s) noch für Stand %d ist eine Kalibrierung auf dem Server gesichert.", mac, ws.cfg.LaneNo), http.StatusNotFound)
+			return
+		}
+		if laneErr != nil {
+			http.Error(w, laneErr.Error(), http.StatusBadGateway)
+			return
+		}
+		if !body.FromLane {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"need_confirm": true, "current_mac": mac, "lane_no": ws.cfg.LaneNo, "backup": laneCal,
+			})
+			return
+		}
+		cal, err, source = laneCal, nil, "lane"
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
 	cmd := fmt.Sprintf("CAL IMPORT OFS0=%d,OFS1=%d,OFS2=%d,OFS3=%d,OFS4=%d,OFS5=%d,SOUNDSPEED=%d",
 		cal.OffsetsNs[0], cal.OffsetsNs[1], cal.OffsetsNs[2],
 		cal.OffsetsNs[3], cal.OffsetsNs[4], cal.OffsetsNs[5], cal.SoundMps)
-	ws.sendAdminCommand(w, cmd)
+	if err := ws.sendChecked(cmd); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if source == "lane" && cal.MAC != mac {
+		ws.uploadCalibrationBackup(CalTelegram{MAC: mac, OffsetsNs: cal.OffsetsNs, SoundMps: cal.SoundMps})
+	}
+	go ws.requestConfigSnapshot()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "source": source, "backup_mac": cal.MAC, "mac": mac})
 }
 
 // handleAdminAction: ACTION LIGHT=ON|OFF|AUTO, ACTION TARGETCHANGE.

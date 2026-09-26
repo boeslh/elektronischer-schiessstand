@@ -14,7 +14,7 @@
   const TILE_BY_PATH = {
     '/lanes': 'lanes', '/stammdaten': 'stammdaten', '/disciplines': 'disciplines',
     '/wettkampf': 'wettkampf', '/standaktion': 'standaktion', '/ergebnisse': 'ergebnisse',
-    '/simulator': 'simulator', '/auswertung': 'auswertung', '/settings': 'settings',
+    '/simulator': 'simulator', '/geraetekonfiguration': 'simulator', '/auswertung': 'auswertung', '/settings': 'settings',
     '/archiv': 'archiv',
     '/preisschiessen': 'preisschiessen', '/preisschiessen-liste': 'preisschiessen',
     '/preisschiessen-bearbeiten': 'preisschiessen',

@@ -24,6 +24,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO_VERSION="1.26.4"
 
+# OFFLINE_DIR: von package.sh --with-deps mitgeliefertes Abhaengigkeiten-
+# Buendel (Go-Toolchain, Go-Modul-Cache, apt-.deb-Pakete) - existiert nur,
+# wenn das Archiv damit gepackt wurde (siehe dortigen Kommentar). Wo vorhanden,
+# wird es unten bevorzugt genutzt statt aus dem Internet zu laden; ohne
+# Internetzugang UND ohne dieses Buendel schlagen apt_ensure()/der Go-Download
+# entsprechend fehl.
+OFFLINE_DIR="${SCRIPT_DIR}/offline-deps"
+
 # ── Root prüfen ─────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
   echo "Bitte mit sudo ausführen: sudo $0" >&2
@@ -45,18 +53,34 @@ fi
 apt_ensure() {
   # apt_ensure pkg1 pkg2 ... - installiert nur, was tatsaechlich fehlt (kein
   # "apt-get update" bei bereits vollstaendiger Paketliste).
+  #
+  # Offline-Fall (OFFLINE_DIR/apt mit .deb-Dateien vorhanden, siehe
+  # package.sh --with-deps): installiert direkt aus den mitgelieferten Paketen
+  # statt "apt-get update"+netzwerkbasiertem Install - apt loest dabei
+  # Abhaengigkeiten weiterhin selbst auf, braucht dafuer aber ALLE benoetigten
+  # .deb-Dateien lokal (package.sh laedt die volle rekursive Abhaengigkeits-
+  # kette). Passt die .deb-Architektur/Debian-Version nicht zu diesem Rechner,
+  # bricht apt-get hier mit einer klaren Fehlermeldung ab statt still auf
+  # Online umzuschalten (ein Zielrechner ohne Internet wird sonst erst beim
+  # naechsten Schritt unklar scheitern).
   local missing=() p
   for p in "$@"; do
     dpkg -s "$p" &>/dev/null || missing+=("$p")
   done
   if (( ${#missing[@]} > 0 )); then
     echo "    Installiere: ${missing[*]}"
-    # "|| true": ein einzelnes nicht erreichbares Repo (z.B. verbliebener
-    # cdrom-Eintrag) liefert einen Fehlercode, auch wenn alle anderen Quellen
-    # erfolgreich aktualisiert wurden - apt-get install schlaegt danach von
-    # selbst fehl, falls das Paket wirklich nirgends verfuegbar ist.
-    apt-get update -qq || true
-    apt-get install -y -qq "${missing[@]}"
+    if [[ -d "${OFFLINE_DIR}/apt" ]] && compgen -G "${OFFLINE_DIR}/apt/*.deb" > /dev/null; then
+      echo "    (offline aus mitgelieferten .deb-Paketen: ${OFFLINE_DIR}/apt)"
+      apt-get install -y -qq "${OFFLINE_DIR}/apt"/*.deb
+    else
+      # "|| true": ein einzelnes nicht erreichbares Repo (z.B. verbliebener
+      # cdrom-Eintrag) liefert einen Fehlercode, auch wenn alle anderen
+      # Quellen erfolgreich aktualisiert wurden - apt-get install schlaegt
+      # danach von selbst fehl, falls das Paket wirklich nirgends verfuegbar
+      # ist.
+      apt-get update -qq || true
+      apt-get install -y -qq "${missing[@]}"
+    fi
   fi
 }
 ask_yn() {
@@ -164,20 +188,38 @@ if command -v /usr/local/go/bin/go &>/dev/null; then
   fi
 fi
 if $NEED_GO; then
-  echo "    Installiere Go ${GO_VERSION} (Debian-Paket ist zu alt fuer dieses Projekt)..."
-  TMP_TGZ="$(mktemp --suffix=.tar.gz)"
-  ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
-  [[ "$ARCH" == "arm64" ]] || ARCH="amd64"
-  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o "${TMP_TGZ}" \
-    || { echo "FEHLER: Go-Download fehlgeschlagen (kein Internetzugang?)." >&2; exit 1; }
   rm -rf /usr/local/go
-  tar -C /usr/local -xzf "${TMP_TGZ}"
-  rm -f "${TMP_TGZ}"
+  if [[ -f "${OFFLINE_DIR}/go-toolchain.tar.gz" ]]; then
+    echo "    Installiere Go-Toolchain aus mitgeliefertem Offline-Paket..."
+    tar -C /usr/local -xzf "${OFFLINE_DIR}/go-toolchain.tar.gz"
+  else
+    echo "    Installiere Go ${GO_VERSION} (Debian-Paket ist zu alt fuer dieses Projekt)..."
+    TMP_TGZ="$(mktemp --suffix=.tar.gz)"
+    ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+    [[ "$ARCH" == "arm64" ]] || ARCH="amd64"
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o "${TMP_TGZ}" \
+      || { echo "FEHLER: Go-Download fehlgeschlagen (kein Internetzugang? Alternativ das Archiv mit 'package.sh --with-deps' bauen)." >&2; exit 1; }
+    tar -C /usr/local -xzf "${TMP_TGZ}"
+    rm -f "${TMP_TGZ}"
+  fi
   for prof in /etc/profile.d/go.sh; do
     echo 'export PATH=$PATH:/usr/local/go/bin' > "$prof"
     chmod 644 "$prof"
   done
   echo "    OK: $(/usr/local/go/bin/go version)"
+fi
+
+# Go-Modul-Cache aus dem Offline-Buendel (package.sh --with-deps) vor jedem
+# "go build" in den GOPATH des Zielbenutzers entpacken - macht die vier
+# go-build-Aufrufe in server/standpc/wertmaschine/preisanzeige's jeweiligem
+# install-service.sh transparent offline-faehig, ohne diese Skripte selbst
+# aendern zu muessen (Go findet den vorbefuellten Cache automatisch am
+# Standard-GOPATH-Pfad ~/go/pkg/mod).
+if [[ -f "${OFFLINE_DIR}/go-mod-cache.tar.gz" ]]; then
+  echo "    Entpacke mitgelieferten Go-Modul-Cache nach ${TARGET_HOME}/go (offline)..."
+  mkdir -p "${TARGET_HOME}/go"
+  tar -C "${TARGET_HOME}/go" --strip-components=1 -xzf "${OFFLINE_DIR}/go-mod-cache.tar.gz"
+  chown -R "${RUN_USER}:${RUN_USER}" "${TARGET_HOME}/go"
 fi
 
 apt_ensure postgresql-client
@@ -287,10 +329,12 @@ if $INSTALL_SERVER; then
     PGPASSWORD="${DB_PASSWORD}" pg_restore --no-owner --role=schiessstand \
       -h "${DB_HOST}" -U schiessstand -d schiessstand "${DEMO_DUMP}" \
       || echo "    WARNUNG: pg_restore meldete Fehler (teilweise normal bei bereits vorhandenen Objekten)."
-    # Dump enthaelt bereits das komplette Schema zum Dump-Zeitpunkt - keine
-    # zusaetzlichen Migrationen mehr draufsetzen, um Doppel-Anlage von
-    # Typen/Tabellen zu vermeiden.
-    MIGRATE_ARGS=(--no-migrate)
+    # Migrationen laufen danach trotzdem (install-service.sh): der Dump
+    # bringt seine schema_migrations-Tabelle mit, nachgezogen werden also
+    # nur die Migrationen, die NACH dem Dump-Zeitpunkt entstanden sind (der
+    # Demo-Dump kann aelter sein als der Code - frueher hier per
+    # --no-migrate uebersprungen, dann fehlten z.B. Tabellen neuerer
+    # Funktionen).
   fi
 
   bash "${SERVER_DIR}/install-service.sh" \

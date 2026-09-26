@@ -59,6 +59,8 @@ type Lane struct {
 	// Stand ist reserviert und wartet auf Teilnehmerauswahl am Stand-PC - hat
 	// noch KEINE Session, darf trotzdem nicht regulaer belegt werden.
 	PSSelfServiceName string `json:"ps_selfservice_name,omitempty"`
+	// Belegung mit dem Wartungs-Schuetzen (sessions.maintenance, migrations/071)
+	Maintenance bool `json:"maintenance,omitempty"`
 	// Live-Zustand vom StandPC (in-memory, nicht aus DB)
 	LiveMode         string  `json:"live_mode,omitempty"`
 	LiveWertungCount int     `json:"live_wertung_count,omitempty"`
@@ -112,11 +114,13 @@ func (s *Store) ListLanes(ctx context.Context) ([]Lane, error) {
 		SELECT l.id, l.lane_no, COALESCE(l.name,''), l.active, COALESCE(l.standpc_url,''),
 		       COALESCE(se.id::text,''), COALESCE(se.status::text,''),
 		       COALESCE(se.shooter_id::text,''),
-		       COALESCE(sh.last_name || ', ' || sh.first_name, ''),
+		       CASE WHEN se.maintenance THEN $1
+		            ELSE COALESCE(sh.last_name || ', ' || sh.first_name, '') END,
 		       COALESCE(d.name,''),
 		       COALESCE(r.shot_count,0), COALESCE(r.total_rings,0),
 		       COALESCE(ev.name,''), COALESCE(ev.type::text,''),
-		       COALESCE(ps.name,'')
+		       COALESCE(ps.name,''),
+		       COALESCE(se.maintenance, false)
 		FROM lanes l
 		LEFT JOIN LATERAL (
 		    SELECT * FROM sessions
@@ -130,7 +134,7 @@ func (s *Store) ListLanes(ctx context.Context) ([]Lane, error) {
 		LEFT JOIN v_session_results r ON r.session_id = se.id
 		LEFT JOIN ps_lane_selfservice lsv ON lsv.lane_id = l.id
 		LEFT JOIN preisschiessen ps        ON ps.id = lsv.preisschiessen_id
-		ORDER BY l.lane_no`)
+		ORDER BY l.lane_no`, MaintenanceShooterName)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +146,7 @@ func (s *Store) ListLanes(ctx context.Context) ([]Lane, error) {
 		if err := rows.Scan(&l.ID, &l.LaneNo, &l.Name, &l.Active, &l.StandPCURL,
 			&l.SessionID, &l.SessionState, &l.ShooterID, &l.ShooterName, &l.Discipline,
 			&l.ShotCount, &l.TotalRings, &l.EventName, &l.EventType,
-			&l.PSSelfServiceName); err != nil {
+			&l.PSSelfServiceName, &l.Maintenance); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -498,7 +502,21 @@ var ErrDisciplinePaperOnly = errors.New("Papierscheiben-Disziplin darf nicht auf
 // Selbstbedienungsmodus reservierter Stand tabu (ErrLaneInSelfService).
 func (s *Store) AssignLane(ctx context.Context, laneNo int,
 	shooterID, disciplineID, eventID string) (string, error) {
-	return s.assignLane(ctx, laneNo, shooterID, disciplineID, eventID, false)
+	return s.assignLane(ctx, laneNo, shooterID, disciplineID, eventID, false, false)
+}
+
+// MaintenanceShooterName: Anzeigename einer Wartungs-Session (sessions.
+// maintenance, siehe migrations/071) - Standsteuerung, Stand-PC-Anzeige und
+// Simulator-Ergebnisliste zeigen ihn statt "anonym".
+const MaintenanceShooterName = "Wartungs-Schütze"
+
+// AssignLaneMaintenance belegt den Stand mit dem Wartungs-Schuetzen (nur
+// Admin, siehe api.go assignLaneMaintenance): anonyme Session ohne
+// Veranstaltung mit maintenance=true. Die Schuesse werden vom Stand-PC wie
+// jede andere Session samt Rohdaten gespeichert und stehen danach im
+// Simulator fuer die Kalibrierung zur Verfuegung.
+func (s *Store) AssignLaneMaintenance(ctx context.Context, laneNo int, disciplineID string) (string, error) {
+	return s.assignLane(ctx, laneNo, "", disciplineID, "", false, true)
 }
 
 // AssignLaneSelfService ist die Preisschiessen-interne Variante von
@@ -512,11 +530,11 @@ func (s *Store) AssignLane(ctx context.Context, laneNo int,
 // ist im Preisschießen-Selbstbedienungsmodus" beim Scheibe-Auswaehlen.
 func (s *Store) AssignLaneSelfService(ctx context.Context, laneNo int,
 	shooterID, disciplineID, eventID string) (string, error) {
-	return s.assignLane(ctx, laneNo, shooterID, disciplineID, eventID, true)
+	return s.assignLane(ctx, laneNo, shooterID, disciplineID, eventID, true, false)
 }
 
 func (s *Store) assignLane(ctx context.Context, laneNo int,
-	shooterID, disciplineID, eventID string, allowSelfService bool) (string, error) {
+	shooterID, disciplineID, eventID string, allowSelfService, maintenance bool) (string, error) {
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -601,10 +619,10 @@ func (s *Store) assignLane(ctx context.Context, laneNo int,
 	var sessionID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO sessions
-		  (lane_id, calibration_id, discipline_id, shooter_id, event_id, status)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, NULLIF($4,'')::uuid, NULLIF($5,'')::uuid, 'assigned')
+		  (lane_id, calibration_id, discipline_id, shooter_id, event_id, status, maintenance)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, NULLIF($4,'')::uuid, NULLIF($5,'')::uuid, 'assigned', $6)
 		RETURNING id`,
-		laneID, calID, disciplineID, shooterID, eventID).Scan(&sessionID)
+		laneID, calID, disciplineID, shooterID, eventID, maintenance).Scan(&sessionID)
 	if err != nil {
 		return "", err
 	}
@@ -612,8 +630,8 @@ func (s *Store) assignLane(ctx context.Context, laneNo int,
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_log (action, session_id, lane_id, actor, details)
 		VALUES ('session_started', $1::uuid, $2::uuid, 'server',
-		        jsonb_build_object('shooter',$3::text,'discipline',$4::text))`,
-		sessionID, laneID, shooterID, disciplineID); err != nil {
+		        jsonb_build_object('shooter',$3::text,'discipline',$4::text,'maintenance',$5::bool))`,
+		sessionID, laneID, shooterID, disciplineID, maintenance); err != nil {
 		return "", err
 	}
 	return sessionID, tx.Commit(ctx)
@@ -661,7 +679,8 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 	var lastShotNo, probeCount, wertungShotsFired int
 	err := s.pool.QueryRow(ctx, `
 		SELECT se.id, se.status, d.name,
-		       COALESCE(sh.last_name || ', ' || sh.first_name, ''),
+		       CASE WHEN se.maintenance THEN $2
+		            ELSE COALESCE(sh.last_name || ', ' || sh.first_name, '') END,
 		       c.sensor_pos, c.plate_angle_deg, c.sound_speed_mps,
 		       c.plate_offset_x, c.plate_offset_y,
 		       COALESCE(ev.name,''), COALESCE(ev.type::text,''),
@@ -682,7 +701,7 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		WHERE l.lane_no = $1
 		  AND se.status IN ('assigned','sighting','match','paused')
 		ORDER BY se.started_at DESC NULLS LAST LIMIT 1`,
-		laneNo).Scan(&sessionID, &status, &discipline, &shooterName,
+		laneNo, MaintenanceShooterName).Scan(&sessionID, &status, &discipline, &shooterName,
 		&sensorPos, &plateAngle, &soundSpeed, &offX, &offY,
 		&eventName, &eventType,
 		&trialShots, &scoringShots, &shotsPerSeries, &decimalScoring, &targetName, &anzeige,
@@ -835,6 +854,7 @@ type Result struct {
 	InnerTens          int     `json:"inner_tens"`
 	BestCenterDistance float64 `json:"best_center_distance,omitempty"`
 	LiveData           bool    `json:"live_data,omitempty"` // true = Daten kommen vom StandPC, nicht DB
+	Maintenance        bool    `json:"maintenance,omitempty"` // Wartungs-Schuetze (migrations/071)
 }
 
 // SessionResultHeader: Kopfdaten fuer das Einzelergebnis-PDF (siehe
@@ -884,11 +904,15 @@ func (s *Store) GetSessionResultHeader(ctx context.Context, sessionID string) (S
 // rawDataOnly: true = nur Sessions mit gespeicherten air_ns-Rohdaten (siehe
 // migrations/013_shots_telegram_raw.sql) - für den Simulator, der ohne
 // Rohdaten nichts neu berechnen kann (siehe simulator.html searchResults).
-func (s *Store) ListResults(ctx context.Context, date, name, eventID string, rawDataOnly bool) ([]Result, error) {
+// maintenance steuert Wartungs-Sessions (sessions.maintenance, migrations/071):
+// "" = ausblenden (normale Ergebnisuebersicht), "include" = mitliefern,
+// "only" = ausschliesslich Wartungs-Sessions (Simulator/Kalibrierung).
+func (s *Store) ListResults(ctx context.Context, date, name, eventID string, rawDataOnly bool, maintenance string) ([]Result, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT se.id,
 		       l.lane_no,
-		       COALESCE(sh.last_name || ', ' || sh.first_name, 'Anonym'),
+		       CASE WHEN se.maintenance THEN $6
+		            ELSE COALESCE(sh.last_name || ', ' || sh.first_name, 'Anonym') END,
 		       d.name, d.shots_per_series, d.decimal_scoring,
 		       COALESCE(ev.name,''), COALESCE(ev.type::text,''),
 		       se.started_at,
@@ -898,7 +922,8 @@ func (s *Store) ListResults(ctx context.Context, date, name, eventID string, raw
 		       COALESCE(r.total_rings,0),
 		       COALESCE(r.total_decimal,0)::float8,
 		       COALESCE(r.inner_tens,0),
-		       COALESCE(r.best_center_distance,0)::float8
+		       COALESCE(r.best_center_distance,0)::float8,
+		       se.maintenance
 		FROM sessions se
 		JOIN lanes l          ON l.id  = se.lane_id
 		JOIN disciplines d    ON d.id  = se.discipline_id
@@ -908,12 +933,16 @@ func (s *Store) ListResults(ctx context.Context, date, name, eventID string, raw
 		WHERE (se.status != 'aborted' OR r.shot_count > 0)
 		  AND ($1 = '' OR se.started_at AT TIME ZONE 'Europe/Berlin' >= ($1::date)::timestamptz
 		                AND se.started_at AT TIME ZONE 'Europe/Berlin' <  ($1::date + 1)::timestamptz)
-		  AND ($2 = '' OR sh.last_name ILIKE '%'||$2||'%' OR sh.first_name ILIKE '%'||$2||'%')
+		  AND ($2 = '' OR sh.last_name ILIKE '%'||$2||'%' OR sh.first_name ILIKE '%'||$2||'%'
+		       OR (se.maintenance AND $6 ILIKE '%'||$2||'%'))
 		  AND ($3 = '' OR se.event_id = $3::uuid)
 		  AND (NOT $4 OR EXISTS (SELECT 1 FROM shots sr WHERE sr.session_id = se.id AND sr.air_ns IS NOT NULL))
+		  AND CASE $5 WHEN 'include' THEN true
+		              WHEN 'only'    THEN se.maintenance
+		              ELSE NOT se.maintenance END
 		ORDER BY se.started_at DESC NULLS LAST
 		LIMIT 500`,
-		date, name, eventID, rawDataOnly)
+		date, name, eventID, rawDataOnly, maintenance, MaintenanceShooterName)
 	if err != nil {
 		return nil, err
 	}
@@ -929,7 +958,7 @@ func (s *Store) ListResults(ctx context.Context, date, name, eventID string, raw
 			&r.EventName, &r.EventType,
 			&startedAt, &finishedAt, &r.Status,
 			&r.ShotCount, &r.TotalRings, &r.TotalDecimal,
-			&r.InnerTens, &r.BestCenterDistance); err != nil {
+			&r.InnerTens, &r.BestCenterDistance, &r.Maintenance); err != nil {
 			return nil, err
 		}
 		if startedAt != nil {

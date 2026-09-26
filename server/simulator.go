@@ -58,7 +58,7 @@ type SimParams struct {
 
 	// Kugeldurchmesser-Korrektur der Stufe-1-Loesung (SET BSHIFTPCT/
 	// BSHIFTCAP, Rev 4.7.0) - siehe airPosition().
-	BulletShiftPct   int     `json:"bullet_shift_pct"`   // 0-100, 0=aus
+	BulletShiftPct   int     `json:"bullet_shift_pct"`    // 0-100, 0=aus
 	BulletShiftCapMm float64 `json:"bullet_shift_cap_mm"` // mm, Kappung je Mikrofon
 
 	// SET RADIUS: Umkreis (0.001mm) fuer cluster_hits UND den Verifizierungs-
@@ -93,9 +93,33 @@ type SimParams struct {
 	MaxSigmaUm int64 `json:"max_sigma_um"`
 	// SET PIEZOMIN/PIEZOMAX: erwartete Piezo-Verzoegerung nach dem Einschlag
 	// in us - spannt bei ALGO=RIM das Zeitfenster (Gate) auf, in dem eine
-	// Flanke ueberhaupt als Direktschall in Frage kommt (siehe rimGate()).
+	// Flanke ueberhaupt als Direktschall in Frage kommt (siehe rimGate()), UND
+	// bei ALGO=CLASSIC das Zeitfenster, in dem eine Piezo-Flanke ueberhaupt
+	// als Bestaetigung DIESES Einschlags zaehlt (siehe UsePiezo).
 	PiezoMinUs int `json:"piezo_min_us"`
 	PiezoMaxUs int `json:"piezo_max_us"`
+	// SET PIEZO: bei ALGO=CLASSIC wird ein Schuss ohne Piezo-Bestaetigung
+	// (kein piezo_ns gespeichert, oder ausserhalb PIEZOMIN..PIEZOMAX) als
+	// UNGUELTIG behandelt (PosValid=false), nicht mehr nur als "nicht clean"
+	// markiert (siehe airPosition()-Aufrufer in solveShotInternal). Grund:
+	// reale Vorfaelle, in denen Luftschall benachbarter Staende ohne jeden
+	// lokalen Einschlag (piezo_ok durchgehend false) trotzdem als "gueltige"
+	// Trefferposition durchgewunken wurde - der Rest-Fehler war dabei zwar
+	// stark erhoeht, aber ohne harte Piezo-Pflicht rutschte der Schuss
+	// trotzdem in die Wertung.
+	//
+	// *bool statt bool: soll wie der Firmware-Default cfg.usePiezo=true
+	// verhalten, wenn das Feld fehlt (alte gespeicherte Configs von vor
+	// Einfuehrung dieser Option, siehe usePiezo()-Fallback) - ein einfaches
+	// "bool" wuerde bei fehlendem JSON-Feld auf false (= Pflicht deaktiviert)
+	// zurueckfallen und die neue Pruefung fuer JEDE alte Config lautlos
+	// wirkungslos machen (derselbe Fallstrick wie bei MicEnabled, siehe
+	// dortigen Kommentar). Bewusst abschaltbar fuer Aufbauten ohne Piezo-
+	// Hardware bzw. zum Nachrechnen historischer Schuesse von vor Einfuehrung
+	// dieser Pflicht. Wirkt NUR bei ALGO=CLASSIC - ALGO=RIM verlangt ueber
+	// rimGate()/PiezoMinUs/PiezoMaxUs ohnehin bereits zwingend eine
+	// Piezo-Flanke (siehe solveShotRIM()).
+	UsePiezo *bool `json:"use_piezo,omitempty"`
 	// SET MINMICS: Mindestzahl Inlier-Mikrofone fuer einen gueltigen Schuss
 	// bei ALGO=RIM (solveShotRIM() - NICHT calCostRimFn()/CalibrateMicOffsets,
 	// die nutzen bewusst immer 3, siehe dortigen Kommentar, exakt wie
@@ -114,6 +138,12 @@ func (p SimParams) rimMinMics() int {
 		return p.MinMics
 	}
 	return 5
+}
+
+// usePiezo liefert p.UsePiezo mit Fallback auf den Firmware-Default (true) -
+// siehe Feld-Kommentar zu UsePiezo.
+func (p SimParams) usePiezo() bool {
+	return p.UsePiezo == nil || *p.UsePiezo
 }
 
 // micEnabled liefert die tatsaechlich wirksame Mikrofon-Auswahl: p.MicEnabled
@@ -147,6 +177,9 @@ func DefaultSimParams() SimParams {
 		PiezoMinUs:       100,
 		PiezoMaxUs:       1400,
 		MinMics:          5,
+		// UsePiezo bewusst nil gelassen (statt explizit gesetzt) - der
+		// usePiezo()-Fallback liefert dafuer bereits true, siehe Feld-
+		// Kommentar bei SimParams.UsePiezo.
 	}
 }
 
@@ -177,6 +210,59 @@ type SimResult struct {
 	// unterscheidet intern nicht, warum ein Fit fehlschlug). Rein
 	// diagnostisch fuer die Simulator-UI, kein stabiler API-Vertrag.
 	InvalidReason string `json:"invalid_reason,omitempty"`
+
+	// ClusterSumUm/ClusterSumN: Schnittpunkt-Cluster "Σ9" (nur ALGO=CLASSIC,
+	// siehe clusterSum9) - Qualitaetsmass des Schusses, auch als alternatives
+	// Kalibrier-Kostenmass waehlbar (CalibrateMicOffsetsMode).
+	ClusterSumUm *int64 `json:"cluster_sum_um,omitempty"`
+	ClusterSumN  int    `json:"cluster_sum_n,omitempty"`
+	// Dasselbe mit den kugeldurchmesser-korrigierten Schnittpunkten
+	// (airCandidate.CorrX/CorrY) - fuer die Umschaltung "Rohwerte / nach
+	// Kugeldurchm.-Korrektur" im Simulator.
+	ClusterSumCorrUm *int64 `json:"cluster_sum_corr_um,omitempty"`
+	ClusterSumCorrN  int    `json:"cluster_sum_corr_n,omitempty"`
+}
+
+// Schnittpunkt-Cluster Σ9: Summe der Abstaende der (bis zu) 9 Schnittpunkte,
+// die innerhalb des Cluster-Radius (SET RADIUS) am naechsten am Schusszentrum
+// (finale Position, Stufe 2) liegen. Fehlen bis 9 Schnittpunkte im Radius,
+// zaehlt jeder fehlende mit cluster9MissingMM. Je kleiner, desto enger liegen
+// die Schnittpunkte beieinander - < 10mm gilt als sehr gut. Mit 6 Mikrofonen
+// gibt es bis zu 20 Schnittpunkte, mit 5 nur 10 und mit 4 nur 4 (dann
+// mindestens 5 x 5mm = 25mm).
+const (
+	cluster9N         = 9
+	cluster9MissingMM = 5.0
+)
+
+// clusterSum9 berechnet Σ9 aus den (rohen) Kandidaten relativ zum
+// Schusszentrum centerX/centerY (mm, Blechkoordinaten wie die Kandidaten) -
+// dieselbe Distanzbasis wie cluster_hits in airPosition(). corrected=true
+// nimmt statt der rohen die kugeldurchmesser-korrigierten Schnittpunkte
+// (CorrX/CorrY), Bezugspunkt bleibt das Schusszentrum. n = Anzahl der
+// tatsaechlich im Radius gezaehlten Schnittpunkte (max. 9).
+func clusterSum9(cands []airCandidate, centerX, centerY, radiusMM float32, corrected bool) (sumMM float32, n int) {
+	var dists []float32
+	for _, c := range cands {
+		x, y := c.X, c.Y
+		if corrected {
+			x, y = c.CorrX, c.CorrY
+		}
+		dx, dy := x-centerX, y-centerY
+		if d := float32(math.Sqrt(float64(dx*dx + dy*dy))); d <= radiusMM {
+			dists = append(dists, d)
+		}
+	}
+	sort.Slice(dists, func(i, j int) bool { return dists[i] < dists[j] })
+	if len(dists) > cluster9N {
+		dists = dists[:cluster9N]
+	}
+	for _, d := range dists {
+		sumMM += d
+	}
+	n = len(dists)
+	sumMM += float32(cluster9N-n) * cluster9MissingMM
+	return sumMM, n
 }
 
 // micGeometry liefert MIC_X/MIC_Y/Standoff (applyTargetGeometry(),
@@ -259,11 +345,11 @@ func solveAirPair(ref, a, b int, tNs [6]int64, micX, micY [6]float32,
 // ausgibt (Ref/A/B-Mikrofone, x/y, Rest-Fehler gegen die Kontroll-Mics),
 // hier immer verfuegbar fuer die Detailanzeige im Simulator.
 type airCandidate struct {
-	Ref, A, B  int
-	X, Y       float32 // mm, Blechkoordinaten (vor OffsetXUm/OffsetYUm) - Rohwert, siehe CorrX/CorrY
-	D          float32 // mm, Abstand Referenzmikrofon-Loesung (aus solveAirPair) - fuer CorrX/CorrY benoetigt
-	CorrX      float32 // mm, wie X/Y aber MIT Kugeldurchmesser-Korrektur (SET BSHIFTPCT/BSHIFTCAP) -
-	CorrY      float32 // dieselbe Formel wie fuer die Stufe-1-Loesung (siehe airPosition), hier je
+	Ref, A, B int
+	X, Y      float32 // mm, Blechkoordinaten (vor OffsetXUm/OffsetYUm) - Rohwert, siehe CorrX/CorrY
+	D         float32 // mm, Abstand Referenzmikrofon-Loesung (aus solveAirPair) - fuer CorrX/CorrY benoetigt
+	CorrX     float32 // mm, wie X/Y aber MIT Kugeldurchmesser-Korrektur (SET BSHIFTPCT/BSHIFTCAP) -
+	CorrY     float32 // dieselbe Formel wie fuer die Stufe-1-Loesung (siehe airPosition), hier je
 	//                    Kandidat einzeln angewandt (dieser Kandidat als eigene Referenz). Bei
 	//                    bulletShiftPct<=0 identisch zu X/Y.
 	ResidualMM float32 // mittlerer Rest-Fehler gegen die NICHT beteiligten Mics dieser Kombination
@@ -603,17 +689,44 @@ func solveShotInternal(airNs [6][]int64, piezoNs *int64, p SimParams) (SimResult
 		return SimResult{PosValid: false}, nil, nil
 	}
 
+	// SET PIEZO (p.usePiezo(), Default true): ohne Piezo-Bestaetigung ist die
+	// Position zwar geometrisch loesbar (ok==true oben), aber NICHT vertrauens-
+	// wuerdig - siehe UsePiezo-Feldkommentar zum realen Vorfall, der diese
+	// Pruefung ausgeloest hat. piezoNs ist (wie airNs) relativ zur ersten
+	// erfassten Flanke gespeichert, daher derselbe PIEZOMIN/PIEZOMAX-Vergleich
+	// wie in der Firmware (processShot()::piezoOk).
+	if p.usePiezo() {
+		piezoOk := piezoNs != nil &&
+			*piezoNs >= int64(p.PiezoMinUs)*1000 &&
+			*piezoNs <= int64(p.PiezoMaxUs)*1000
+		if !piezoOk {
+			reason := "keine Piezo-Bestaetigung (SET PIEZO=1, aber kein piezo_ns gespeichert)"
+			if piezoNs != nil {
+				reason = "Piezo-Verzoegerung außerhalb SET PIEZOMIN/PIEZOMAX"
+			}
+			return SimResult{PosValid: false, InvalidReason: reason}, nil, nil
+		}
+	}
+
 	xUm := int64(math.Round(float64(xMM)*1000)) + p.OffsetXUm
 	yUm := int64(math.Round(float64(yMM)*1000)) + p.OffsetYUm
+	sum9, n9 := clusterSum9(candidates, xMM, yMM, clusterRadiusMM, false)
+	sum9Um := int64(math.Round(float64(sum9) * 1000))
+	sum9c, n9c := clusterSum9(candidates, xMM, yMM, clusterRadiusMM, true)
+	sum9cUm := int64(math.Round(float64(sum9c) * 1000))
 
 	return SimResult{
-		XUm:         xUm,
-		YUm:         yUm,
-		PosResUm:    int64(math.Round(float64(resMM) * 1000)),
-		PrecisionUm: int64(math.Round(float64(precMM) * 1000)),
-		CorrResUm:   int64(math.Round(float64(corrResMM) * 1000)),
-		ClusterHits: clusterHits,
-		PosValid:    true,
+		ClusterSumUm:     &sum9Um,
+		ClusterSumN:      n9,
+		ClusterSumCorrUm: &sum9cUm,
+		ClusterSumCorrN:  n9c,
+		XUm:              xUm,
+		YUm:              yUm,
+		PosResUm:         int64(math.Round(float64(resMM) * 1000)),
+		PrecisionUm:      int64(math.Round(float64(precMM) * 1000)),
+		CorrResUm:        int64(math.Round(float64(corrResMM) * 1000)),
+		ClusterHits:      clusterHits,
+		PosValid:         true,
 	}, candidates, bulletShift
 }
 
@@ -746,17 +859,75 @@ const micOfsMaxNs = 20000.0
 // calCostClassicFn()/calCostRimFn(), NICHT direkt vergleichbar zwischen den
 // beiden Pfaden).
 func CalibrateMicOffsets(airNs [][6][]int64, piezoNs []*int64, p SimParams) (offsetsNs [6]int64, cost float64) {
-	var costFn func([6]float32) float32
+	return CalibrateMicOffsetsMode(airNs, piezoNs, p, CalModeResidual)
+}
+
+// Kalibrier-Kostenmass (Optimierungsziel) fuer CalibrateMicOffsetsMode.
+const (
+	CalModeResidual = "residual" // Rest-Fehler nach Kugelkorrektur, wie Firmware CAL START
+	CalModeCluster9 = "cluster9" // Schnittpunkt-Cluster Σ9 (siehe clusterSum9)
+)
+
+// CalibrateMicOffsetsMode wie CalibrateMicOffsets, mit waehlbarem
+// Optimierungsziel. CalModeCluster9 (nur ALGO=CLASSIC, bei RIM wird es
+// ignoriert): zuerst die normale Rest-Fehler-Kalibrierung, danach von deren
+// Ergebnis aus mit kleineren Schritten auf minimale Σ9-Summe verfeinert - von
+// Offsets 0 aus liegen anfangs meist gar keine Schnittpunkte im Cluster-
+// Radius, Σ9 waere dann ueberall gleich (9 x 5mm) und gaebe der Suche keine
+// Richtung. cost ist bei CalModeCluster9 die Σ9-Summe (mm) ueber alle
+// Schuesse.
+func CalibrateMicOffsetsMode(airNs [][6][]int64, piezoNs []*int64, p SimParams, mode string) (offsetsNs [6]int64, cost float64) {
+	var offsets [6]float32
+	var c float32
 	if p.Algo == "rim" {
-		costFn = calCostRimFn(airNs, piezoNs, p)
+		offsets, c = coordinateDescentCalibrate(calCostRimFn(airNs, piezoNs, p))
 	} else {
-		costFn = calCostClassicFn(airNs, p)
+		offsets, c = coordinateDescentCalibrate(calCostClassicFn(airNs, p))
+		if mode == CalModeCluster9 {
+			offsets, c = coordinateDescentFrom(calCostCluster9Fn(airNs, p), offsets, cluster9StartStepNs, cluster9Passes)
+		}
 	}
-	offsets, c := coordinateDescentCalibrate(costFn)
 	for i := 0; i < 6; i++ {
 		offsetsNs[i] = int64(math.Round(float64(offsets[i])))
 	}
 	return offsetsNs, float64(c)
+}
+
+// Verfeinerung auf Σ9: Startschritt 2000ns (~0.7mm Laufweg), halbiert ueber
+// 12 Runden bis unter 1ns.
+const (
+	cluster9StartStepNs = 2000.0
+	cluster9Passes      = 12
+)
+
+// calCostCluster9Fn: Kosten = Summe der Σ9-Werte (clusterSum9) ueber alle
+// Kalibrier-Schuesse, Strafwert 1000mm je unloesbarem Schuss (wie
+// calCostClassicFn).
+func calCostCluster9Fn(airNs [][6][]int64, p SimParams) func([6]float32) float32 {
+	micX, micY, standoffMM, soundMmPerNs, clusterRadiusMM := solveParams(p)
+	enabled := p.micEnabled()
+	return func(offsets [6]float32) float32 {
+		var total float32
+		for _, shot := range airNs {
+			var tNs [6]int64
+			var seen [6]bool
+			for i := 0; i < 6; i++ {
+				if len(shot[i]) > 0 && enabled[i] {
+					seen[i] = true
+					tNs[i] = shot[i][0] - int64(math.Round(float64(offsets[i])))
+				}
+			}
+			x, y, _, _, _, cands, _, _, ok := airPosition(tNs, seen, micX, micY, standoffMM,
+				soundMmPerNs, clusterRadiusMM, p.BulletShiftPct, float32(p.BulletShiftCapMm))
+			if !ok {
+				total += 1000.0
+				continue
+			}
+			sum, _ := clusterSum9(cands, x, y, clusterRadiusMM, false)
+			total += sum
+		}
+		return total
+	}
 }
 
 // calCostClassicFn: 1:1-Port von calCostClassic(), .ino ~2489-2511 - Kosten
@@ -901,6 +1072,13 @@ func calCostRimFn(airNs [][6][]int64, piezoNs []*int64, p SimParams) func([6]flo
 // Schrittfolge 10000*0.5^pass ueber 11 Runden, je Mic und Runde der
 // Versuch +-stepNs, der die uebergebene Kostenfunktion am staerksten senkt).
 func coordinateDescentCalibrate(calCost func(offsets [6]float32) float32) (offsets [6]float32, cost float32) {
+	return coordinateDescentFrom(calCost, [6]float32{}, 10000.0, 11)
+}
+
+// coordinateDescentFrom: wie coordinateDescentCalibrate, aber mit
+// Startoffsets, Startschritt und Rundenzahl frei waehlbar (Σ9-Verfeinerung
+// ausgehend von einem bereits kalibrierten Ergebnis).
+func coordinateDescentFrom(calCost func(offsets [6]float32) float32, offsets [6]float32, stepNs float32, passes int) ([6]float32, float32) {
 	clamp := func(v float32) float32 {
 		if v > micOfsMaxNs {
 			return micOfsMaxNs
@@ -912,8 +1090,7 @@ func coordinateDescentCalibrate(calCost func(offsets [6]float32) float32) (offse
 	}
 
 	const refMic = 0
-	stepNs := float32(10000.0)
-	for pass := 0; pass < 11; pass++ {
+	for pass := 0; pass < passes; pass++ {
 		for i := 0; i < 6; i++ {
 			if i == refMic {
 				continue
@@ -937,8 +1114,7 @@ func coordinateDescentCalibrate(calCost func(offsets [6]float32) float32) (offse
 		}
 		stepNs *= 0.5
 	}
-	cost = calCost(offsets)
-	return offsets, cost
+	return offsets, calCost(offsets)
 }
 
 // ============================================================================

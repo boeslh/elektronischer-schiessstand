@@ -51,7 +51,7 @@ type APIServer struct {
 	listen          string
 	dsn             string // fuer pg_dump/pg_restore (Import/Export-Kachel, siehe backup.go)
 	backupDir       string
-	migrationsDir   string // fuer ApplyPendingMigrations nach einem Full Restore, siehe backup.go/migrations.go
+	migrationsDir   string   // fuer ApplyPendingMigrations nach einem Full Restore, siehe backup.go/migrations.go
 	liveStates      sync.Map // key=laneNo(int) → LaneLiveState
 	wertmaschinePSK []byte   // siehe wertmaschine_auth.go
 }
@@ -142,6 +142,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/lanes/{no}/session", a.h(a.laneSession))
 	mux.HandleFunc("PUT /api/lanes/{no}/livestate", a.h(a.setLiveState))
 	mux.HandleFunc("POST /api/lanes/{no}/assign", a.h(a.assignLane))
+	mux.HandleFunc("POST /api/lanes/{no}/assign-maintenance", a.h(a.assignLaneMaintenance))
 	mux.HandleFunc("GET /api/lanes/{no}/preisschiessen", a.h(a.getLanePreisschiessenInfo))
 	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/scheibe", a.h(a.postChooseScheibeAtLane))
 	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/buchen", a.h(a.postBuchenAtLane))
@@ -255,6 +256,11 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/preisschiessen/{id}/kauf-scheiben/{ksid}/schiesstag", a.h(a.putSchiesstagOverride))
 	mux.HandleFunc("PUT /api/preisschiessen/{id}/kauf-scheiben/{ksid}/scheibe", a.h(a.putReassignKaufScheibeType))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/abweichender-wochentag", a.h(a.getAbweichenderWochentag))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/tagesergebnisse", a.h(a.getVereinsabendTagesergebnisse))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/tageswertung", a.h(a.getVereinsabendTageswertung))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/anwesenheit", a.h(a.getVereinsabendAnwesenheit))
+	mux.HandleFunc("POST /api/preisschiessen/{id}/vereinsabend/anwesenheit", a.h(a.postVereinsabendAnwesenheit))
+	mux.HandleFunc("DELETE /api/preisschiessen/{id}/vereinsabend/anwesenheit/{ksid}", a.h(a.deleteVereinsabendAnwesenheit))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/teilnehmer/{tid}/stand", a.h(a.postAssignTeilnehmerLanePending))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}/teilnehmer/{tid}/stand", a.h(a.deleteTeilnehmerLanePending))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/lane-selfservice", a.h(a.postAssignLaneSelfService))
@@ -313,6 +319,9 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/sessions/{id}/simulate", a.h(a.simulateSession))
 	mux.HandleFunc("POST /api/sessions/{id}/calibrate", a.h(a.calibrateSession))
 	mux.HandleFunc("POST /api/sessions/{id}/shots/{no}/solve-detail", a.h(a.solveShotDetail))
+	mux.HandleFunc("POST /api/sessions/{id}/simulator-export", a.h(a.exportSimulation))
+	mux.HandleFunc("POST /api/sessions/{id}/photo-calibrate", a.h(a.photoCalibrateSession))
+	mux.Handle("GET /simulator-foto.js", http.FileServer(http.FS(webSub)))
 	mux.HandleFunc("GET /api/simulator-configs", a.h(a.listSimulatorConfigs))
 	mux.HandleFunc("POST /api/simulator-configs", a.h(a.saveSimulatorConfig))
 	mux.HandleFunc("DELETE /api/simulator-configs/{id}", a.h(a.deleteSimulatorConfig))
@@ -339,6 +348,15 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/settings/standpc-admin-password/push", a.h(a.pushStandpcAdminPasswordHash))
 	mux.HandleFunc("POST /api/esp32-calibrations", a.h(a.postESP32Calibration))
 	mux.HandleFunc("GET /api/esp32-calibrations/{mac}", a.h(a.getESP32Calibration))
+	mux.HandleFunc("GET /api/esp32-calibrations", a.h(a.getESP32CalibrationByLane))
+	mux.HandleFunc("POST /api/esp32-config", a.h(a.postESP32Config))
+	mux.HandleFunc("GET /api/esp32-config/history", a.h(a.getESP32ConfigHistory))
+	mux.HandleFunc("GET /api/esp32-config/state", a.h(a.getESP32ConfigState))
+	mux.HandleFunc("GET /api/esp32-config/overview", a.h(a.getESP32ConfigOverview))
+	mux.HandleFunc("GET /geraetekonfiguration", a.serveHTMLGated(webSub, "geraetekonfiguration.html", "simulator"))
+	mux.HandleFunc("GET /api/lanes/{no}/calibration-transfer", a.h(a.getCalibrationTransfer))
+	mux.HandleFunc("PUT /api/lanes/{no}/calibration-transfer", a.h(a.putCalibrationTransfer))
+	mux.HandleFunc("POST /api/lanes/{no}/calibration-transfer/applied", a.h(a.postCalibrationTransferApplied))
 	mux.HandleFunc("GET /api/lanes/{no}/local-sessions", a.h(a.proxyLocalSessions))
 	mux.HandleFunc("GET /api/lanes/{no}/local-sessions/{sid}/shots", a.h(a.proxyLocalSessionShots))
 	mux.HandleFunc("POST /api/transfer", a.h(a.transferSession))
@@ -503,6 +521,31 @@ func (a *APIServer) assignLane(w http.ResponseWriter, r *http.Request) (any, err
 		return nil, errors.New("discipline_id erforderlich")
 	}
 	id, err := a.store.AssignLane(r.Context(), no, body.ShooterID, body.DisciplineID, body.EventID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"session_id": id}, nil
+}
+
+// assignLaneMaintenance belegt einen Stand mit dem Wartungs-Schuetzen
+// (Standsteuerung, nur Admin) - die Schuesse werden wie bei jeder Session in
+// der DB gespeichert und koennen danach im Simulator zur Kalibrierung
+// herangezogen werden (Ergebnisfilter "Wartungs-Schütze").
+func (a *APIServer) assignLaneMaintenance(w http.ResponseWriter, r *http.Request) (any, error) {
+	if _, err := a.requireAdmin(w, r); err != nil {
+		return nil, err
+	}
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errors.New("ungueltige Standnummer")
+	}
+	body, err := decodeBody[struct {
+		DisciplineID string `json:"discipline_id"`
+	}](r)
+	if err != nil || body.DisciplineID == "" {
+		return nil, errors.New("discipline_id erforderlich")
+	}
+	id, err := a.store.AssignLaneMaintenance(r.Context(), no, body.DisciplineID)
 	if err != nil {
 		return nil, err
 	}
@@ -715,6 +758,11 @@ type simSideResult struct {
 	Decimal     float64 `json:"decimal"`
 	PosValid    bool    `json:"pos_valid,omitempty"`
 	ClusterHits int     `json:"cluster_hits,omitempty"`
+	// Schnittpunkt-Cluster Σ9 (nur Neuberechnung, ALGO=CLASSIC) - siehe clusterSum9
+	ClusterSumUm     *int64 `json:"cluster_sum_um,omitempty"`
+	ClusterSumN      int    `json:"cluster_sum_n,omitempty"`
+	ClusterSumCorrUm *int64 `json:"cluster_sum_corr_um,omitempty"`
+	ClusterSumCorrN  int    `json:"cluster_sum_corr_n,omitempty"`
 }
 
 type simShotResult struct {
@@ -780,6 +828,10 @@ func (a *APIServer) simulateSession(w http.ResponseWriter, r *http.Request) (any
 			sim := SolveShot(sh.AirNs, sh.PiezoNs, body.Params)
 			res.Sim.PosValid = sim.PosValid
 			res.Sim.ClusterHits = sim.ClusterHits
+			res.Sim.ClusterSumUm = sim.ClusterSumUm
+			res.Sim.ClusterSumN = sim.ClusterSumN
+			res.Sim.ClusterSumCorrUm = sim.ClusterSumCorrUm
+			res.Sim.ClusterSumCorrN = sim.ClusterSumCorrN
 			if sim.PosValid {
 				xmm := float64(sim.XUm) / 1000.0
 				ymm := float64(sim.YUm) / 1000.0
@@ -808,6 +860,7 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 	body, err := decodeBody[struct {
 		Params  SimParams `json:"params"`
 		ShotNos []int     `json:"shot_nos"`
+		Mode    string    `json:"mode"` // CalModeResidual (Default) | CalModeCluster9
 	}](r)
 	if err != nil {
 		return nil, errBadRequest("ungueltiger Body: " + err.Error())
@@ -836,12 +889,44 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 		return nil, errBadRequest("zu wenige der ausgewaehlten Schuesse haben Rohdaten (mind. 3 noetig)")
 	}
 
-	offsets, cost := CalibrateMicOffsets(airNs, piezoNs, body.Params)
-	return map[string]any{
+	offsets, cost := CalibrateMicOffsetsMode(airNs, piezoNs, body.Params, body.Mode)
+	after := body.Params
+	after.MicOffsetNs = offsets
+	resp := map[string]any{
 		"mic_offset_ns": offsets,
 		"cost":          cost,
 		"shots_used":    len(airNs),
-	}, nil
+	}
+	// Σ9-Mittelwert der Kalibrier-Schuesse vorher (aktuelle Offsets) und
+	// nachher (neue Offsets) - zur Einordnung des Ergebnisses.
+	if before, ok := meanClusterSum(airNs, piezoNs, body.Params); ok {
+		resp["cluster_sum_before_mm"] = before
+	}
+	if a, ok := meanClusterSum(airNs, piezoNs, after); ok {
+		resp["cluster_sum_after_mm"] = a
+	}
+	return resp, nil
+}
+
+// meanClusterSum: mittlerer Σ9-Wert (mm) ueber alle loesbaren Schuesse -
+// ok=false bei ALGO=RIM bzw. wenn kein Schuss loesbar ist.
+func meanClusterSum(airNs [][6][]int64, piezoNs []*int64, p SimParams) (float64, bool) {
+	var sum float64
+	n := 0
+	for k, shot := range airNs {
+		var pz *int64
+		if k < len(piezoNs) {
+			pz = piezoNs[k]
+		}
+		if r := SolveShot(shot, pz, p); r.PosValid && r.ClusterSumUm != nil {
+			sum += float64(*r.ClusterSumUm) / 1000
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, false
+	}
+	return sum / float64(n), true
 }
 
 // candidateOut/bulletShiftOut: API-Form von airCandidate/bulletShiftMic
@@ -1488,7 +1573,8 @@ func (a *APIServer) removeStarter(w http.ResponseWriter, r *http.Request) (any, 
 func (a *APIServer) listResults(w http.ResponseWriter, r *http.Request) (any, error) {
 	q := r.URL.Query()
 	results, err := a.store.ListResults(r.Context(),
-		q.Get("date"), q.Get("name"), q.Get("event_id"), q.Get("raw_data_only") == "1")
+		q.Get("date"), q.Get("name"), q.Get("event_id"), q.Get("raw_data_only") == "1",
+		q.Get("maintenance"))
 	if err != nil {
 		return nil, err
 	}

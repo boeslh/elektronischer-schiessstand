@@ -58,6 +58,11 @@ type WebServer struct {
 	deviceState       *DeviceState    // zuletzt bekannter status/config/confignet/cal (siehe devicestate.go)
 	adminPasswordFile string          // Zieldatei fuer Persistenz des vom Server gepushten Passwort-Hash
 
+	// Konfigurationssicherung (config_backup.go): zuletzt erfolgreich an den
+	// Server gemeldeter Stand (mac + Einstellungen), zur lokalen Entprellung.
+	configBackupMu   sync.Mutex
+	lastConfigBackup []byte
+
 	mu                sync.Mutex
 	clients           map[chan sseMsg]struct{}
 	history           []*Shot // Sitzungsverlauf fuer neu verbundene Clients (UNVERAENDERTE Werte, siehe maskShot)

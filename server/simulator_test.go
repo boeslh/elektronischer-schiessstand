@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+// piezoNotRequired: *bool(false) fuer SimParams.UsePiezo - die meisten Tests
+// hier speisen keine piezoNs ein (testen reine Geometrie/Kalibrier-Logik) und
+// sollen vom neuen Piezo-Pflicht-Default (SimParams.UsePiezo, siehe dortigen
+// Kommentar) unberuehrt bleiben. Eigener Test dafuer:
+// TestSolveShot_RequiresPiezoByDefault.
+func piezoNotRequired() *bool {
+	f := false
+	return &f
+}
+
 // TestSolveShot_RegressionAgainstDevice vergleicht SolveShot() mit
 // Default-Parametern (Firmware-Werkseinstellungen) gegen echte, vom ESP32
 // berechnete und in der DB gespeicherte Werte (session_id
@@ -69,6 +79,7 @@ func TestSolveShot_RegressionAgainstDevice(t *testing.T) {
 	// die eigentliche Korrektheit der Portierung verifiziert
 	// TestSolveShot_SyntheticGroundTruth unten mit bekannter Soll-Position.
 	p := DefaultSimParams()
+	p.UsePiezo = piezoNotRequired() // Testdaten liefern keine piezoNs
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := SolveShot(c.airNs, nil, p)
@@ -131,6 +142,7 @@ func TestSolveShot_SyntheticGroundTruth(t *testing.T) {
 				MicOffsetNs:      c.micOffsetNs,
 				BulletShiftPct:   c.bulletShiftPct,
 				BulletShiftCapMm: c.bulletShiftCap,
+				UsePiezo:         piezoNotRequired(), // Testdaten liefern keine piezoNs
 			}
 
 			micX, micY, standoffMM := micGeometry(p)
@@ -189,6 +201,7 @@ func TestSolveShot_ClusterRadius(t *testing.T) {
 		{0, 149900, 457912, 653287},
 	}
 	base := DefaultSimParams()
+	base.UsePiezo = piezoNotRequired() // Testdaten liefern keine piezoNs
 
 	tiny := base
 	tiny.ClusterRadiusUm = 1 // 0.001mm - so gut wie kein Kandidat ausser dem besten selbst
@@ -213,6 +226,7 @@ func TestSolveShot_ClusterRadius(t *testing.T) {
 // ausgeloestes behandelt werden, auch wenn Rohdaten dafuer vorliegen.
 func TestSolveShot_MicEnabled(t *testing.T) {
 	p := DefaultSimParams()
+	p.UsePiezo = piezoNotRequired() // Testdaten liefern keine piezoNs
 
 	micX, micY, standoffMM := micGeometry(p)
 	soundMmPerNs := p.SoundMps * 1.0e-6
@@ -260,6 +274,72 @@ func TestSolveShot_MicEnabled(t *testing.T) {
 		got := SolveShot(airNs, nil, pp)
 		if got.PosValid {
 			t.Fatalf("PosValid=true, erwartet false (nur 2 Mics aktiv, mind. 3 noetig)")
+		}
+	})
+}
+
+// TestSolveShot_RequiresPiezoByDefault: Regressionstest fuer den realen
+// Vorfall, der SimParams.UsePiezo ausgeloest hat - Luftschall benachbarter
+// Staende ohne jeden lokalen Einschlag (piezo_ok durchgehend false) wurde
+// trotz stark erhoehtem Rest-Fehler als "gueltige" Trefferposition gewertet.
+// Ab jetzt muss ein Schuss ohne (oder mit unplausibler) Piezo-Bestaetigung
+// als PosValid=false behandelt werden, sobald UsePiezo aktiv ist (Default) -
+// und weiterhin normal durchgehen, wenn es explizit deaktiviert wird (fuer
+// Aufbauten ohne Piezo-Hardware).
+func TestSolveShot_RequiresPiezoByDefault(t *testing.T) {
+	p := DefaultSimParams() // UsePiezo unbelegt -> usePiezo()==true (Default)
+
+	micX, micY, standoffMM := micGeometry(p)
+	soundMmPerNs := p.SoundMps * 1.0e-6
+	xMM, yMM := 6.0, -9.0
+
+	raw := make([]int64, 6)
+	minT := int64(1<<63 - 1)
+	for i := 0; i < 6; i++ {
+		dx := xMM - float64(micX[i])
+		dy := yMM - float64(micY[i])
+		dist := math.Sqrt(dx*dx + dy*dy + float64(standoffMM)*float64(standoffMM))
+		raw[i] = int64(math.Round(dist / soundMmPerNs))
+		if raw[i] < minT {
+			minT = raw[i]
+		}
+	}
+	var airNs [6][]int64
+	for i := 0; i < 6; i++ {
+		airNs[i] = []int64{raw[i] - minT}
+	}
+
+	t.Run("no_piezo_ns_invalid", func(t *testing.T) {
+		got := SolveShot(airNs, nil, p)
+		if got.PosValid {
+			t.Fatalf("PosValid=true, erwartet false (kein piezo_ns, UsePiezo aktiv)")
+		}
+	})
+
+	t.Run("piezo_outside_window_invalid", func(t *testing.T) {
+		// Deutlich ausserhalb PiezoMinUs..PiezoMaxUs (100..1400us) - z.B. ein
+		// zeitlich unabhaengiges Ereignis, das zufaellig in die Aufnahme fiel.
+		piezoNs := int64(5000) * 1000 // 5000 us
+		got := SolveShot(airNs, &piezoNs, p)
+		if got.PosValid {
+			t.Fatalf("PosValid=true, erwartet false (piezo_ns ausserhalb PIEZOMIN/PIEZOMAX)")
+		}
+	})
+
+	t.Run("piezo_within_window_valid", func(t *testing.T) {
+		piezoNs := int64(p.PiezoMinUs+p.PiezoMaxUs) / 2 * 1000 // Mitte des Fensters
+		got := SolveShot(airNs, &piezoNs, p)
+		if !got.PosValid {
+			t.Fatalf("PosValid=false, erwartet true (piezo_ns innerhalb PIEZOMIN/PIEZOMAX)")
+		}
+	})
+
+	t.Run("use_piezo_disabled_ignores_missing_piezo", func(t *testing.T) {
+		pp := p
+		pp.UsePiezo = piezoNotRequired()
+		got := SolveShot(airNs, nil, pp)
+		if !got.PosValid {
+			t.Fatalf("PosValid=false, erwartet true (UsePiezo explizit deaktiviert)")
 		}
 	})
 }
@@ -342,6 +422,7 @@ func TestCalibrateMicOffsets_SingleOffsetRecovered(t *testing.T) {
 // uebernimmt, die die Kosten senken oder gleich lassen (siehe runCalibration()).
 func TestCalibrateMicOffsets_ImprovesOverNoCalibration(t *testing.T) {
 	p := DefaultSimParams()
+	p.UsePiezo = piezoNotRequired() // zeroCost-Baseline unten nutzt SolveShot() ohne piezoNs
 	trueOffsetNs := [6]int64{0, 180, -240, 90, -60, 310}
 
 	positions := [][2]float64{
@@ -403,6 +484,7 @@ func TestCalibrateMicOffsets_TooFewShots(t *testing.T) {
 // selbst nahe am Mittelwert der Kandidaten liegen (Stufe-2-Verifizierung).
 func TestSolveShotDetail_Candidates(t *testing.T) {
 	p := DefaultSimParams() // BulletShiftPct=50 (Firmware-Default)
+	p.UsePiezo = piezoNotRequired() // Testdaten liefern keine piezoNs
 	airNs := genCalAirNs(6, -4, [6]int64{}, p) // trueOffset=0 -> bereits "kalibrierte" Zeiten
 
 	res, candidates, bulletShift := SolveShotDetail(airNs, nil, p)
@@ -458,4 +540,76 @@ func abs64(v int64) int64 {
 		return -v
 	}
 	return v
+}
+
+// TestClusterSum9: nur Schnittpunkte im Cluster-Radius zaehlen, maximal die
+// 9 naechsten, fehlende bis 9 mit je 5mm.
+func TestClusterSum9(t *testing.T) {
+	mk := func(dists ...float32) []airCandidate {
+		var c []airCandidate
+		for _, d := range dists {
+			c = append(c, airCandidate{X: 10 + d, Y: -3})
+		}
+		return c
+	}
+	cases := []struct {
+		name  string
+		cands []airCandidate
+		want  float32
+		wantN int
+	}{
+		{"keine", nil, 45, 0},
+		{"3 im Radius, 1 ausserhalb", mk(0.5, 1, 1.5, 4.5), 3 + 6*5, 3},
+		{"12 im Radius, nur 9 naechste", mk(1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2), 9, 9},
+	}
+	for _, tc := range cases {
+		got, n := clusterSum9(tc.cands, 10, -3, 4, false)
+		if math.Abs(float64(got-tc.want)) > 1e-4 || n != tc.wantN {
+			t.Errorf("%s: Σ9=%.3f n=%d, want %.3f n=%d", tc.name, got, n, tc.want, tc.wantN)
+		}
+	}
+}
+
+// TestCalibrateMicOffsetsMode_Cluster9NotWorse: die Σ9-Verfeinerung startet
+// beim Rest-Fehler-Ergebnis und uebernimmt nur Verbesserungen - der mittlere
+// Σ9-Wert darf also nie schlechter sein als bei der Rest-Fehler-Kalibrierung.
+func TestCalibrateMicOffsetsMode_Cluster9NotWorse(t *testing.T) {
+	p := DefaultSimParams()
+	p.UsePiezo = piezoNotRequired()
+	p.ClusterRadiusUm = 4000
+	trueOffsetNs := [6]int64{0, 180, -240, 90, -60, 310}
+	positions := [][2]float64{{3, -2}, {40, -55}, {-20, 30}, {10, 10}, {-35, -40}, {25, 40}}
+	var airNs [][6][]int64
+	for _, pos := range positions {
+		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueOffsetNs, p))
+	}
+
+	ofsRes, _ := CalibrateMicOffsetsMode(airNs, nil, p, CalModeResidual)
+	ofsC9, cost := CalibrateMicOffsetsMode(airNs, nil, p, CalModeCluster9)
+	pr, pc := p, p
+	pr.MicOffsetNs, pc.MicOffsetNs = ofsRes, ofsC9
+	mRes, ok1 := meanClusterSum(airNs, nil, pr)
+	mC9, ok2 := meanClusterSum(airNs, nil, pc)
+	t.Logf("Rest-Fehler: %v Σ9Ø=%.3f | Σ9: %v Σ9Ø=%.3f (cost %.3f)", ofsRes, mRes, ofsC9, mC9, cost)
+	if !ok1 || !ok2 {
+		t.Fatal("Σ9 nicht berechenbar")
+	}
+	if mC9 > mRes+1e-6 {
+		t.Errorf("Σ9-Kalibrierung schlechter (%.3f) als Rest-Fehler-Kalibrierung (%.3f)", mC9, mRes)
+	}
+	if ofsC9[0] != 0 {
+		t.Errorf("Mic0 (Referenz) = %d, want 0", ofsC9[0])
+	}
+}
+
+// TestClusterSum9_Corrected: corrected=true misst die korrigierten
+// Schnittpunkte (CorrX/CorrY) statt der rohen.
+func TestClusterSum9_Corrected(t *testing.T) {
+	c := []airCandidate{{X: 3, Y: 0, CorrX: 1, CorrY: 0}}
+	if got, n := clusterSum9(c, 0, 0, 4, false); math.Abs(float64(got-(3+8*5))) > 1e-4 || n != 1 {
+		t.Errorf("roh: Σ9=%.3f n=%d", got, n)
+	}
+	if got, n := clusterSum9(c, 0, 0, 4, true); math.Abs(float64(got-(1+8*5))) > 1e-4 || n != 1 {
+		t.Errorf("korrigiert: Σ9=%.3f n=%d", got, n)
+	}
 }
