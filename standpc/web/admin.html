@@ -416,7 +416,8 @@ function renderTransferItems(items, showAll) {
   document.getElementById('transfer-table').innerHTML = rows.length
     ? '<tr><td class="desc">Parameter</td><td class="desc">aktuell am Gerät</td><td class="desc">Freigabe</td></tr>'
       + rows.map(it => `<tr><td class="key">${esc(it.key)}</td>
-          <td>${it.current === '' ? '<span style="color:var(--dim)">unbekannt</span>' : esc(it.current)}</td>
+          <td>${it.unsupported ? '<span style="color:var(--dim)">von der Firmware nicht unterstützt – wird übersprungen</span>'
+               : it.current === '' ? '<span style="color:var(--dim)">unbekannt</span>' : esc(it.current)}</td>
           <td style="${it.changed ? 'color:var(--warn);font-weight:600' : ''}">${esc(it.target)}</td></tr>`).join('')
     : '';
 }

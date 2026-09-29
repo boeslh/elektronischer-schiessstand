@@ -130,6 +130,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	})
 	mux.HandleFunc("POST /api/admin/testdaten/generate", a.h(a.generateTestdatenHandler))
 	mux.HandleFunc("POST /api/admin/testdaten/cleanup", a.h(a.cleanupTestdatenHandler))
+	mux.HandleFunc("POST /api/admin/testdaten/bestand", a.h(a.generateBestandTestdatenHandler))
 
 	mux.HandleFunc("GET /api/wertmaschine/config", a.h(a.requireWertmaschinePSK(a.wertmaschineConfig)))
 	mux.HandleFunc("GET /api/wertmaschine/preisschiessen-liste", a.h(a.requireWertmaschinePSK(a.wertmaschinePreisschiessenListe)))
@@ -258,6 +259,8 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/preisschiessen/{id}/abweichender-wochentag", a.h(a.getAbweichenderWochentag))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/tagesergebnisse", a.h(a.getVereinsabendTagesergebnisse))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/tageswertung", a.h(a.getVereinsabendTageswertung))
+	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/saisonwertung", a.h(a.getVereinsabendSaisonwertung))
+	mux.HandleFunc("POST /api/preisschiessen/{id}/vereinsabend/pdf", a.postVereinsabendPDF)
 	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/anwesenheit", a.h(a.getVereinsabendAnwesenheit))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/vereinsabend/anwesenheit", a.h(a.postVereinsabendAnwesenheit))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}/vereinsabend/anwesenheit/{ksid}", a.h(a.deleteVereinsabendAnwesenheit))
@@ -318,6 +321,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/sessions/{id}/target-geometry", a.h(a.sessionTargetGeometry))
 	mux.HandleFunc("POST /api/sessions/{id}/simulate", a.h(a.simulateSession))
 	mux.HandleFunc("POST /api/sessions/{id}/calibrate", a.h(a.calibrateSession))
+	mux.HandleFunc("POST /api/sessions/{id}/calibrate-cluster9", a.h(a.calibrateCluster9))
 	mux.HandleFunc("POST /api/sessions/{id}/shots/{no}/solve-detail", a.h(a.solveShotDetail))
 	mux.HandleFunc("POST /api/sessions/{id}/simulator-export", a.h(a.exportSimulation))
 	mux.HandleFunc("POST /api/sessions/{id}/photo-calibrate", a.h(a.photoCalibrateSession))
@@ -758,7 +762,7 @@ type simSideResult struct {
 	Decimal     float64 `json:"decimal"`
 	PosValid    bool    `json:"pos_valid,omitempty"`
 	ClusterHits int     `json:"cluster_hits,omitempty"`
-	// Schnittpunkt-Cluster Σ9 (nur Neuberechnung, ALGO=CLASSIC) - siehe clusterSum9
+	// Schnittpunkt-Cluster Σ9 (nur Neuberechnung) - siehe clusterSum9
 	ClusterSumUm     *int64 `json:"cluster_sum_um,omitempty"`
 	ClusterSumN      int    `json:"cluster_sum_n,omitempty"`
 	ClusterSumCorrUm *int64 `json:"cluster_sum_corr_um,omitempty"`
@@ -860,36 +864,16 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 	body, err := decodeBody[struct {
 		Params  SimParams `json:"params"`
 		ShotNos []int     `json:"shot_nos"`
-		Mode    string    `json:"mode"` // CalModeResidual (Default) | CalModeCluster9
 	}](r)
 	if err != nil {
 		return nil, errBadRequest("ungueltiger Body: " + err.Error())
 	}
-	if len(body.ShotNos) < 3 {
-		return nil, errBadRequest("mindestens 3 Kalibrier-Schuesse noetig")
-	}
-
-	shots, err := a.store.SessionShotsRaw(r.Context(), sessionID)
+	airNs, piezoNs, err := a.calibrationShots(r, sessionID, body.ShotNos)
 	if err != nil {
 		return nil, err
 	}
-	wanted := make(map[int]bool, len(body.ShotNos))
-	for _, no := range body.ShotNos {
-		wanted[no] = true
-	}
-	var airNs [][6][]int64
-	var piezoNs []*int64
-	for _, sh := range shots {
-		if wanted[sh.ShotNo] && sh.HasRaw {
-			airNs = append(airNs, sh.AirNs)
-			piezoNs = append(piezoNs, sh.PiezoNs)
-		}
-	}
-	if len(airNs) < 3 {
-		return nil, errBadRequest("zu wenige der ausgewaehlten Schuesse haben Rohdaten (mind. 3 noetig)")
-	}
 
-	offsets, cost := CalibrateMicOffsetsMode(airNs, piezoNs, body.Params, body.Mode)
+	offsets, cost := CalibrateMicOffsets(airNs, body.Params)
 	after := body.Params
 	after.MicOffsetNs = offsets
 	resp := map[string]any{
@@ -908,8 +892,59 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 	return resp, nil
 }
 
+// calibrationShots liefert die Rohdaten der ausgewaehlten Kalibrier-Schuesse
+// einer Session (mind. 3 mit Rohdaten).
+func (a *APIServer) calibrationShots(r *http.Request, sessionID string, shotNos []int) ([][6][]int64, []*int64, error) {
+	if len(shotNos) < 3 {
+		return nil, nil, errBadRequest("mindestens 3 Kalibrier-Schuesse noetig")
+	}
+	shots, err := a.store.SessionShotsRaw(r.Context(), sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	wanted := make(map[int]bool, len(shotNos))
+	for _, no := range shotNos {
+		wanted[no] = true
+	}
+	var airNs [][6][]int64
+	var piezoNs []*int64
+	for _, sh := range shots {
+		if wanted[sh.ShotNo] && sh.HasRaw {
+			airNs = append(airNs, sh.AirNs)
+			piezoNs = append(piezoNs, sh.PiezoNs)
+		}
+	}
+	if len(airNs) < 3 {
+		return nil, nil, errBadRequest("zu wenige der ausgewaehlten Schuesse haben Rohdaten (mind. 3 noetig)")
+	}
+	return airNs, piezoNs, nil
+}
+
+// calibrateCluster9 optimiert Offsets und (je nach Auswahl) Geometrie-/
+// Korrekturparameter auf minimalen Schnittpunkt-Cluster Σ9 - siehe
+// sim_optimize.go.
+func (a *APIServer) calibrateCluster9(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[struct {
+		Params  SimParams        `json:"params"`
+		ShotNos []int            `json:"shot_nos"`
+		Options *Cluster9Options `json:"options"`
+	}](r)
+	if err != nil {
+		return nil, errBadRequest("ungueltiger Body: " + err.Error())
+	}
+	airNs, _, err := a.calibrationShots(r, r.PathValue("id"), body.ShotNos)
+	if err != nil {
+		return nil, err
+	}
+	opts := DefaultCluster9Options()
+	if body.Options != nil {
+		opts = *body.Options
+	}
+	return OptimizeCluster9(airNs, body.Params, opts), nil
+}
+
 // meanClusterSum: mittlerer Σ9-Wert (mm) ueber alle loesbaren Schuesse -
-// ok=false bei ALGO=RIM bzw. wenn kein Schuss loesbar ist.
+// ok=false, wenn kein Schuss loesbar ist.
 func meanClusterSum(airNs [][6][]int64, piezoNs []*int64, p SimParams) (float64, bool) {
 	var sum float64
 	n := 0

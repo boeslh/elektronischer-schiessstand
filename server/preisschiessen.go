@@ -2586,38 +2586,45 @@ func (s *Store) autoFinishTeilnahmeScheiben(ctx context.Context, kaufIDs []strin
 	}
 
 	for _, u := range units {
-		var shooterID string
-		if err := s.pool.QueryRow(ctx,
-			`SELECT shooter_id FROM ps_teilnehmer WHERE id=$1`, u.teilnehmerID,
-		).Scan(&shooterID); err != nil {
-			log.Printf("autoFinishTeilnahmeScheiben: Teilnehmer %s: %v", u.teilnehmerID, err)
-			continue
-		}
-		sessionID, err := s.AssignVirtualLane(ctx, u.disciplineID, "", shooterID)
-		if err != nil {
-			log.Printf("autoFinishTeilnahmeScheiben: Kauf-Scheibe %s: AssignVirtualLane: %v", u.kaufScheibeID, err)
-			continue
-		}
-		ring := 0
-		decimal := 0.0
-		count := u.matchShotCount
-		if count < 1 {
-			count = 1
-		}
-		shot := ManualShotInput{Ring: &ring, Decimal: &decimal, Count: count}
-		if err := s.RecordExternalResult(ctx, sessionID, "total", []ManualShotInput{shot}, "manual", "system"); err != nil {
-			log.Printf("autoFinishTeilnahmeScheiben: Kauf-Scheibe %s: RecordExternalResult: %v", u.kaufScheibeID, err)
-			s.abortOnFailure(ctx, sessionID)
-			continue
-		}
-		if _, err := s.pool.Exec(ctx,
-			`UPDATE ps_kauf_scheiben SET session_id=$1 WHERE id=$2`, sessionID, u.kaufScheibeID,
-		); err != nil {
-			log.Printf("autoFinishTeilnahmeScheiben: Kauf-Scheibe %s: session_id verknuepfen: %v", u.kaufScheibeID, err)
+		if err := s.finishTeilnahmeUnit(ctx, u.kaufScheibeID, u.disciplineID, u.teilnehmerID, u.matchShotCount); err != nil {
+			log.Printf("autoFinishTeilnahmeScheiben: Kauf-Scheibe %s: %v", u.kaufScheibeID, err)
 		}
 	}
 }
 
+// finishTeilnahmeUnit schliesst EINE gekaufte Teilnahme-Scheibe ab (virtuelle
+// Bahn + Ergebnis-Schuss mit Ring 0, siehe autoFinishTeilnahmeScheiben) -
+// auch einzeln genutzt vom Testdaten-Generator (testdata_bestand.go), der
+// Teilnahme-Scheiben eines Sets erst beim jeweiligen Schiesstag abschliesst.
+func (s *Store) finishTeilnahmeUnit(ctx context.Context, kaufScheibeID, disciplineID, teilnehmerID string, matchShotCount int) error {
+	var shooterID string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT shooter_id FROM ps_teilnehmer WHERE id=$1`, teilnehmerID,
+	).Scan(&shooterID); err != nil {
+		return fmt.Errorf("Teilnehmer %s: %w", teilnehmerID, err)
+	}
+	sessionID, err := s.AssignVirtualLane(ctx, disciplineID, "", shooterID)
+	if err != nil {
+		return fmt.Errorf("AssignVirtualLane: %w", err)
+	}
+	ring := 0
+	decimal := 0.0
+	count := matchShotCount
+	if count < 1 {
+		count = 1
+	}
+	shot := ManualShotInput{Ring: &ring, Decimal: &decimal, Count: count}
+	if err := s.RecordExternalResult(ctx, sessionID, "total", []ManualShotInput{shot}, "manual", "system"); err != nil {
+		s.abortOnFailure(ctx, sessionID)
+		return fmt.Errorf("RecordExternalResult: %w", err)
+	}
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE ps_kauf_scheiben SET session_id=$1 WHERE id=$2`, sessionID, kaufScheibeID,
+	); err != nil {
+		return fmt.Errorf("session_id verknuepfen: %w", err)
+	}
+	return nil
+}
 // KasseAuswertung liefert zwei getrennte Kennzahlen: Bareinnahmen
 // (Aufladung./. Auszahlung, echter Bargeldfluss) und Verkäufe nach
 // Scheiben-/Set-Typ (verkaufte Ware, ohne zurückgegebene Käufe) – jeweils

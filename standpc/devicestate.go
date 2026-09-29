@@ -51,6 +51,12 @@ type ConfigTelegram struct {
 	MicHalfXMm        float64 `json:"mic_half_x_mm"`
 	BulletShiftPct    int     `json:"bullet_shift_pct"`
 	BulletShiftCapMm  float64 `json:"bullet_shift_cap_mm"`
+	// Endpositions-Verfahren (Firmware Rev 4.12.0, SET CLUSTERCORR/
+	// CLUSTERITER/LSQ/LSQPELLETR) - nil bei aelterer Firmware.
+	ClusterCorr  *int     `json:"cluster_corr,omitempty"`
+	ClusterIter  *int     `json:"cluster_iter,omitempty"`
+	LSQ          *int     `json:"lsq,omitempty"`
+	LSQPelletRMm *float64 `json:"lsq_pellet_r_mm,omitempty"`
 	Algo              string  `json:"algo"`
 	PelletRMm         float64 `json:"pellet_r_mm"`
 	MaxSigmaUm        int64   `json:"max_sigma_um"`

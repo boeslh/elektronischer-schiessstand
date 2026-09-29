@@ -156,7 +156,7 @@ func photoCalEval(shots []PhotoCalShot, p SimParams, opt PhotoCalOptions) (cost 
 			// ueberstimmt einzelne falsche Mikrofone - deren OFS wirken sich
 			// auf die Positionen dann kaum aus und waeren allein aus dem
 			// Foto nicht bestimmbar (Test: Positionen < 0.15mm genau, aber 3
-			// von 5 OFS um ~1000ns falsch). Bei ALGO=RIM ist CorrResUm 0.
+			// von 5 OFS um ~1000ns falsch).
 			c := float64(r.CorrResUm) / 1000
 			consistency += math.Min(c*c, photoCalCapMM*photoCalCapMM)
 		}

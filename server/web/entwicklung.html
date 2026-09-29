@@ -119,14 +119,59 @@
     <div id="generate-msg"></div>
   </div>
 
+  <!-- ── Teilnehmer & Ergebnisse für bestehende Schützen ─────────────────── -->
+  <h2>Teilnehmer &amp; Ergebnisse (bestehende Schützen)</h2>
+  <div class="section">
+    <div class="hint">
+      Für bereits eingespielte Schützen: meldet zufällig ausgewählte, noch nicht angemeldete
+      Schützen aus den für das Preisschießen <em>zugelassenen</em> Vereinen an und erzeugt am
+      gewählten Tag genau so viele beschossene Scheiben wie angegeben (Zufallswerte 6,0–10,9).
+      Jeder Teilnehmer kauft höchstens ein Set und verbraucht dessen Scheiben über die
+      Schießtage; erst wenn nichts Passendes mehr offen ist, wird eine einzelne Scheibe
+      nachgekauft. „max. pro Tag“ der Scheiben wird eingehalten. Jeder an diesem Tag neu
+      Angemeldete schießt mindestens eine Scheibe, die übrigen verteilen sich zufällig auf alle
+      Angemeldeten. Anmeldung, Kauf und Beschuss tragen das gewählte Datum – für mehrere
+      Schießtage einfach mit jeweils anderem Datum wiederholen.
+    </div>
+    <div class="field-grid wide">
+      <label class="field">Preisschießen
+        <select id="best-preisschiessen"></select>
+      </label>
+    </div>
+    <div class="field-grid">
+      <label class="field">Schießtag
+        <input type="date" id="best-datum">
+      </label>
+      <label class="field">&nbsp;
+        <span style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:13px;padding-top:8px">
+          <input type="checkbox" id="best-anwesenheit"> auch Anwesenheits-Scheiben erzeugen
+        </span>
+      </label>
+    </div>
+    <div class="field-grid">
+      <label class="field">neue Teilnehmer anmelden
+        <input type="number" id="best-neu" value="10" min="0" max="1000">
+      </label>
+      <label class="field">Ergebnisse (beschossene Scheiben) gesamt
+        <input type="number" id="best-ergebnisse" value="30" min="0" max="5000">
+      </label>
+    </div>
+    <div class="toolbar">
+      <button type="button" class="btn" id="btn-bestand" onclick="runBestand()">Teilnehmer &amp; Ergebnisse erzeugen</button>
+    </div>
+    <div id="bestand-msg"></div>
+  </div>
+
   <!-- ── Testdaten löschen ───────────────────────────────────────────────── -->
   <h2>Testdaten löschen</h2>
   <div class="section">
     <div class="hint warn-hint">
-      Entfernt ALLE jemals mit diesem Werkzeug erzeugten Testuser-Mitglieder samt
-      Anmeldungen, Käufen, Buchungen und Sessions - über alle Preisschießen hinweg,
+      Entfernt ALLE jemals mit diesen Werkzeugen erzeugten Testuser-Mitglieder samt
+      Anmeldungen, Käufen, Buchungen und Sessions sowie alle für bestehende Schützen
+      generierten Anmeldungen und Ergebnisse - über alle Preisschießen hinweg,
       unwiderruflich. Vor dem Löschen wird automatisch ein Sicherheits-Backup
-      angelegt. Echte Mitglieder sind davon nicht betroffen.
+      angelegt. Echte Mitglieder und von Hand erfasste Anmeldungen/Ergebnisse sind
+      davon nicht betroffen.
     </div>
     <div class="toolbar">
       <button type="button" class="btn-danger" id="btn-cleanup" onclick="runCleanup()">Alle Testdaten löschen</button>
@@ -140,16 +185,61 @@
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
 async function loadPreisschiessen() {
-  const sel = document.getElementById('gen-preisschiessen');
+  const sels = ['gen-preisschiessen', 'best-preisschiessen'].map(id => document.getElementById(id));
   try {
     const list = await fetch('/api/preisschiessen').then(r => r.json());
-    if (!list || !list.length) {
-      sel.innerHTML = '<option value="">– keine Preisschießen vorhanden –</option>';
-      return;
-    }
-    sel.innerHTML = list.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+    const html = (list && list.length)
+      ? list.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')
+      : '<option value="">– keine Preisschießen vorhanden –</option>';
+    sels.forEach(sel => sel.innerHTML = html);
   } catch(e) {
-    sel.innerHTML = '<option value="">– Fehler beim Laden –</option>';
+    sels.forEach(sel => sel.innerHTML = '<option value="">– Fehler beim Laden –</option>');
+  }
+}
+
+async function runBestand() {
+  const msgEl = document.getElementById('bestand-msg');
+  const body = {
+    preisschiessen_id: document.getElementById('best-preisschiessen').value,
+    datum: document.getElementById('best-datum').value,
+    neue_teilnehmer: parseInt(document.getElementById('best-neu').value, 10) || 0,
+    ergebnisse: parseInt(document.getElementById('best-ergebnisse').value, 10) || 0,
+    mit_anwesenheit: document.getElementById('best-anwesenheit').checked,
+  };
+  if (!body.preisschiessen_id) { msgEl.innerHTML = '<div class="msg err">Kein Preisschießen ausgewählt.</div>'; return; }
+  if (!body.datum) { msgEl.innerHTML = '<div class="msg err">Kein Schießtag angegeben.</div>'; return; }
+  if (body.ergebnisse < body.neue_teilnehmer) {
+    msgEl.innerHTML = '<div class="msg err">Jeder neue Teilnehmer schießt mindestens eine Scheibe – Ergebnisse müssen ≥ neue Teilnehmer sein.</div>';
+    return;
+  }
+  const btn = document.getElementById('btn-bestand');
+  btn.disabled = true;
+  msgEl.innerHTML = '<div class="msg warn"><span class="spinner-inline"></span> Erzeuge Anmeldungen und Ergebnisse…</div>';
+  try {
+    const resp = await fetch('/api/admin/testdaten/bestand', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const j = await resp.json();
+    if (!resp.ok) throw new Error(j.error || resp.statusText);
+    let html = `<div class="msg ok"><strong>&#10003; Erzeugt für ${esc(new Date(body.datum).toLocaleDateString('de-DE'))}</strong>
+      <table>${summaryRows([
+        ['Noch nicht angemeldete Schützen (zugelassene Vereine)', j.kandidaten_frei],
+        ['Neu angemeldet', j.teilnehmer_created],
+        ['Ergebnisse (beschossene Scheiben)', j.ergebnisse],
+        ['Sets gekauft', j.sets_gekauft],
+        ['Einzelscheiben nachgekauft', j.scheiben_gekauft],
+        ['Schüsse erzeugt', j.shots_created],
+        ['Umsatz (€)', (j.gesamt_umsatz||0).toFixed(2)],
+      ])}</table></div>`;
+    if (j.warnings && j.warnings.length) {
+      html += `<div class="warn-list">${j.warnings.map(w => `<div>⚠ ${esc(w)}</div>`).join('')}</div>`;
+    }
+    msgEl.innerHTML = html;
+  } catch(e) {
+    msgEl.innerHTML = `<div class="msg err">Fehler: ${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -209,9 +299,9 @@ async function runGenerate() {
 async function runCleanup() {
   const msgEl = document.getElementById('cleanup-msg');
   const typed = prompt(
-    'Alle mit diesem Werkzeug erzeugten Testuser-Mitglieder samt Anmeldungen, ' +
-    'Käufen und Sessions werden unwiderruflich gelöscht (echte Mitglieder bleiben ' +
-    'unberührt). Davor wird automatisch ein Sicherheits-Backup angelegt.\n\n' +
+    'Alle mit diesen Werkzeugen erzeugten Testuser-Mitglieder sowie alle generierten ' +
+    'Anmeldungen, Käufe und Sessions werden unwiderruflich gelöscht (echte Mitglieder und ' +
+    'von Hand erfasste Daten bleiben unberührt). Davor wird automatisch ein Sicherheits-Backup angelegt.\n\n' +
     'Zum Bestätigen "LÖSCHEN" eingeben:'
   );
   if (typed !== 'LÖSCHEN') return;
@@ -227,6 +317,7 @@ async function runCleanup() {
       <table>${summaryRows([
         ['Mitglieder entfernt', j.shooters_deleted],
         ['Anmeldungen entfernt', j.teilnehmer_deleted],
+        ['Käufe (bestehende Teilnehmer) entfernt', j.kaeufe_deleted],
         ['Sessions entfernt', j.sessions_deleted],
         ['Schüsse entfernt', j.shots_deleted],
       ])}</table></div>`;
@@ -238,6 +329,11 @@ async function runCleanup() {
 }
 
 loadPreisschiessen();
+(() => { // heutiges Datum in lokaler Zeit (toISOString waere UTC)
+  const d = new Date();
+  document.getElementById('best-datum').value =
+    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+})();
 </script>
 <script src="/role.js"></script>
 </body>

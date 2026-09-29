@@ -28,9 +28,16 @@ func photoCalSyntheticShots(truth SimParams) []PhotoCalShot {
 	return shots
 }
 
+// Mit dem Endpositions-Verfahren bis Firmware 4.11.5 (PosAlgo-Nullwert): dort
+// wirken einzelne Mic-Offsets stark genug auf die Position, dass sie sich aus
+// dem Foto eindeutig wiederfinden lassen. Das Verfahren ab 4.12.0 (alle
+// Schnittpunkte korrigiert, Nachzentrieren) ist gegen einzelne Mic-Fehler
+// robuster - die Offsets sind dort weniger eindeutig bestimmbar, die
+// Positionen aber genauso genau, siehe TestPhotoCalibrate_AccurateWithFw412.
 func TestPhotoCalibrate_RecoversKnownParams(t *testing.T) {
 	truth := DefaultSimParams()
 	truth.UsePiezo = piezoNotRequired() // synthetische Daten ohne piezo_ns
+	truth.PosAlgo = PosAlgoOptions{}
 	truth.MicOffsetNs = [6]int64{0, 900, -600, 400, -1200, 300}
 	truth.SoundMps = 338
 	truth.OffsetXUm, truth.OffsetYUm = 2500, -1800
@@ -38,6 +45,7 @@ func TestPhotoCalibrate_RecoversKnownParams(t *testing.T) {
 
 	start := DefaultSimParams()
 	start.UsePiezo = piezoNotRequired()
+	start.PosAlgo = PosAlgoOptions{}
 	start.SoundMps = 346
 
 	rep, err := PhotoCalibrate(shots, start, PhotoCalOptions{MicOffsets: true, Offset: true, SoundSpeed: true})
@@ -77,6 +85,37 @@ func TestPhotoCalibrate_RecoversKnownParams(t *testing.T) {
 			t.Errorf("Validierungsschuss %v ungueltig", v)
 			continue
 		}
+		wx, wy := v[0]+float64(truth.OffsetXUm)/1000, v[1]+float64(truth.OffsetYUm)/1000
+		maxErr = math.Max(maxErr, math.Hypot(float64(r.XUm)/1000-wx, float64(r.YUm)/1000-wy))
+	}
+	if maxErr > 0.2 {
+		t.Errorf("Validierung im Zentrum: max. Fehler %.3f mm, erwartet < 0.2 mm", maxErr)
+	}
+}
+
+// Mit dem Standard-Verfahren ab Firmware 4.12.0: Foto-Restfehler und
+// Genauigkeit bei nicht fotografierten Treffern (Zentrum) muessen genauso
+// gut sein wie mit dem alten Verfahren.
+func TestPhotoCalibrate_AccurateWithFw412(t *testing.T) {
+	truth := DefaultSimParams()
+	truth.UsePiezo = piezoNotRequired()
+	truth.MicOffsetNs = [6]int64{0, 900, -600, 400, -1200, 300}
+	truth.SoundMps = 338
+	truth.OffsetXUm, truth.OffsetYUm = 2500, -1800
+	start := DefaultSimParams()
+	start.UsePiezo = piezoNotRequired()
+	start.SoundMps = 346
+
+	rep, err := PhotoCalibrate(photoCalSyntheticShots(truth), start, PhotoCalOptions{MicOffsets: true, Offset: true, SoundSpeed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.RMSAfterMM > 0.15 || rep.InvalidAfter > 0 {
+		t.Errorf("RMS nach Optimierung %.3f mm, ungueltig %d - erwartet < 0.15 mm", rep.RMSAfterMM, rep.InvalidAfter)
+	}
+	var maxErr float64
+	for _, v := range [][2]float64{{0, 0}, {3, -2}, {-8, 5}, {12, 12}, {-20, -15}, {25, -5}, {0, 28}} {
+		r := SolveShot(genCalAirNs(v[0], v[1], truth.MicOffsetNs, truth), nil, rep.Params)
 		wx, wy := v[0]+float64(truth.OffsetXUm)/1000, v[1]+float64(truth.OffsetYUm)/1000
 		maxErr = math.Max(maxErr, math.Hypot(float64(r.XUm)/1000-wx, float64(r.YUm)/1000-wy))
 	}

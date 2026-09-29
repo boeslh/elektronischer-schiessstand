@@ -122,6 +122,18 @@ func currentSettingValue(c *ConfigTelegram, key string) (string, bool) {
 		return f2(c.BulletShiftCapMm), true
 	case "RADIUS":
 		return itoa(c.ClusterRadiusUm), true
+	// seit Firmware Rev 4.12.0 - aeltere Firmware meldet sie nicht (ok=false)
+	case "CLUSTERCORR":
+		return optItoa(c.ClusterCorr)
+	case "CLUSTERITER":
+		return optItoa(c.ClusterIter)
+	case "LSQ":
+		return optItoa(c.LSQ)
+	case "LSQPELLETR":
+		if c.LSQPelletRMm == nil {
+			return "", false
+		}
+		return f2(*c.LSQPelletRMm), true
 	case "ALGO":
 		return strings.ToUpper(c.Algo), true
 	case "PELLETR":
@@ -174,6 +186,13 @@ func currentSettingValue(c *ConfigTelegram, key string) (string, bool) {
 	return "", false
 }
 
+func optItoa(v *int) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	return strconv.Itoa(*v), true
+}
+
 // settingEqual: Zahlen mit Toleranz (Float-Werte kommen als %.2f), sonst
 // Textvergleich ohne Gross-/Kleinschreibung (ALGO).
 func settingEqual(a, b string) bool {
@@ -190,6 +209,11 @@ type transferItem struct {
 	Current string `json:"current"` // "" = unbekannt (Geraet nicht verbunden bzw. Schluessel nicht im SHOW)
 	Target  string `json:"target"`
 	Changed bool   `json:"changed"`
+	// Unsupported: Geraet ist verbunden, kennt den Schluessel aber nicht
+	// (aeltere Firmware, z.B. CLUSTERCORR vor Rev 4.12.0) - wird nicht
+	// geschrieben (SET wuerde mit Fehler abgelehnt) und zaehlt nicht als
+	// Abweichung.
+	Unsupported bool `json:"unsupported,omitempty"`
 }
 
 func diffTransfer(c *ConfigTelegram, settings []firmwareSetting) []transferItem {
@@ -200,11 +224,20 @@ func diffTransfer(c *ConfigTelegram, settings []firmwareSetting) []transferItem 
 			if cur, ok := currentSettingValue(c, s.Key); ok {
 				it.Current = cur
 				it.Changed = !settingEqual(cur, s.Value)
+			} else if firmwareOptionalKeys[s.Key] {
+				it.Changed, it.Unsupported = false, true
 			}
 		}
 		items = append(items, it)
 	}
 	return items
+}
+
+// firmwareOptionalKeys: Schluessel, die erst neuere Firmware kennt - fehlen
+// sie im SHOW eines verbundenen Geraets, werden sie bei der Uebernahme
+// uebersprungen statt als Fehler zu enden.
+var firmwareOptionalKeys = map[string]bool{
+	"CLUSTERCORR": true, "CLUSTERITER": true, "LSQ": true, "LSQPELLETR": true,
 }
 
 func isCalImportKey(key string) bool {

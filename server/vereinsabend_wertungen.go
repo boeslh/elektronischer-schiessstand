@@ -146,7 +146,7 @@ func loadPunkteSaisonRows(ctx context.Context, pool *pgxpool.Pool, w PSWertung) 
 		       COALESCE(ks.schiesstag_override, s.finished_at::date) AS schiesstag,
 		       ks.ist_vor_nachschuss,
 		       svr.wert * ws.faktor AS ring_wert,
-		       svt.wert * ws.faktor AS teiler_wert
+		       svt.wert * ws.faktor_teiler AS teiler_wert
 		FROM ps_wertung_scheiben ws
 		JOIN ps_scheiben psc      ON psc.id = ws.scheibe_id
 		JOIN ps_kauf_scheiben ks  ON ks.scheibe_id = ws.scheibe_id

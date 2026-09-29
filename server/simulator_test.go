@@ -403,7 +403,7 @@ func TestCalibrateMicOffsets_SingleOffsetRecovered(t *testing.T) {
 		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueOffsetNs, p))
 	}
 
-	gotOffsets, cost := CalibrateMicOffsets(airNs, nil, p)
+	gotOffsets, cost := CalibrateMicOffsets(airNs, p)
 	t.Logf("gotOffsets=%v cost=%.4f want=%v", gotOffsets, cost, trueOffsetNs)
 
 	const tolNs = 30 // Endschrittweite der Koordinatensuche ~9.8ns, grosszuegige Toleranz
@@ -433,7 +433,7 @@ func TestCalibrateMicOffsets_ImprovesOverNoCalibration(t *testing.T) {
 		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueOffsetNs, p))
 	}
 
-	gotOffsets, cost := CalibrateMicOffsets(airNs, nil, p)
+	gotOffsets, cost := CalibrateMicOffsets(airNs, p)
 	t.Logf("gotOffsets=%v cost=%.4f want(eingespeist)=%v", gotOffsets, cost, trueOffsetNs)
 
 	if gotOffsets[0] != 0 {
@@ -469,7 +469,7 @@ func TestCalibrateMicOffsets_TooFewShots(t *testing.T) {
 	airNs := [][6][]int64{
 		{{0}, {100}, nil, nil, nil, nil}, // nur 2 Mics -> in jedem Kalibrier-Schuss unloesbar
 	}
-	offsets, cost := CalibrateMicOffsets(airNs, nil, p)
+	offsets, cost := CalibrateMicOffsets(airNs, p)
 	t.Logf("offsets=%v cost=%.3f (Strafwert-Pfad erwartet, kein Crash)", offsets, cost)
 	if cost < 1000.0 {
 		t.Errorf("cost = %.3f, erwartet >=1000 (Strafwert fuer unloesbaren Schuss)", cost)
@@ -567,38 +567,6 @@ func TestClusterSum9(t *testing.T) {
 		if math.Abs(float64(got-tc.want)) > 1e-4 || n != tc.wantN {
 			t.Errorf("%s: Σ9=%.3f n=%d, want %.3f n=%d", tc.name, got, n, tc.want, tc.wantN)
 		}
-	}
-}
-
-// TestCalibrateMicOffsetsMode_Cluster9NotWorse: die Σ9-Verfeinerung startet
-// beim Rest-Fehler-Ergebnis und uebernimmt nur Verbesserungen - der mittlere
-// Σ9-Wert darf also nie schlechter sein als bei der Rest-Fehler-Kalibrierung.
-func TestCalibrateMicOffsetsMode_Cluster9NotWorse(t *testing.T) {
-	p := DefaultSimParams()
-	p.UsePiezo = piezoNotRequired()
-	p.ClusterRadiusUm = 4000
-	trueOffsetNs := [6]int64{0, 180, -240, 90, -60, 310}
-	positions := [][2]float64{{3, -2}, {40, -55}, {-20, 30}, {10, 10}, {-35, -40}, {25, 40}}
-	var airNs [][6][]int64
-	for _, pos := range positions {
-		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueOffsetNs, p))
-	}
-
-	ofsRes, _ := CalibrateMicOffsetsMode(airNs, nil, p, CalModeResidual)
-	ofsC9, cost := CalibrateMicOffsetsMode(airNs, nil, p, CalModeCluster9)
-	pr, pc := p, p
-	pr.MicOffsetNs, pc.MicOffsetNs = ofsRes, ofsC9
-	mRes, ok1 := meanClusterSum(airNs, nil, pr)
-	mC9, ok2 := meanClusterSum(airNs, nil, pc)
-	t.Logf("Rest-Fehler: %v Σ9Ø=%.3f | Σ9: %v Σ9Ø=%.3f (cost %.3f)", ofsRes, mRes, ofsC9, mC9, cost)
-	if !ok1 || !ok2 {
-		t.Fatal("Σ9 nicht berechenbar")
-	}
-	if mC9 > mRes+1e-6 {
-		t.Errorf("Σ9-Kalibrierung schlechter (%.3f) als Rest-Fehler-Kalibrierung (%.3f)", mC9, mRes)
-	}
-	if ofsC9[0] != 0 {
-		t.Errorf("Mic0 (Referenz) = %d, want 0", ofsC9[0])
 	}
 }
 

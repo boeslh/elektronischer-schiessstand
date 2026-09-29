@@ -13,7 +13,6 @@ func TestFirmwareSettings_MatchesStandPC(t *testing.T) {
 	p := DefaultSimParams()
 	p.MicOffsetNs = [6]int64{0, 100, 200, 300, 400, 500}
 	p.ClusterRadiusUm = 0 // alte Config ohne RADIUS -> Firmware-Default 200
-	p.MinMics = 0         // -> Fallback 5
 	p.BulletShiftPct = 50
 	var got []string
 	for _, s := range firmwareSettings(p) {
@@ -21,8 +20,9 @@ func TestFirmwareSettings_MatchesStandPC(t *testing.T) {
 	}
 	want := "STANDOFFPAPER=28.00 MICHALFX=115.00 OFFSETX=0 OFFSETY=0 SOUNDSPEED=343 " +
 		"OFS0=0 OFS1=100 OFS2=200 OFS3=300 OFS4=400 OFS5=500 BSHIFTPCT=50 BSHIFTCAP=3.00 RADIUS=200 " +
-		"MICEN0=1 MICEN1=1 MICEN2=1 MICEN3=1 MICEN4=1 MICEN5=1 ALGO=CLASSIC PELLETR=2.25 MAXSIGMA=2.00 " +
-		"PIEZOMIN=100 PIEZOMAX=1400 MINMICS=5 PIEZO=1"
+		"CLUSTERCORR=1 CLUSTERITER=5 LSQ=0 LSQPELLETR=2.25 " +
+		"MICEN0=1 MICEN1=1 MICEN2=1 MICEN3=1 MICEN4=1 MICEN5=1 ALGO=CLASSIC " +
+		"PIEZOMIN=100 PIEZOMAX=1400 PIEZO=1"
 	if strings.Join(got, " ") != want {
 		t.Errorf("firmwareSettings\n  %s\nerwartet\n  %s", strings.Join(got, " "), want)
 	}

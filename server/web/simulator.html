@@ -82,6 +82,13 @@
   .q-good{color:#3dcc6e}
   .q-mid{color:#e8a030}
   .q-bad{color:#e04040}
+  .c9-bounds{border-collapse:collapse;font-size:12px}
+  .c9-bounds th{text-align:left;font-size:10px;color:var(--dim);text-transform:uppercase;padding:2px 8px}
+  .c9-bounds td{padding:2px 8px}
+  .c9-bounds input[type=number]{width:80px}
+  .c9-res{border-collapse:collapse;font-size:12px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .c9-res th,.c9-res td{padding:3px 8px;border-bottom:1px solid var(--line);text-align:right}
+  .c9-res th:first-child,.c9-res td:first-child{text-align:left}
   .delta-up{color:#e04040}
   .delta-down{color:#3dcc6e}
 
@@ -191,12 +198,6 @@
   </div>
   <div id="showStatus" class="hint"></div>
 
-  <div class="target-radios">
-    <label><input type="radio" name="algo" value="classic" checked onchange="onAlgoChange()"> Auswertepfad: Classic</label>
-    <label><input type="radio" name="algo" value="rim" onchange="onAlgoChange()"> Auswertepfad: RIM (Firmware Rev 4.11.0)</label>
-  </div>
-  <div class="hint" id="algoHint" style="margin-bottom:10px"></div>
-
   <div class="params-grid" id="classicParams">
     <div class="filter-group"><label>Standoff (mm)</label><input type="number" id="p-standoffPaper" step="0.1" value="28.0"></div>
     <div class="filter-group"><label>Mic-Halbabstand X (mm)</label><input type="number" id="p-micHalfX" step="0.1" value="115.0"></div>
@@ -208,18 +209,28 @@
     <div class="filter-group"><label>Cluster-Radius (0.001mm)</label><input type="number" id="p-clusterRadius" step="1" min="0" max="500000" value="200"></div>
   </div>
 
-  <div class="params-grid" id="rimParams" style="display:none">
-    <div class="filter-group"><label>Lochrand-Radius PELLETR (mm)</label><input type="number" id="p-pelletR" step="0.01" min="0" max="10" value="2.25"></div>
-    <div class="filter-group"><label>"clean"-Schwelle MAXSIGMA (mm)</label><input type="number" id="p-maxSigma" step="0.01" min="0" max="50" value="2.0"></div>
-    <div class="filter-group"><label>Mindestzahl Mics MINMICS</label><input type="number" id="p-minMics" step="1" min="3" max="6" value="5"></div>
+  <div id="posAlgoBox" style="margin:10px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Positionsbestimmung (Endposition aus den Schnittpunkten)</div>
+    <div class="hint" style="margin-bottom:6px">Ab Firmware 4.12.0 auf dem Gerät per SET CLUSTERCORR / CLUSTERITER / LSQ / LSQPELLETR
+      einstellbar und in „Zur Übernahme freigeben“ enthalten (Standard: korrigiert mitteln, 5 Durchgänge).
+      Alles aus = Verfahren bis Firmware 4.11.5. „nach Rest-Fehler gewichten“ gibt es nur im Simulator.
+      Wirken auf Neuberechnen, Σ9-Kalibrierung und Foto-Kalibrierung; Mehraufwand am ESP32 gegenüber 4.11.5 in Klammern.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;align-items:center">
+      <label title="Alle Schnittpunkte kugeldurchmesser-korrigiert auswählen und mitteln (Firmware: nur die beste Kombination korrigiert, alle anderen roh)">
+        <input type="checkbox" id="pa-corr" checked> alle Schnittpunkte korrigiert mitteln – CLUSTERCORR (+60 %)</label>
+      <label title="Cluster um den jeweils neuen Mittelpunkt erneut auswählen (Mean-Shift)">
+        Nachzentrieren <input type="number" id="pa-iter" min="0" max="10" step="1" value="5" style="width:50px"> Durchgänge – CLUSTERITER (+5 % je)</label>
+      <label title="Mittelung gewichtet mit 1/(Rest-Fehler² + 0,25²) - konsistente Mikrofon-Kombinationen zählen mehr">
+        <input type="checkbox" id="pa-weighted"> nach Rest-Fehler gewichten (nur Simulator)</label>
+      <label title="Endposition per Ausgleichsrechnung über alle Mikrofone gleichzeitig verfeinern (Schall vom Lochrand, grob abweichendes Mikrofon wird verworfen). Ersetzt die Kugeldurchmesser-Korrektur.">
+        <input type="checkbox" id="pa-lsq"> Ausgleichsrechnung über alle Mics – LSQ (+30–90 %)</label>
+      <label>Lochrand-Radius (LSQPELLETR) <input type="number" id="pa-lsqR" min="0" max="5" step="0.05" value="2.25" style="width:60px"> mm</label>
+    </div>
   </div>
 
-  <!-- Piezo-Bestaetigung: bei ALGO=RIM ohnehin zwingend (rimGate()) - bei
-       ALGO=CLASSIC seit dem realen Vorfall mit Luftschall-Fehlmessungen
-       benachbarter Staende (siehe SimParams.UsePiezo-Kommentar) ebenfalls
-       standardmaessig Pflicht, hier aber abschaltbar. Deshalb ein
-       gemeinsamer, immer sichtbarer Block statt Teil von classicParams/
-       rimParams. -->
+  <!-- Piezo-Bestaetigung: seit dem realen Vorfall mit Luftschall-
+       Fehlmessungen benachbarter Staende (siehe SimParams.UsePiezo-
+       Kommentar) standardmaessig Pflicht, hier aber abschaltbar. -->
   <div class="params-grid" id="piezoParams">
     <div class="filter-group">
       <label><input type="checkbox" id="p-usePiezo" checked onchange="onUsePiezoChange()"> Piezo-Bestätigung erforderlich (SET PIEZO)</label>
@@ -262,10 +273,37 @@
   <div id="calShotList" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
   <div class="row-actions" style="align-items:center;margin-bottom:8px">
     <span class="hint">Optimierungsziel</span>
-    <select id="calMode" title="Σ9 nur bei ALGO=CLASSIC - bei RIM wird immer der Firmware-Weg genutzt">
-      <option value="residual">Rest-Fehler (wie Firmware CAL START)</option>
-      <option value="cluster9">Schnittpunkt-Cluster Σ9 (9 nächste Schnittpunkte möglichst eng)</option>
+    <select id="calMode" onchange="onCalModeChange()">
+      <option value="residual">Rest-Fehler (wie Firmware CAL START, nur Offsets)</option>
+      <option value="cluster9">Schnittpunkt-Cluster Σ9 (Offsets + Parameter, mehrere Durchläufe)</option>
     </select>
+  </div>
+  <div id="c9Opts" style="display:none;margin-bottom:10px">
+    <div class="row-actions" style="align-items:center;margin-bottom:6px">
+      <span class="hint">Σ9 aus</span>
+      <select id="c9Variant">
+        <option value="corr">Schnittpunkten nach Kugeldurchm.-Korrektur</option>
+        <option value="raw">rohen Schnittpunkten</option>
+      </select>
+      <span class="hint">(die Korrektur-Parameter wirken praktisch nur auf die korrigierte Variante)</span>
+    </div>
+    <table class="c9-bounds">
+      <tr><th>optimieren</th><th>Parameter</th><th>min</th><th>max</th></tr>
+      <tr><td><input type="checkbox" id="c9-offsets" checked disabled></td><td>Mic-Offsets OFS1–5</td><td colspan="2" class="hint">±20000 ns, OFS0 bleibt 0</td></tr>
+      <tr><td><input type="checkbox" id="c9-standoff-en" checked></td><td>Standoff (mm)</td>
+          <td><input type="number" id="c9-standoff-min" value="27" step="0.1"></td><td><input type="number" id="c9-standoff-max" value="30" step="0.1"></td></tr>
+      <tr><td><input type="checkbox" id="c9-michalfx-en" checked></td><td>Mic-Halbabstand X (mm)</td>
+          <td><input type="number" id="c9-michalfx-min" value="114" step="0.1"></td><td><input type="number" id="c9-michalfx-max" value="117" step="0.1"></td></tr>
+      <tr><td><input type="checkbox" id="c9-bpct-en" checked></td><td>Kugeldurchm.-Korrektur (%)</td>
+          <td><input type="number" id="c9-bpct-min" value="30" step="1"></td><td><input type="number" id="c9-bpct-max" value="60" step="1"></td></tr>
+      <tr><td><input type="checkbox" id="c9-bcap-en" checked></td><td>Korrektur-Kappung (mm)</td>
+          <td><input type="number" id="c9-bcap-min" value="3" step="0.1"></td><td><input type="number" id="c9-bcap-max" value="5" step="0.1"></td></tr>
+      <tr><td><input type="checkbox" id="c9-sound-en" checked></td><td>Schallgeschwindigkeit (m/s)</td>
+          <td><input type="number" id="c9-sound-min" value="340" step="0.5"></td><td><input type="number" id="c9-sound-max" value="346" step="0.5"></td></tr>
+    </table>
+    <div class="hint" style="margin-top:4px">Σ9 misst, wie eng die Schnittpunkte beieinander liegen – nicht, ob die
+      Position stimmt. Mehrere Parameter-Kombinationen können ähnlich gute Werte liefern (siehe Alternativen);
+      die Treffgenauigkeit am besten mit der Foto-Kalibrierung gegenprüfen.</div>
   </div>
   <div class="row-actions">
     <button class="btn" onclick="runCalibration()">Kalibrieren</button>
@@ -601,7 +639,6 @@ async function selectSession(tr, r) {
 
 // ── 2. Parameter / Config / SHOW-Import ─────────────────────────────────
 function currentParams() {
-  const algo = document.querySelector('input[name=algo]:checked').value;
   return {
     standoff_paper_mm: parseFloat(document.getElementById('p-standoffPaper').value) || 0,
     mic_half_x_mm: parseFloat(document.getElementById('p-micHalfX').value) || 0,
@@ -613,14 +650,22 @@ function currentParams() {
     bullet_shift_cap_mm: parseFloat(document.getElementById('p-bshiftCap').value) || 0,
     cluster_radius_um: parseInt(document.getElementById('p-clusterRadius').value) || 0,
     mic_enabled: [0,1,2,3,4,5].map(i => document.getElementById('p-micen'+i).checked),
-    algo: algo,
-    pellet_r_mm: parseFloat(document.getElementById('p-pelletR').value) || 0,
-    max_sigma_um: Math.round((parseFloat(document.getElementById('p-maxSigma').value) || 0) * 1000),
     piezo_min_us: parseInt(document.getElementById('p-piezoMin').value) || 0,
     piezo_max_us: parseInt(document.getElementById('p-piezoMax').value) || 0,
-    min_mics: parseInt(document.getElementById('p-minMics').value) || 0,
     use_piezo: document.getElementById('p-usePiezo').checked,
+    pos_algo: {
+      corr_cluster: document.getElementById('pa-corr').checked,
+      iterations: parseInt(document.getElementById('pa-iter').value) || 0,
+      weighted: document.getElementById('pa-weighted').checked,
+      lsq: document.getElementById('pa-lsq').checked,
+      lsq_pellet_r_mm: parseFloat(document.getElementById('pa-lsqR').value) || 0,
+    },
   };
+}
+
+// Nur "nach Rest-Fehler gewichten" gibt es auf dem Gerät nicht.
+function simOnlyPosAlgo(p) {
+  return !!(p.pos_algo || {}).weighted;
 }
 
 // onUsePiezoChange: Hinweistext zur Piezo-Pflicht (SET PIEZO) - siehe
@@ -632,26 +677,6 @@ function onUsePiezoChange() {
   document.getElementById('usePiezoHint').textContent = on
     ? 'Schüsse ohne Piezo-Bestätigung (oder außerhalb des Zeitfensters) gelten als ungültig - schützt vor Fehlmessungen durch Luftschall benachbarter Stände.'
     : 'ACHTUNG: Schüsse ohne jede lokale Piezo-Bestätigung werden trotzdem gewertet - nur für Aufbauten ohne Piezo-Hardware sinnvoll.';
-}
-
-// onAlgoChange: RIM nutzt eine andere Geometrie-/Fenster-Parametrisierung
-// als Classic (Lochrand statt Kugeldurchm.-Korrektur/Cluster-Radius, Piezo-
-// Fenster statt fester TDOA-Plausibilitaet) - siehe SimParams-Kommentar in
-// simulator.go. Blendet die jeweils irrelevante Parametergruppe aus, statt
-// beide dauerhaft nebeneinander zu zeigen.
-function onAlgoChange() {
-  const rim = document.querySelector('input[name=algo]:checked').value === 'rim';
-  document.getElementById('classicParams').style.display = rim ? 'none' : '';
-  document.getElementById('rimParams').style.display = rim ? '' : 'none';
-  document.getElementById('algoHint').textContent = rim
-    ? 'RIM (Firmware Rev 4.11.0): braucht gespeicherte Piezo-Zeiten (piezo_ns) - Schüsse ohne Piezo-Auslösung (z.B. SET PIEZO=0) können nicht neu berechnet werden. Liefert Sigma-Unsicherheit statt Cluster-Hits/Precision.'
-    : '';
-  // RIM verlangt Piezo IMMER (rimGate(), unabhaengig von SET PIEZO) - die
-  // Checkbox waere dort irrelevant, deshalb deaktiviert statt editierbar.
-  const usePiezoCb = document.getElementById('p-usePiezo');
-  usePiezoCb.disabled = rim;
-  if (rim) usePiezoCb.checked = true;
-  onUsePiezoChange();
 }
 
 function applyParams(p) {
@@ -671,20 +696,22 @@ function applyParams(p) {
     // SHOW liefert 0/1 (ints), gespeicherte Configs echte Booleans - beides abdecken.
     p.mic_enabled.forEach((v,i) => { const el = document.getElementById('p-micen'+i); if (el) el.checked = !!v; });
   }
-  if (p.algo === 'classic' || p.algo === 'rim') {
-    document.querySelector(`input[name=algo][value=${p.algo}]`).checked = true;
-  }
-  if (p.pellet_r_mm != null) document.getElementById('p-pelletR').value = p.pellet_r_mm;
-  if (p.max_sigma_um != null) document.getElementById('p-maxSigma').value = p.max_sigma_um / 1000;
   if (p.piezo_min_us != null) document.getElementById('p-piezoMin').value = p.piezo_min_us;
   if (p.piezo_max_us != null) document.getElementById('p-piezoMax').value = p.piezo_max_us;
-  if (p.min_mics != null) document.getElementById('p-minMics').value = p.min_mics;
   // use_piezo fehlt bei alten gespeicherten Configs (vor Einfuehrung dieser
   // Option) - Checkbox bleibt dann auf ihrem HTML-Default (checked), passend
   // zum Server-Fallback (SimParams.UsePiezo nil -> true, siehe dortigen
   // Kommentar).
   if (p.use_piezo != null) document.getElementById('p-usePiezo').checked = !!p.use_piezo;
-  onAlgoChange();
+  if (p.pos_algo) {
+    const a = p.pos_algo;
+    document.getElementById('pa-corr').checked = !!a.corr_cluster;
+    document.getElementById('pa-iter').value = a.iterations || 0;
+    document.getElementById('pa-weighted').checked = !!a.weighted;
+    document.getElementById('pa-lsq').checked = !!a.lsq;
+    if (a.lsq_pellet_r_mm) document.getElementById('pa-lsqR').value = a.lsq_pellet_r_mm;
+  }
+  onUsePiezoChange();
 }
 
 // loadConfigOptions: Liste gespeicherter Kalibrierungen als Tabelle statt
@@ -774,6 +801,13 @@ function importShow() {
   try {
     const cfg = JSON.parse(txt);
     if (cfg.type !== 'config') throw new Error('kein SHOW-Telegramm (type != "config")');
+    // Endpositions-Verfahren: Firmware ab 4.12.0 meldet es im SHOW, aeltere
+    // Firmware rechnet immer nach dem alten Verfahren (alles aus).
+    cfg.pos_algo = {
+      corr_cluster: cfg.cluster_corr === 1, iterations: cfg.cluster_iter || 0,
+      weighted: false, lsq: cfg.lsq === 1,
+      lsq_pellet_r_mm: cfg.lsq_pellet_r_mm != null ? cfg.lsq_pellet_r_mm : 2.25,
+    };
     applyParams(cfg);
     status.textContent = 'Übernommen.';
     status.style.color = 'var(--green)';
@@ -811,8 +845,78 @@ function clearCalSelection() {
   renderCalShotList();
 }
 
+function onCalModeChange() {
+  document.getElementById('c9Opts').style.display =
+    document.getElementById('calMode').value === 'cluster9' ? '' : 'none';
+}
+
+function c9Range(key) {
+  return {
+    enabled: document.getElementById(`c9-${key}-en`).checked,
+    min: parseFloat(document.getElementById(`c9-${key}-min`).value),
+    max: parseFloat(document.getElementById(`c9-${key}-max`).value),
+  };
+}
+
+// runCluster9Calibration: Offsets + Parameter auf minimalen Schnittpunkt-
+// Cluster Σ9 optimieren (server/sim_optimize.go) - Ergebnis als Tabelle
+// (vorher / bestes / Alternativen), jede Zeile einzeln übernehmbar.
+async function runCluster9Calibration() {
+  const params = currentParams();
+  const box = document.getElementById('calResult');
+  if ((params.cluster_radius_um || 200) < 1000 &&
+      !confirm(`Cluster-Radius (RADIUS) ist nur ${params.cluster_radius_um || 200} µm - damit liegen kaum Schnittpunkte im Radius und Σ9 ist praktisch immer 45 mm.\nTrotzdem starten? (Empfehlung: RADIUS z.B. 4000)`)) return;
+  const corrected = document.getElementById('c9Variant').value === 'corr';
+  const options = {
+    corrected, offsets: true,
+    standoff: c9Range('standoff'), mic_half_x: c9Range('michalfx'),
+    bullet_shift_pct: c9Range('bpct'), bullet_shift_cap: c9Range('bcap'), sound: c9Range('sound'),
+  };
+  box.style.display = '';
+  box.textContent = 'Optimiere Σ9 (mehrere Durchläufe, kann einige Sekunden dauern)…';
+  try {
+    const resp = await api(`/api/sessions/${currentSessionId}/calibrate-cluster9`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({params, shot_nos: Array.from(calSelected), options}),
+    });
+    const rows = [['vorher', resp.before, false], ['bestes', resp.best, true],
+      ...resp.alternates.map((c, i) => [`Alternative ${i+1}`, c, false])];
+    let html = `Σ9 ${corrected ? 'nach Kugeldurchm.-Korrektur' : 'roh'} · ${resp.starts} Startpunkte, `
+      + `${resp.evals.toLocaleString('de-DE')} Auswertungen, ${(resp.duration_ms/1000).toFixed(1)} s`
+      + `<table class="c9-res"><tr><th></th><th>Σ9 Ø (mm)</th><th>&lt;10 mm</th><th>Standoff</th><th>Mic-X</th>`
+      + `<th>Korr. %</th><th>Kappung</th><th>Schall</th><th>OFS0–5 (ns)</th><th></th></tr>`;
+    rows.forEach(([label, c, strong], i) => {
+      const p = c.params;
+      html += `<tr${strong ? ' style="font-weight:700"' : ''}><td>${label}</td>`
+        + `<td class="${cluster9Class(c.mean_sum_mm)}">${c.mean_sum_mm.toFixed(2)}</td>`
+        + `<td>${c.good}/${c.solved}</td><td>${p.standoff_paper_mm.toFixed(2)}</td><td>${p.mic_half_x_mm.toFixed(2)}</td>`
+        + `<td>${p.bullet_shift_pct}</td><td>${p.bullet_shift_cap_mm.toFixed(2)}</td><td>${p.sound_mps.toFixed(2)}</td>`
+        + `<td>${p.mic_offset_ns.join(', ')}</td>`
+        + `<td>${i > 0 ? `<button class="btn-sec" style="padding:2px 8px;font-size:11px" data-c9="${i}">Übernehmen</button>` : ''}</td></tr>`;
+    });
+    html += '</table>';
+    if (resp.at_bound && resp.at_bound.length) {
+      html += `<div style="color:#e8a030;margin-top:4px">⚠ Am Rand des erlaubten Bereichs: ${resp.at_bound.join(', ')} – `
+        + `das Optimum liegt evtl. außerhalb; Grenzen prüfen bzw. bewusst so lassen.</div>`;
+    }
+    html += '<div class="hint" style="margin-top:4px">„Übernehmen“ setzt die Werte oben in die Parameter ein – danach Neuberechnen, prüfen und bei Bedarf speichern bzw. freigeben.</div>';
+    box.innerHTML = html;
+    box.querySelectorAll('button[data-c9]').forEach(b => b.onclick = () => {
+      const p = rows[+b.dataset.c9][1].params;
+      applyParams({
+        standoff_paper_mm: +p.standoff_paper_mm.toFixed(2), mic_half_x_mm: +p.mic_half_x_mm.toFixed(2),
+        sound_mps: +p.sound_mps.toFixed(2), bullet_shift_pct: p.bullet_shift_pct,
+        bullet_shift_cap_mm: +p.bullet_shift_cap_mm.toFixed(2), mic_offset_ns: p.mic_offset_ns,
+      });
+    });
+  } catch (e) {
+    box.textContent = 'Fehler: ' + e.message;
+  }
+}
+
 async function runCalibration() {
   if (calSelected.size < 3) { alert('Mindestens 3 Schüsse mit Rohdaten auswählen.'); return; }
+  if (document.getElementById('calMode').value === 'cluster9') return runCluster9Calibration();
   const box = document.getElementById('calResult');
   box.style.display = '';
   box.textContent = 'Berechne Kalibrierung…';
@@ -820,18 +924,10 @@ async function runCalibration() {
     const params = currentParams();
     const resp = await api(`/api/sessions/${currentSessionId}/calibrate`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({params: params, shot_nos: Array.from(calSelected),
-                            mode: document.getElementById('calMode').value})
+      body: JSON.stringify({params: params, shot_nos: Array.from(calSelected)})
     });
     const ofs = resp.mic_offset_ns;
-    const c9mode = params.algo !== 'rim' && document.getElementById('calMode').value === 'cluster9';
-    // ALGO=CLASSIC: cost = Rest-Fehlersumme in mm. ALGO=RIM: cost = Summe
-    // der quadrierten RMS-Residuen in ns^2 (siehe calCostRimFn() in
-    // simulator.go) - andere Einheit, nicht direkt vergleichbar.
-    const costLabel = params.algo === 'rim'
-      ? `Kostensumme ${resp.cost.toFixed(0)} ns²`
-      : c9mode ? `Σ9-Summe ${resp.cost.toFixed(2)} mm`
-      : `Rest-Fehlersumme ${resp.cost.toFixed(3)} mm`;
+    const costLabel = `Rest-Fehlersumme ${resp.cost.toFixed(3)} mm`;
     const c9 = (resp.cluster_sum_before_mm != null && resp.cluster_sum_after_mm != null)
       ? ` Σ9 Ø der Kalibrier-Schüsse: ${resp.cluster_sum_before_mm.toFixed(2)} mm → `
         + `<strong class="${cluster9Class(resp.cluster_sum_after_mm)}">${resp.cluster_sum_after_mm.toFixed(2)} mm</strong>.`
@@ -867,13 +963,15 @@ function buildSetCommands() {
   lines.push(`SET BSHIFTPCT=${p.bullet_shift_pct}`);
   lines.push(`SET BSHIFTCAP=${p.bullet_shift_cap_mm}`);
   lines.push(`SET RADIUS=${p.cluster_radius_um}`);
+  // ab Firmware 4.12.0 (aeltere Firmware lehnt diese Zeilen mit Fehler ab)
+  lines.push(`SET CLUSTERCORR=${p.pos_algo.corr_cluster ? 1 : 0}`);
+  lines.push(`SET CLUSTERITER=${Math.max(0, Math.min(10, p.pos_algo.iterations))}`);
+  lines.push(`SET LSQ=${p.pos_algo.lsq ? 1 : 0}`);
+  lines.push(`SET LSQPELLETR=${p.pos_algo.lsq_pellet_r_mm}`);
   p.mic_enabled.forEach((v,i) => lines.push(`SET MICEN${i}=${v ? 1 : 0}`));
-  lines.push(`SET ALGO=${p.algo.toUpperCase()}`);
-  lines.push(`SET PELLETR=${p.pellet_r_mm}`);
-  lines.push(`SET MAXSIGMA=${(p.max_sigma_um / 1000).toFixed(2)}`);
+  lines.push('SET ALGO=CLASSIC'); // der Simulator bildet nur den Classic-Pfad nach
   lines.push(`SET PIEZOMIN=${p.piezo_min_us}`);
   lines.push(`SET PIEZOMAX=${p.piezo_max_us}`);
-  lines.push(`SET MINMICS=${p.min_mics}`);
   lines.push(`SET PIEZO=${p.use_piezo ? 1 : 0}`);
   return lines.join('\n');
 }
@@ -925,7 +1023,11 @@ async function sendTransfer() {
   if (!lane) { alert('Bitte die Standnummer angeben.'); return; }
   if (!confirm(`Aktuelle Parameter für Stand ${lane} zur Übernahme freigeben?\n\n`
       + 'Am Gerät ändert sich erst etwas, wenn die Freigabe in der Admin-Oberfläche des Stand-PCs übernommen wird. '
-      + 'Eine ältere, noch nicht übernommene Freigabe für diesen Stand wird ersetzt.')) return;
+      + 'Eine ältere, noch nicht übernommene Freigabe für diesen Stand wird ersetzt.'
+      + (simOnlyPosAlgo(currentParams()) ? '\n\nHinweis: „nach Rest-Fehler gewichten“ gibt es nur im Simulator – '
+         + 'das Gerät rechnet ohne Gewichtung. Ergebnisse am Stand können deshalb von der Simulation abweichen.' : '')
+      + '\n\nDie Einstellungen der Positionsbestimmung (CLUSTERCORR/CLUSTERITER/LSQ) übernimmt erst Firmware 4.12.0 – '
+      + 'ältere Firmware überspringt sie.')) return;
   try {
     const t = await api(`/api/lanes/${lane}/calibration-transfer`, {
       method: 'PUT', headers: {'Content-Type':'application/json'},
@@ -1462,27 +1564,15 @@ function renderDetailExtra() {
     <label><input type="radio" name="candCorr" value="corr"
       ${candCorrected?'checked':''} onchange="setCandCorrected(true)"> nach Kugeldurchm.-Korrektur</label>`;
 
-  // ALGO=RIM liefert sigma_x_um/sigma_y_um/clean statt pos_res_um/
-  // precision_um/cluster_hits (kein Kandidaten-/Kugelkorrektur-Konzept,
-  // siehe simulator.go solveShotRIM) - Detailzeile entsprechend anpassen.
-  const isRim = sim.sigma_x_um != null;
   let html = `<strong>Rohwerte Schuss ${shotNo} (Simuliert)</strong><br>`
-    + (isRim
-        ? `x_um=${sim.x_um} · y_um=${sim.y_um} · sigma_x_um=${sim.sigma_x_um} · `
-          + `sigma_y_um=${sim.sigma_y_um} · clean=${sim.clean}<br><br>`
-        : `x_um=${sim.x_um} · y_um=${sim.y_um} · pos_res_um=${sim.pos_res_um} · `
-          + `corr_res_um=${sim.corr_res_um} · precision_um=${sim.precision_um} · `
-          + `cluster_hits=${sim.cluster_hits}<br>`
-          + `<span class="hint">corr_res_um = Rest-Fehler NACH Kugeldurchm.-Korrektur - dieser Wert `
-          + `(nicht pos_res_um) ist auch das Kostenmaß der Kalibrierung.</span><br><br>`)
-    + (isRim ? '' :
-      `<div style="margin-bottom:6px">Schnittpunkt-Koordinaten anzeigen: ${refOptions}</div>`
-      + `<div style="margin-bottom:6px">${corrOptions}</div>`
-      + `<table><tr><th>Ref</th><th>A</th><th>B</th><th>x (mm)</th><th>y (mm)</th><th>Rest-Fehler (mm)</th></tr>`);
-  if (isRim) {
-    box.innerHTML = html;
-    return;
-  }
+    + `x_um=${sim.x_um} · y_um=${sim.y_um} · pos_res_um=${sim.pos_res_um} · `
+    + `corr_res_um=${sim.corr_res_um} · precision_um=${sim.precision_um} · `
+    + `cluster_hits=${sim.cluster_hits}<br>`
+    + `<span class="hint">corr_res_um = Rest-Fehler NACH Kugeldurchm.-Korrektur - dieser Wert `
+    + `(nicht pos_res_um) ist auch das Kostenmaß der Kalibrierung.</span><br><br>`
+    + `<div style="margin-bottom:6px">Schnittpunkt-Koordinaten anzeigen: ${refOptions}</div>`
+    + `<div style="margin-bottom:6px">${corrOptions}</div>`
+    + `<table><tr><th>Ref</th><th>A</th><th>B</th><th>x (mm)</th><th>y (mm)</th><th>Rest-Fehler (mm)</th></tr>`;
 
   const cx = candRefMode === 'shot' ? sim.x_um : 0;
   const cy = candRefMode === 'shot' ? sim.y_um : 0;

@@ -120,6 +120,10 @@ tr.gw-row.active td{background:#1a2a2a}
 .form-card{position:sticky;top:16px}
 .check-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:.83rem}
 .check-row input[type=checkbox]{accent-color:var(--acc)}
+/* Teiler-Faktor je Scheibe nur bei Punkte-Saison (siehe awUpdateTypFields) */
+#aw-wtf-scheiben .aw-ft, #aw-wtf-scheiben .aw-fhead{display:none}
+#aw-wtf-scheiben.punkte-saison .aw-ft{display:inline-block}
+#aw-wtf-scheiben.punkte-saison .aw-fhead{display:flex}
 .checklist{max-height:160px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:#0e1218}
 .item-row{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:.83rem}
 .item-row .qty{width:60px}
@@ -493,7 +497,9 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
 
               <label>Scheiben (mit Faktor je Scheibe)</label>
               <p class="hint" style="margin-top:-2px;margin-bottom:6px">Faktor normiert unterschiedliche
-                Zielgrößen/Kaliber (z.B. LG vs. LP in einer kombinierten Wertung) - Standard 1.</p>
+                Zielgrößen/Kaliber (z.B. LG vs. LP in einer kombinierten Wertung) - Standard 1.
+                Bei Punkte-Saison getrennt für Ring und Teiler (Ring × Faktor, Teiler × Faktor -
+                beim Teiler ist kleiner besser, ein Faktor &gt; 1 verschlechtert ihn also).</p>
               <div class="checklist" id="aw-wtf-scheiben"></div>
               <label>Nur für Schützenklassen (leer = alle)</label>
               <div class="checklist" id="aw-wtf-classes"></div>
@@ -1016,7 +1022,8 @@ function anSearchShooters() {
       const badge = nr !== undefined ? `<span class="reg-badge">#${nr}</span>` : '';
       return `
       <div class="search-result-item" onclick="anRegisterShooter('${sh.id}')">
-        <span>${badge}${esc(sh.last_name)}, ${esc(sh.first_name)}</span>
+        <span>${badge}${esc(sh.last_name)}, ${esc(sh.first_name)}${sh.birth_date
+          ? ` <span class="hint">(${sh.birth_date.split('-').reverse().join('.')})</span>` : ''}</span>
         <span class="club">${esc(sh.club || '')}</span>
       </div>`;
     }).join('');
@@ -1972,7 +1979,7 @@ function awRenderWertungen() {
     tr.innerHTML = `
       <td>${esc(wt.short_desc)}</td>
       <td style="font-size:.8rem">${AW_TYP_LABEL[wt.typ] || esc(wt.typ)}</td>
-      <td style="font-size:.8rem">${esc((wt.scheiben||[]).map(s => s.faktor !== 1 ? `${s.scheibe_name} (×${s.faktor})` : s.scheibe_name).join(', '))}</td>
+      <td style="font-size:.8rem">${esc((wt.scheiben||[]).map(s => awScheibeFaktorLabel(wt, s)).join(', '))}</td>
       <td style="font-size:.8rem">${AW_FELD_LABEL[wt.wertungsfeld] || ''}</td>
       <td><span class="badge ${wt.visible?'badge-yes':'badge-no'}">${wt.visible?'Ja':'Nein'}</span></td>
       <td class="row-actions">
@@ -1983,6 +1990,13 @@ function awRenderWertungen() {
   }
 }
 
+// Anzeige "Name (×Faktor)" - bei Punkte-Saison mit getrenntem Ring-/Teiler-Faktor.
+function awScheibeFaktorLabel(wt, s) {
+  const fr = Number(s.faktor), ft = Number(s.faktor_teiler || s.faktor);
+  if (wt.typ === 'punkte_saison' && fr !== ft) return `${s.scheibe_name} (Ring ×${fr}, Teiler ×${ft})`;
+  return fr !== 1 ? `${s.scheibe_name} (×${fr})` : s.scheibe_name;
+}
+
 function awUpdateTypFields() {
   const typ = document.getElementById('aw-wtf-typ').value;
   const isAdler = typ === 'adler';
@@ -1990,6 +2004,7 @@ function awUpdateTypFields() {
   document.getElementById('aw-wtf-mp-fields').style.display = isAdler ? 'none' : '';
   document.getElementById('aw-wtf-adler-fields').style.display = isAdler ? '' : 'none';
   document.getElementById('aw-wtf-punkte-fields').style.display = isPunkteSaison ? '' : 'none';
+  document.getElementById('aw-wtf-scheiben').classList.toggle('punkte-saison', isPunkteSaison);
   document.getElementById('aw-wtf-anzsumme-wrap').style.display = isPunkteSaison ? 'none' : '';
   document.getElementById('aw-wtf-feld-label').textContent =
     isPunkteSaison ? 'Ring-Basis (für Ring-Punktetabelle)' : 'Wertungsfeld';
@@ -2023,10 +2038,16 @@ function awClassChecklistHTML(checkedIDs) {
 // ganze Wertung, siehe awToggleSerienAnzahlField/#aw-wtf-serien-modus.
 function awScheibenChecklistHTML(selected) {
   if (!awScheiben.length) return '<span class="hint">Noch keine Scheiben in diesem Preisschießen angelegt.</span>';
-  const bySelId = new Map((selected || []).map(s => [s.scheibe_id, s.faktor]));
-  return awScheiben.map(sc => {
-    const checked = bySelId.has(sc.id);
-    const faktor = checked ? bySelId.get(sc.id) : 1;
+  const bySelId = new Map((selected || []).map(s => [s.scheibe_id, s]));
+  const head = `
+    <div class="aw-fhead" style="justify-content:flex-end;gap:8px;font-size:.72rem;color:var(--dim)">
+      <span style="width:80px;text-align:center">Ring</span><span style="width:80px;text-align:center">Teiler</span>
+    </div>`;
+  return head + awScheiben.map(sc => {
+    const sel = bySelId.get(sc.id);
+    const checked = !!sel;
+    const faktor = checked ? sel.faktor : 1;
+    const faktorTeiler = checked ? (sel.faktor_teiler || sel.faktor) : 1;
     return `
     <label class="check-row" style="justify-content:space-between">
       <span style="display:flex;align-items:center;gap:8px">
@@ -2034,23 +2055,32 @@ function awScheibenChecklistHTML(selected) {
                onchange="awToggleScheibeFaktor(this)">
         <span>${esc(sc.name)}</span>
       </span>
-      <input type="number" step="0.0001" value="${faktor}" data-faktor-for="${sc.id}"
-             style="width:80px" ${checked?'':'disabled'}>
+      <span style="display:flex;gap:8px">
+        <input type="number" step="0.0001" value="${faktor}" data-faktor-for="${sc.id}"
+               style="width:80px" ${checked?'':'disabled'} title="Faktor (bei Punkte-Saison: Ring)">
+        <input type="number" step="0.0001" value="${faktorTeiler}" data-faktor-teiler-for="${sc.id}" class="aw-ft"
+               style="width:80px" ${checked?'':'disabled'} title="Teiler-Faktor (nur Punkte-Saison)">
+      </span>
     </label>`;
   }).join('');
 }
 
 function awToggleScheibeFaktor(checkbox) {
-  const faktorInput = checkbox.closest('.check-row').querySelector('[data-faktor-for]');
-  faktorInput.disabled = !checkbox.checked;
+  checkbox.closest('.check-row').querySelectorAll('[data-faktor-for],[data-faktor-teiler-for]')
+    .forEach(inp => inp.disabled = !checkbox.checked);
 }
 
+// Bei Punkte-Saison getrennter Teiler-Faktor, sonst gilt der eine Faktor fuer beides.
 function awReadCheckedScheiben() {
+  const punkteSaison = document.getElementById('aw-wtf-typ').value === 'punkte_saison';
   return Array.from(document.querySelectorAll('#aw-wtf-scheiben input[type=checkbox]:checked'))
     .map(cb => {
       const id = cb.getAttribute('data-scheibe-id');
-      const faktorInput = document.querySelector(`#aw-wtf-scheiben [data-faktor-for="${id}"]`);
-      return {scheibe_id: id, faktor: parseFloat(faktorInput.value) || 1};
+      const faktor = parseFloat(document.querySelector(`#aw-wtf-scheiben [data-faktor-for="${id}"]`).value) || 1;
+      const faktorTeiler = punkteSaison
+        ? (parseFloat(document.querySelector(`#aw-wtf-scheiben [data-faktor-teiler-for="${id}"]`).value) || 1)
+        : faktor;
+      return {scheibe_id: id, faktor, faktor_teiler: faktorTeiler};
     });
 }
 

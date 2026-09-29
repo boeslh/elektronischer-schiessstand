@@ -291,7 +291,7 @@ func (s *Store) ClonePreisschiessen(ctx context.Context, sourceID, newName strin
 
 	// ---- Wertung-Scheiben-Faktoren ----
 	wsRows, err := tx.Query(ctx, `
-		SELECT wertung_id, scheibe_id, faktor FROM ps_wertung_scheiben WHERE wertung_id = ANY($1::uuid[])`,
+		SELECT wertung_id, scheibe_id, faktor, faktor_teiler FROM ps_wertung_scheiben WHERE wertung_id = ANY($1::uuid[])`,
 		wertungIDs(wertungen))
 	if err != nil {
 		return "", err
@@ -299,11 +299,12 @@ func (s *Store) ClonePreisschiessen(ctx context.Context, sourceID, newName strin
 	type wsSrc struct {
 		wertungID, scheibeID string
 		faktor               float64
+		faktorTeiler         float64
 	}
 	var wsRowsSrc []wsSrc
 	for wsRows.Next() {
 		var x wsSrc
-		if err := wsRows.Scan(&x.wertungID, &x.scheibeID, &x.faktor); err != nil {
+		if err := wsRows.Scan(&x.wertungID, &x.scheibeID, &x.faktor, &x.faktorTeiler); err != nil {
 			wsRows.Close()
 			return "", err
 		}
@@ -315,8 +316,8 @@ func (s *Store) ClonePreisschiessen(ctx context.Context, sourceID, newName strin
 	}
 	for _, x := range wsRowsSrc {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO ps_wertung_scheiben (wertung_id, scheibe_id, faktor) VALUES ($1,$2,$3)`,
-			wertungIDMap[x.wertungID], scheibeIDMap[x.scheibeID], x.faktor); err != nil {
+			`INSERT INTO ps_wertung_scheiben (wertung_id, scheibe_id, faktor, faktor_teiler) VALUES ($1,$2,$3,$4)`,
+			wertungIDMap[x.wertungID], scheibeIDMap[x.scheibeID], x.faktor, x.faktorTeiler); err != nil {
 			return "", err
 		}
 	}

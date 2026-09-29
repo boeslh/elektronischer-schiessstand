@@ -85,6 +85,7 @@ type Shooter struct {
 	FirstName string `json:"first_name"`
 	PassNo    string `json:"pass_no,omitempty"`
 	Club      string `json:"club,omitempty"`
+	BirthDate string `json:"birth_date,omitempty"` // YYYY-MM-DD - unterscheidet Namensgleiche im Verein
 }
 
 type Discipline struct {
@@ -257,7 +258,7 @@ func (s *Store) EnsureLanes(ctx context.Context, count int) error {
 func (s *Store) ListShooters(ctx context.Context, search string) ([]Shooter, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT sh.id, sh.last_name, sh.first_name,
-		       COALESCE(sh.pass_no,''), COALESCE(c.name,'')
+		       COALESCE(sh.pass_no,''), COALESCE(c.name,''), COALESCE(sh.birth_date::text,'')
 		FROM shooters sh LEFT JOIN clubs c ON c.id = sh.club_id
 		WHERE $1 = '' OR sh.last_name ILIKE '%'||$1||'%'
 		   OR sh.first_name ILIKE '%'||$1||'%'
@@ -270,7 +271,7 @@ func (s *Store) ListShooters(ctx context.Context, search string) ([]Shooter, err
 	for rows.Next() {
 		var sh Shooter
 		if err := rows.Scan(&sh.ID, &sh.LastName, &sh.FirstName,
-			&sh.PassNo, &sh.Club); err != nil {
+			&sh.PassNo, &sh.Club, &sh.BirthDate); err != nil {
 			return nil, err
 		}
 		out = append(out, sh)
@@ -2537,13 +2538,8 @@ func (s *Store) ListRundenwettkampfResults(ctx context.Context, eventID string) 
 
 // SimShotRaw: ein Schuss mit allen fuer die Neuberechnung noetigen Rohdaten.
 // PiezoNs (gleiche Zeitbasis wie AirNs, "relativ zum insgesamt ersten
-// erfassten Mikrofon") wird fuer ALGO=RIM gebraucht, um die Flanken auf den
-// Piezo-Anker umzurechnen (shot_locator.h erwartet Zeiten relativ zum Piezo,
-// siehe simulator.go rimTimesFromPiezo) - unabhaengig davon, mit welchem
-// ALGO der Schuss urspruenglich erfasst wurde, da piezo_ns immer in der
-// CLASSIC-Zeitbasis gespeichert wird (Firmware Rev 4.11.0 aendert nur die
-// Zeitbasis der shot/reject-Telegramme, nicht die zugrundeliegenden rohen
-// Piezo-/Mic-Zeitstempel).
+// erfassten Mikrofon") wird fuer die Piezo-Bestaetigung (SET PIEZO,
+// PIEZOMIN/PIEZOMAX) gebraucht.
 type SimShotRaw struct {
 	ShotNo       int        `json:"shot_no"`
 	Kind         string     `json:"kind"`

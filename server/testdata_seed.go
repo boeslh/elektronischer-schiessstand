@@ -82,6 +82,7 @@ type TestdatenResult struct {
 type TestdatenCleanupResult struct {
 	ShootersDeleted   int `json:"shooters_deleted"`
 	TeilnehmerDeleted int `json:"teilnehmer_deleted"`
+	KaeufeDeleted     int `json:"kaeufe_deleted"` // generierte Kaeufe bestehender Teilnehmer (testdata_bestand.go)
 	SessionsDeleted   int `json:"sessions_deleted"`
 	ShotsDeleted      int `json:"shots_deleted"`
 }
@@ -418,8 +419,9 @@ func (s *Store) GenerateTestdaten(ctx context.Context, p TestdatenParams) (Testd
 			}
 
 			lane := nextLane()
+			finishedAt := time.Now().Add(-time.Duration(rand.IntN(14)) * 24 * time.Hour)
 			shotCount, sessionID, err := s.shootTestdatenScheibe(
-				ctx, lane, meta, shooterID, psName, e.id)
+				ctx, lane, meta, shooterID, psName, e.id, finishedAt)
 			if err != nil {
 				res.Warnings = append(res.Warnings, fmt.Sprintf(
 					"Teilnehmer %d: Beschuss fehlgeschlagen (%v)", teilnehmer.TeilnehmerNr, err))
@@ -652,9 +654,10 @@ func (s *Store) loadTestdatenLanes(ctx context.Context) ([]tdLane, error) {
 // shootTestdatenScheibe legt für eine gekaufte Scheiben-Einheit eine fertige
 // Session mit vollständiger Schusszahl an und verknüpft sie mit der
 // Einheit - fachlich das, was sonst AssignTeilnehmerLane + reale Treffer am
-// Stand-PC über die Zeit tun, hier synchron im Batch.
+// Stand-PC über die Zeit tun, hier synchron im Batch. finishedAt bestimmt
+// den Schiesstag (sessions.finished_at::date).
 func (s *Store) shootTestdatenScheibe(ctx context.Context, lane tdLane, meta tdScheibeMeta,
-	shooterID, listName, kaufScheibeID string) (int, string, error) {
+	shooterID, listName, kaufScheibeID string, finishedAt time.Time) (int, string, error) {
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -666,7 +669,6 @@ func (s *Store) shootTestdatenScheibe(ctx context.Context, lane tdLane, meta tdS
 	if shotCount <= 0 {
 		shotCount = 1
 	}
-	finishedAt := time.Now().Add(-time.Duration(rand.IntN(14)) * 24 * time.Hour)
 	startedAt := finishedAt.Add(-time.Duration(shotCount) * 8 * time.Second)
 
 	var sessionID string
@@ -725,7 +727,10 @@ func (s *Store) shootTestdatenScheibe(ctx context.Context, lane tdLane, meta tdS
 // delete-selection.go für die Import/Export-Kachel - innerhalb derselben
 // Transaktion kurz deaktiviert und danach garantiert wieder aktiviert.
 func (s *Store) CleanupTestdaten(ctx context.Context) (TestdatenCleanupResult, error) {
-	var res TestdatenCleanupResult
+	res, err := s.cleanupBestandTestdaten(ctx)
+	if err != nil {
+		return res, err
+	}
 
 	var shooterIDs []string
 	rows, err := s.pool.Query(ctx,
@@ -765,7 +770,7 @@ func (s *Store) CleanupTestdaten(ctx context.Context) (TestdatenCleanupResult, e
 	); err != nil {
 		return res, err
 	} else {
-		res.ShotsDeleted = int(tag.RowsAffected())
+		res.ShotsDeleted += int(tag.RowsAffected())
 	}
 
 	// ps_kaeufe/ps_guthaben_buchungen/ps_kauf_scheiben hängen per ON DELETE
@@ -777,7 +782,7 @@ func (s *Store) CleanupTestdaten(ctx context.Context) (TestdatenCleanupResult, e
 	); err != nil {
 		return res, err
 	} else {
-		res.TeilnehmerDeleted = int(tag.RowsAffected())
+		res.TeilnehmerDeleted += int(tag.RowsAffected())
 	}
 
 	if tag, err := tx.Exec(ctx,
@@ -785,7 +790,7 @@ func (s *Store) CleanupTestdaten(ctx context.Context) (TestdatenCleanupResult, e
 	); err != nil {
 		return res, err
 	} else {
-		res.SessionsDeleted = int(tag.RowsAffected())
+		res.SessionsDeleted += int(tag.RowsAffected())
 	}
 
 	if tag, err := tx.Exec(ctx,

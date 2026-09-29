@@ -7,7 +7,9 @@ import (
 )
 
 func transferTestConfig() *ConfigTelegram {
+	one, five, zero, pr := 1, 5, 0, 2.25
 	return &ConfigTelegram{
+		ClusterCorr: &one, ClusterIter: &five, LSQ: &zero, LSQPelletRMm: &pr,
 		StandoffPaperMm: 28, MicHalfXMm: 115, OffsetXUm: 0, OffsetYUm: 0, SoundMps: 343,
 		MicOffsetNs: [6]int{0, 100, 200, 300, 400, 500}, MicEnabled: [6]int{1, 1, 1, 1, 1, 1},
 		BulletShiftPct: 50, BulletShiftCapMm: 3, ClusterRadiusUm: 200, Algo: "classic",
@@ -20,8 +22,9 @@ func transferTestConfig() *ConfigTelegram {
 func unchangedSettings() []firmwareSetting {
 	kv := "STANDOFFPAPER=28.00 MICHALFX=115.00 OFFSETX=0 OFFSETY=0 SOUNDSPEED=343 " +
 		"OFS0=0 OFS1=100 OFS2=200 OFS3=300 OFS4=400 OFS5=500 BSHIFTPCT=50 BSHIFTCAP=3.00 RADIUS=200 " +
-		"MICEN0=1 MICEN1=1 MICEN2=1 MICEN3=1 MICEN4=1 MICEN5=1 ALGO=CLASSIC PELLETR=2.25 MAXSIGMA=2.00 " +
-		"PIEZOMIN=100 PIEZOMAX=1400 MINMICS=5 PIEZO=1"
+		"CLUSTERCORR=1 CLUSTERITER=5 LSQ=0 LSQPELLETR=2.25 " +
+		"MICEN0=1 MICEN1=1 MICEN2=1 MICEN3=1 MICEN4=1 MICEN5=1 ALGO=CLASSIC " +
+		"PIEZOMIN=100 PIEZOMAX=1400 PIEZO=1"
 	var out []firmwareSetting
 	for _, f := range strings.Fields(kv) {
 		k, v, _ := strings.Cut(f, "=")
@@ -56,13 +59,13 @@ func TestTransferCommands(t *testing.T) {
 	}
 	set("OFS3", "-1234")
 	set("OFFSETX", "1500")
-	set("MAXSIGMA", "1.50")
+	set("RADIUS", "4000")
 	set("STANDOFFPAPER", "28.004") // innerhalb der Toleranz -> unveraendert
 	cmds := transferCommands(diffTransfer(transferTestConfig(), s))
 	want := []string{
 		"CAL IMPORT SOUNDSPEED=343,OFS0=0,OFS1=100,OFS2=200,OFS3=-1234,OFS4=400,OFS5=500",
 		"SET OFFSETX=1500",
-		"SET MAXSIGMA=1.50",
+		"SET RADIUS=4000",
 	}
 	if strings.Join(cmds, "|") != strings.Join(want, "|") {
 		t.Errorf("Befehle\n  %v\nerwartet\n  %v", cmds, want)
@@ -130,5 +133,28 @@ func TestQueryTelegram_ConfigWithoutCorr(t *testing.T) {
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Fatalf("Antwort erst nach %s - sollte nicht auf den Timeout warten", d)
+	}
+}
+
+// Geraet mit Firmware vor Rev 4.12.0 kennt CLUSTERCORR/CLUSTERITER/LSQ/
+// LSQPELLETR nicht (fehlen im SHOW) - die Uebernahme ueberspringt sie, statt
+// SET-Befehle zu senden, die die Firmware mit Fehler ablehnen wuerde.
+func TestDiffTransfer_OldFirmwareSkipsNewKeys(t *testing.T) {
+	c := transferTestConfig()
+	c.ClusterCorr, c.ClusterIter, c.LSQ, c.LSQPelletRMm = nil, nil, nil, nil
+	s := unchangedSettings()
+	for i := range s {
+		if s[i].Key == "CLUSTERITER" {
+			s[i].Value = "3"
+		}
+	}
+	items := diffTransfer(c, s)
+	for _, it := range items {
+		if firmwareOptionalKeys[it.Key] && (!it.Unsupported || it.Changed) {
+			t.Errorf("%s: unsupported=%v changed=%v, erwartet uebersprungen", it.Key, it.Unsupported, it.Changed)
+		}
+	}
+	if cmds := transferCommands(items); len(cmds) != 0 {
+		t.Errorf("keine Befehle erwartet, bekommen %v", cmds)
 	}
 }

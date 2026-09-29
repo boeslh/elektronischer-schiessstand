@@ -1,38 +1,62 @@
 /*
  * ============================================================================
  *  Elektronischer Schießstand – ESP32 Firmware
- *  Rev 4.11.5(?) – Versionsnummer vor dem Flashen gegen den tatsaechlich auf
- *              den Staenden laufenden Stand pruefen, siehe bereits fruehere
- *              Versions-Diskrepanz-Hinweise in diesem Header.
- *              processShot(): Piezo-Pflicht (SET PIEZO, Default 1) wirkt
- *              jetzt auf "pos_valid" (nicht mehr nur auf "clean") - realer
- *              Vorfall: Luftschall benachbarter Staende ohne jeden lokalen
- *              Einschlag (piezoOk durchgehend false ueber eine komplette
- *              Wertungs-Scheibe, 40/40 Schuesse) wurde trotz stark erhoehtem
- *              Rest-Fehler (im Schnitt 56mm statt ueblich 1-2mm) als
- *              "gueltige" Trefferposition gemeldet und in der Wertung
- *              gezaehlt, weil piezoOk bislang nur in "clean" einfloss.
- *              posOk wird jetzt direkt nach solveAirPosition() auf false
- *              gesetzt, wenn cfg.usePiezo && !piezoOk - xUm/yUm/resUm/
- *              precUm/clusterN/"pos_valid" verhalten sich dadurch wie beim
- *              bestehenden "zu wenige Mics"-Fall. Nur bei SET PIEZO=1 (Firmware-
- *              Default) wirksam - SET PIEZO=0 (Aufbauten ohne Piezo-Hardware)
- *              unveraendert. Ursprung/Vorab-Test: Server-seitiger Simulator
- *              (server/simulator.go SimParams.UsePiezo), dort mit den drei
- *              tatsaechlichen Vorfall-Schuessen aus der Datenbank als
- *              Regressionstest verifiziert (TestSolveShot_RequiresPiezoByDefault).
+ *  Rev 4.12.0 – solveAirPosition(), Stufe 2 (Endposition): neues, im Server-
+ *              Simulator erprobtes Verfahren (server/sim_posalgo.go), dort
+ *              gegen Σ9-Schnittpunkt-Cluster UND Foto-Kalibrierung (reale
+ *              Lochpositionen) mit den besten Ergebnissen:
+ *              - SET CLUSTERCORR=0|1 (NVS, Default 1): ALLE Schnittpunkte
+ *                werden kugeldurchmesser-korrigiert (SET BSHIFTPCT/BSHIFTCAP,
+ *                je Schnittpunkt mit dessen eigener Referenz, gleiche Formel
+ *                wie fuer die Stufe-1-Loesung) ausgewaehlt und gemittelt -
+ *                bisher ging nur die Stufe-1-Loesung korrigiert, alle anderen
+ *                roh in den Mittelwert ein.
+ *              - SET CLUSTERITER=0-10 (NVS, Default 5): zusaetzliche
+ *                Durchgaenge, in denen der Cluster (SET RADIUS) um den zuletzt
+ *                berechneten Mittelpunkt neu ausgewaehlt wird (Mean-Shift),
+ *                Abbruch sobald sich der Mittelpunkt nicht mehr bewegt.
+ *              - SET LSQ=0|1 (NVS, Default 0) + SET LSQPELLETR=0.0-5.0 (mm,
+ *                Default 2.25): Endposition zusaetzlich per Ausgleichsrechnung
+ *                (Gauss-Newton ueber x, y, Startzeit) ueber ALLE ausgeloesten
+ *                Mikrofone verfeinern, Modell: Schall vom naechstgelegenen
+ *                Punkt des Lochrands. Braucht >= 4 Mics; bei >= 5 werden die
+ *                zwei auffaelligsten Mics probeweise weggelassen (Echo-
+ *                Schutz). Optional, im Simulator "oft gut".
+ *              CLUSTERCORR=0 + CLUSTERITER=0 + LSQ=0 = exakt das Verhalten
+ *              bis Rev 4.11.5. cluster_hits/precision_um beziehen sich auf
+ *              die Endposition (bei CLUSTERCORR=1 auf die korrigierten
+ *              Schnittpunkte). Rechenaufwand je Schuss mit Defaults ca.
+ *              +70% gegenueber 4.11.5 (mit LSQ ca. +100-160%).
+ *              Ausserdem (erneut, ging mit dem 4.11.5-Stand verloren, vgl.
+ *              Rev 4.11.6 im Repo): emitLine() haengt die Korrelations-ID
+ *              "corr" auch an lange Zeilen an (Hilfspuffer 1024 statt 160
+ *              Byte) - die config-Antwort auf SHOW kam sonst ohne corr beim
+ *              Stand-PC an ("Gerät nicht erreichbar: keine Antwort innerhalb
+ *              von 2s" bei der Kalibrier-Uebernahme).
  * ============================================================================
  *
- *  Rev 4.11.6 – emitLine(): Korrelations-ID ("corr") auch an lange Zeilen
- *              anhaengen - der Hilfspuffer war mit 160 Byte zu klein fuer die
- *              config-Antwort auf SHOW (bis ~900 Byte), die dadurch ohne corr
- *              gesendet wurde. Folge am Stand-PC: "Gerät nicht erreichbar:
- *              keine Antwort innerhalb von 2s" bei der Kalibrier-Uebernahme
- *              aus dem Simulator. Der Stand-PC wertet seit derselben Aenderung
- *              auch ein config-Telegramm ohne corr aus (calibration_transfer.go
- *              queryConfig), funktioniert also auch mit aelterer Firmware.
- *              FW_VERSION direkt auf 4.11.6 gesetzt - das Geraet meldete
- *              bereits 4.11.5, obwohl hier noch 4.11.4 eingetragen war.
+ *  Rev 4.11.5 – Neu: SET SENDREJECT=0|1 (NVS, Default 0). Bei 0 gehen
+ *              "reject"-Telegramme (zu wenige Mics bzw. bei ALGO=RIM "fit
+ *              failed") nur noch ueber Serial raus, NICHT mehr per TCP an
+ *              den Stand-PC (auch nicht in den Offline-Ringpuffer), und
+ *              zwar OHNE "seq"-Feld: shotCounter/sequenceNo werden nur noch
+ *              bei gueltigen Schuessen erhoeht, damit der Stand-PC keine
+ *              Luecken im seq-Zaehler sieht und keine verlorenen Schuesse
+ *              vermutet. SET SENDREJECT=1 stellt das bisherige Verhalten
+ *              (Rev 4.6.1: jede Ausloesung bekommt eine seq, Rejects gehen
+ *              auch per TCP) wieder her. Umsetzung zentral in emitReject().
+ *              Ausserdem neu: SET PIEZOREQ=0|1 (NVS, Default 1). Bei SET
+ *              PIEZO=1 wird ein Schuss ohne gueltige Piezo-Bestaetigung
+ *              (kein Piezo-Signal bzw. ausserhalb PIEZOMIN..PIEZOMAX) jetzt
+ *              als "reject" (reason "no piezo"/"piezo out of window")
+ *              behandelt statt wie bisher als "shot" mit piezo_ok=0/
+ *              clean=0 - und faellt damit auch unter SET SENDREJECT. Ein
+ *              solcher Reject setzt nur die kurze SET REJECTLOCK-Sperrzeit
+ *              (typisch Muendungsknall-Fehlausloeser, der echte Einschlag
+ *              kann noch folgen). SET PIEZOREQ=0 = bisheriges Verhalten.
+ *              Nur ALGO=CLASSIC - bei ALGO=RIM ist das Piezo ohnehin der
+ *              Trigger. docs/protokoll-referenz.md entsprechend aktualisiert.
+ * ============================================================================
  *
  *  Rev 4.11.4 – calCostClassic()/solveAirPosition(): Die Kugeldurchmesser-
  *              Korrektur (SET BSHIFTPCT/BSHIFTCAP) fliesst jetzt in die
@@ -894,7 +918,7 @@
 // Konstanten & Werks-Defaults (greifen nur bei leerem NVS)
 // ---------------------------------------------------------------------------
 
-#define FW_VERSION   "4.11.6"
+#define FW_VERSION   "4.12.0"
 #define SERIAL_BAUD  115200
 #define NVS_NS       "schiessstd"     // NVS-Namespace
 
@@ -1069,6 +1093,9 @@ struct DeviceConfig {
                             // z.B. Muendungsknall-Fehlausloeser) statt der
                             // vollen debounceMs (SET REJECTLOCK, Default 5) -
                             // siehe Kommentar in processShot()
+    bool     sendRejects;   // "reject"-Telegramme auch per TCP senden und
+                            // dafuer seq vergeben (SET SENDREJECT, Default 0 =
+                            // nur Serial, ohne seq) - siehe emitReject()
     uint32_t windowMs;
     uint8_t  debug;        // Ausgabe-Filter: 0=nur saubere Schuesse (Default),
                             // 1=+Schuesse mit Mikrofon-Ausreisser, 2=+Reject
@@ -1115,6 +1142,15 @@ struct DeviceConfig {
                             // ein, siehe calCostClassic()
     float    bulletShiftCapMm; // Kappung der Kugeldurchmesser-Korrektur je
                             // Mikrofon in mm (SET BSHIFTCAP, Default 3.0)
+    bool     clusterCorr;  // Stufe 2: alle Schnittpunkte kugeldurchmesser-
+                            // korrigiert mitteln (SET CLUSTERCORR, Default 1,
+                            // Rev 4.12.0) - siehe solveAirPosition()
+    uint8_t  clusterIter;  // Stufe 2: zusaetzliche Nachzentrier-Durchgaenge
+                            // (SET CLUSTERITER 0-10, Default 5, Rev 4.12.0)
+    bool     lsq;          // Endposition per Ausgleichsrechnung ueber alle
+                            // Mics verfeinern (SET LSQ, Default 0, Rev 4.12.0)
+    float    lsqPelletRMm; // Lochrand-Radius fuer SET LSQ in mm (SET
+                            // LSQPELLETR, Default 2.25, 0 = Punktquelle)
     uint8_t  algoMode;      // ALGO_CLASSIC (Default) oder ALGO_RIM (SET ALGO,
                             // siehe Rev-4.11.0-Hinweis im Header-Kommentar) -
                             // waehlt Trigger UND Positionsloesung, wirkt
@@ -1129,6 +1165,10 @@ struct DeviceConfig {
                             // RADIUS/MINCLUSTER bei ALGO=CLASSIC
     bool     usePiezo;      // Piezo (Stahlplatte, PIEZO_PIN) als Trigger-
                             // Bestaetigung nutzen? (SET PIEZO, Default 1/an)
+    bool     piezoRequired; // Bei SET PIEZO=1: Schuss ohne gueltige Piezo-
+                            // Bestaetigung (piezo_ok=0) als "reject" statt als
+                            // "shot" mit clean=0 behandeln? (SET PIEZOREQ,
+                            // Default 1) - nur ALGO=CLASSIC, siehe processShot()
     uint32_t piezoMinUs;    // Erwartete min. Verzoegerung Piezo nach erstem
                             // Luftschall-Ereignis in us (SET PIEZOMIN, Default 100),
                             // siehe processShot()
@@ -1204,6 +1244,7 @@ static void loadConfig()
     cfg.lane       = prefs.getUShort("lane", 1);
     cfg.debounceMs = prefs.getUInt("debounce", 100);
     cfg.rejectLockoutMs = prefs.getUInt("reject_lock", 5);
+    cfg.sendRejects = prefs.getBool("send_reject", false);
     cfg.windowMs   = prefs.getUInt("window", 1);
     cfg.debug      = prefs.getUChar("debug", 0);
     cfg.airOutlierUm = prefs.getUInt("outlier", 5000);   // Default 5.0 mm
@@ -1232,10 +1273,15 @@ static void loadConfig()
     // BSHIFTPCT konfiguriertes Geraet behaelt seinen eingestellten Wert.
     cfg.bulletShiftPct = prefs.getUChar("bshift_pct", 40);
     cfg.bulletShiftCapMm = prefs.getFloat("bshift_cap", 3.0f);
+    cfg.clusterCorr  = prefs.getBool("clu_corr", true);
+    cfg.clusterIter  = prefs.getUChar("clu_iter", 5);
+    cfg.lsq          = prefs.getBool("lsq", false);
+    cfg.lsqPelletRMm = prefs.getFloat("lsq_pr", 2.25f);
     cfg.algoMode   = prefs.getUChar("algo", ALGO_CLASSIC);
     cfg.pelletRadiusMm = prefs.getFloat("pellet_r", 2.25f);
     cfg.maxSigmaMm = prefs.getFloat("max_sigma", 2.0f);
     cfg.usePiezo   = prefs.getBool("use_piezo", true);
+    cfg.piezoRequired = prefs.getBool("piezo_req", true);
     cfg.piezoMinUs = prefs.getUInt("piezo_min", 100);
     cfg.piezoMaxUs = prefs.getUInt("piezo_max", 1400);
     cfg.testCooldownMs = prefs.getUInt("test_cd_ms", 3000);
@@ -1801,6 +1847,39 @@ static void emitf(const char *fmt, ...)
     emitLine(line);
 }
 
+// "reject"-Telegramm ausgeben. fmt/Argumente liefern alles NACH dem "seq"-
+// Feld (beginnend mit "\"algo\":...", inkl. schliessender "}").
+//  SET SENDREJECT=1: seq/shots werden erhoeht, Ausgabe per emitLine() (Serial
+//                    + TCP, bei fehlender Verbindung in den Ringpuffer).
+//  SET SENDREJECT=0 (Default): Ausgabe NUR ueber Serial, OHNE "seq"-Feld und
+//                    ohne seq/shots zu erhoehen - der Stand-PC bekommt den
+//                    Reject gar nicht zu sehen und darf deshalb auch keine
+//                    Luecke im seq-Zaehler finden.
+static void emitReject(const char *fmt, ...)
+{
+    char body[TXBUF_LINE - 40];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(body, sizeof(body), fmt, args);
+    va_end(args);
+
+    char line[TXBUF_LINE];
+    if (cfg.sendRejects) {
+        shotCounter++;
+        sequenceNo++;
+        snprintf(line, sizeof(line), "{\"type\":\"reject\",\"seq\":%u,%s",
+                 sequenceNo, body);
+        emitLine(line);
+    } else {
+        // Zeilenende wie emitLine() auf Serial: immer "\r\n"
+        int n = snprintf(line, sizeof(line), "{\"type\":\"reject\",%s", body);
+        if (n >= (int)sizeof(line)) n = (int)sizeof(line) - 1;
+        while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = '\0';
+        Serial.print(line);
+        Serial.print("\r\n");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Telegramme
 // ---------------------------------------------------------------------------
@@ -1844,31 +1923,36 @@ static void sendShowConfig()
     char line[900];
     int  n = snprintf(line, sizeof(line),
           "{\"type\":\"config\",\"mac\":\"%s\",\"lane\":%u,"
-          "\"debounce_ms\":%u,\"reject_lockout_ms\":%u,\"window_ms\":%u,\"debug\":%d,"
+          "\"debounce_ms\":%u,\"reject_lockout_ms\":%u,\"send_reject\":%d,"
+          "\"window_ms\":%u,\"debug\":%d,"
           "\"outlier_um\":%u,\"cluster_radius_um\":%u,\"min_cluster_hits\":%d,"
           "\"max_precision_um\":%u,\"min_mics\":%d,"
           "\"tdoa_us\":%u,\"mic_offset_ns\":[%s],\"mic_enabled\":[%s],\"cal_shots\":%d,"
           "\"standoff_paper_mm\":%.2f,"
           "\"mic_half_x_mm\":%.2f,"
           "\"bullet_shift_pct\":%d,\"bullet_shift_cap_mm\":%.2f,"
+          "\"cluster_corr\":%d,\"cluster_iter\":%u,\"lsq\":%d,\"lsq_pellet_r_mm\":%.2f,"
           "\"algo\":\"%s\",\"pellet_r_mm\":%.2f,\"max_sigma_um\":%ld,"
-          "\"use_piezo\":%d,\"piezo_min_us\":%u,\"piezo_max_us\":%u,"
+          "\"use_piezo\":%d,\"piezo_req\":%d,\"piezo_min_us\":%u,\"piezo_max_us\":%u,"
           "\"test_cooldown_ms\":%u,\"offset_x_um\":%ld,\"offset_y_um\":%ld,"
           "\"sound_mps\":%u,"
           "\"paper_feed_mm\":%.2f,\"paper_speed_mmps\":%.2f,\"paper_auto\":%d,"
           "\"paper_trigger\":\"%s\",\"paper_dir_invert\":%d,"
           "\"paper_jog_speed_mmps\":%.2f}\n",
           deviceMac, cfg.lane,
-          cfg.debounceMs, cfg.rejectLockoutMs, cfg.windowMs, cfg.debug,
+          cfg.debounceMs, cfg.rejectLockoutMs, cfg.sendRejects ? 1 : 0,
+          cfg.windowMs, cfg.debug,
           cfg.airOutlierUm, cfg.clusterRadiusUm, cfg.minClusterHits,
           cfg.maxPrecisionUm, cfg.minMics,
           cfg.airMaxTdoaUs, ofsBuf, enBuf, cfg.calShotCount,
           cfg.standoffPaperMm,
           cfg.micHalfXMm,
           cfg.bulletShiftPct, cfg.bulletShiftCapMm,
+          cfg.clusterCorr ? 1 : 0, cfg.clusterIter, cfg.lsq ? 1 : 0, cfg.lsqPelletRMm,
           cfg.algoMode == ALGO_RIM ? "rim" : "classic",
           cfg.pelletRadiusMm, lroundf(cfg.maxSigmaMm * 1000.0f),
-          cfg.usePiezo ? 1 : 0, cfg.piezoMinUs, cfg.piezoMaxUs,
+          cfg.usePiezo ? 1 : 0, cfg.piezoRequired ? 1 : 0,
+          cfg.piezoMinUs, cfg.piezoMaxUs,
           cfg.testCooldownMs, (long)cfg.offsetXUm, (long)cfg.offsetYUm,
           cfg.soundSpeedMps,
           cfg.paperFeedMm, cfg.paperSpeedMmS, cfg.paperAuto ? 1 : 0,
@@ -2382,6 +2466,155 @@ static bool solveAirPair(int ref, int a, int b, const int64_t tNs[NUM_AIR],
 // Maximale Zahl an Dreier-Kombinationen bei NUM_AIR=6 Mics: C(6,3) = 20
 #define AIR_MAX_COMBOS  20
 
+// Kugeldurchmesser-Korrektur (SET BSHIFTPCT/BSHIFTCAP) fuer eine geloeste
+// Dreier-Kombination (x, y, d = Abstand zum Referenzmikrofon ref, beteiligte
+// Mics ref/a/b): Verschiebung je NICHT beteiligtem Mikrofon in dessen
+// Richtung um den gewichteten, gekappten signierten Rest-Fehler - dieselbe
+// Formel fuer die Stufe-1-Loesung wie (seit Rev 4.12.0, SET CLUSTERCORR)
+// fuer jeden einzelnen Schnittpunkt.
+static void bulletShiftFor(float x, float y, float d, int ref, int a, int b,
+                           const int all[NUM_AIR], int nAll, const int64_t tNs[NUM_AIR],
+                           float *outShiftX, float *outShiftY)
+{
+    float shiftX = 0.0f, shiftY = 0.0f;
+    for (int k = 0; k < nAll; k++) {
+        const int m = all[k];
+        if (m == ref || m == a || m == b) continue;
+        const float mdx = MIC_X[m] - x, mdy = MIC_Y[m] - y;
+        const float distM = sqrtf(mdx*mdx + mdy*mdy);
+        if (distM < 1.0e-3f) continue;
+        const float dc = sqrtf(mdx*mdx + mdy*mdy + micStandoffMm*micStandoffMm);
+        const float rc = (float)(tNs[m] - tNs[ref]) * soundMmPerNs;
+        const float signedResidual = dc - (d + rc);
+        float shift = signedResidual * ((float)cfg.bulletShiftPct / 100.0f);
+        shift = constrain(shift, -cfg.bulletShiftCapMm, cfg.bulletShiftCapMm);
+        shiftX += shift * (mdx / distM);
+        shiftY += shift * (mdy / distM);
+    }
+    *outShiftX = shiftX;
+    *outShiftY = shiftY;
+}
+
+// ── SET LSQ (Rev 4.12.0): Ausgleichsrechnung ueber alle Mikrofone ─────────
+// Laufweg vom naechstgelegenen Punkt des Lochrands (Radius SET LSQPELLETR um
+// x/y) zu Mikrofon i, samt Ableitungen nach x/y.
+static float lsqPathMm(int i, float x, float y, float *gx, float *gy)
+{
+    const float dx = x - MIC_X[i], dy = y - MIC_Y[i];
+    float rho = sqrtf(dx*dx + dy*dy);
+    if (rho < 1.0e-3f) rho = 1.0e-3f;
+    float rr = rho - cfg.lsqPelletRMm;
+    if (rr < 0.0f) rr = 0.0f;
+    const float D = sqrtf(rr*rr + micStandoffMm*micStandoffMm);
+    const float k = rr / (D * rho);
+    *gx = k * dx;
+    *gy = k * dy;
+    return D;
+}
+
+// 3x3-System A*x = b per Cramer.
+static bool lsqSolve3(const float A[3][3], const float b[3], float x[3])
+{
+    #define LSQ_DET(m) ((m)[0][0]*((m)[1][1]*(m)[2][2]-(m)[1][2]*(m)[2][1]) \
+                      - (m)[0][1]*((m)[1][0]*(m)[2][2]-(m)[1][2]*(m)[2][0]) \
+                      + (m)[0][2]*((m)[1][0]*(m)[2][1]-(m)[1][1]*(m)[2][0]))
+    const float det = LSQ_DET(A);
+    if (fabsf(det) < 1.0e-12f) return false;
+    for (int k = 0; k < 3; k++) {
+        float m[3][3];
+        for (int r = 0; r < 3; r++)
+            for (int c = 0; c < 3; c++) m[r][c] = (c == k) ? b[r] : A[r][c];
+        x[k] = LSQ_DET(m) / det;
+    }
+    #undef LSQ_DET
+    return true;
+}
+
+// Gauss-Newton ueber (x, y, s0), Residuum je Mikrofon r = D(x,y) - (s0 +
+// c*t), Start in x0/y0. false bei singulaerem System oder wenn die Loesung
+// mehr als 10mm vom Start wegwandert (Divergenz).
+static bool lsqFit(const int64_t tNs[NUM_AIR], const bool use[NUM_AIR], float x0, float y0,
+                   float *outX, float *outY, float res[NUM_AIR])
+{
+    float x = x0, y = y0, s0 = 0.0f, gx, gy;
+    int n = 0;
+    for (int i = 0; i < NUM_AIR; i++) {
+        if (!use[i]) continue;
+        s0 += lsqPathMm(i, x, y, &gx, &gy) - soundMmPerNs * (float)tNs[i];
+        n++;
+    }
+    if (n < 4) return false;
+    s0 /= (float)n;
+    for (int it = 0; it < 6; it++) {
+        float A[3][3] = {{0}}, b[3] = {0}, dlt[3];
+        for (int i = 0; i < NUM_AIR; i++) {
+            if (!use[i]) continue;
+            const float D = lsqPathMm(i, x, y, &gx, &gy);
+            const float r = D - (s0 + soundMmPerNs * (float)tNs[i]);
+            const float J[3] = { gx, gy, -1.0f };
+            for (int p = 0; p < 3; p++) {
+                for (int q = 0; q < 3; q++) A[p][q] += J[p] * J[q];
+                b[p] -= J[p] * r;
+            }
+        }
+        if (!lsqSolve3(A, b, dlt)) return false;
+        x += dlt[0]; y += dlt[1]; s0 += dlt[2];
+        if (sqrtf(dlt[0]*dlt[0] + dlt[1]*dlt[1]) < 1.0e-5f) break;
+    }
+    if (sqrtf((x - x0)*(x - x0) + (y - y0)*(y - y0)) > 10.0f) return false;
+    for (int i = 0; i < NUM_AIR; i++) {
+        res[i] = use[i] ? lsqPathMm(i, x, y, &gx, &gy) - (s0 + soundMmPerNs * (float)tNs[i]) : 0.0f;
+    }
+    *outX = x;
+    *outY = y;
+    return true;
+}
+
+static float lsqRms(const float res[NUM_AIR], const bool use[NUM_AIR])
+{
+    float sum = 0.0f;
+    int n = 0;
+    for (int i = 0; i < NUM_AIR; i++) if (use[i]) { sum += res[i]*res[i]; n++; }
+    return (n > 0) ? sqrtf(sum / (float)n) : 0.0f;
+}
+
+// SET LSQ: Endposition *x/*y (Start = Cluster-Mittelpunkt) per Ausgleichs-
+// rechnung verfeinern. Echo-Schutz bei >= 5 Mics: die (bis zu) zwei Mics mit
+// dem groessten Residuum probeweise weglassen - ein grob falsches Mikrofon
+// verteilt seinen Fehler im Fit auf alle, eine reine Schwelle greift daher
+// nicht zuverlaessig. Uebernommen wird eine Loesung ohne dieses Mikrofon,
+// wenn ihr RMS-Residuum weniger als halb so gross ist. Bei Fehlschlag
+// bleibt *x/*y unveraendert. Entspricht server/sim_posalgo.go lsqPosition().
+static void lsqRefine(const int64_t tNs[NUM_AIR], const bool seen[NUM_AIR], float *x, float *y)
+{
+    bool use[NUM_AIR];
+    int n = 0;
+    for (int i = 0; i < NUM_AIR; i++) { use[i] = seen[i]; if (use[i]) n++; }
+    float fx, fy, res[NUM_AIR];
+    if (!lsqFit(tNs, use, *x, *y, &fx, &fy, res)) return;
+    float bestRms = lsqRms(res, use);
+    if (n >= 5 && bestRms > 0.1f) {
+        // Mics nach absteigendem |Residuum|
+        int order[NUM_AIR], nOrd = 0;
+        for (int i = 0; i < NUM_AIR; i++) if (use[i]) order[nOrd++] = i;
+        for (int i = 1; i < nOrd; i++)
+            for (int j = i; j > 0 && fabsf(res[order[j]]) > fabsf(res[order[j-1]]); j--) {
+                const int t = order[j]; order[j] = order[j-1]; order[j-1] = t;
+            }
+        for (int k = 0; k < 2 && k < nOrd; k++) {
+            use[order[k]] = false;
+            float x2, y2, r2[NUM_AIR];
+            if (lsqFit(tNs, use, *x, *y, &x2, &y2, r2) && lsqRms(r2, use) < 0.5f * bestRms) {
+                fx = x2; fy = y2;
+                break;
+            }
+            use[order[k]] = true;
+        }
+    }
+    *x = fx;
+    *y = fy;
+}
+
 // outXmmPre/outYmmPre/outPrecisionMmPre/outClusterHitsPre (optional, NULL
 // erlaubt): der ROHE Stufe-1-Wert VOR dem Verifizierungsschritt (siehe
 // dortigen Kommentar) - nur fuer SET DEBUG=3 gedacht, damit sich beide
@@ -2413,6 +2646,8 @@ static bool solveAirPosition(const int64_t tNs[NUM_AIR], const bool seen[NUM_AIR
     // Kandidatenpositionen aller loesbaren Dreier-Kombinationen, fuer die
     // spaetere Praezisions-/Cluster-Auswertung (siehe unten).
     float candX[AIR_MAX_COMBOS], candY[AIR_MAX_COMBOS];
+    float candD[AIR_MAX_COMBOS];                    // fuer SET CLUSTERCORR
+    int8_t candRef[AIR_MAX_COMBOS], candA[AIR_MAX_COMBOS], candB[AIR_MAX_COMBOS];
     int   nCand = 0;
 
     bool  found = false;
@@ -2435,7 +2670,12 @@ static bool solveAirPosition(const int64_t tNs[NUM_AIR], const bool seen[NUM_AIR
         if (!solveAirPair(ref, a, b, tNs, &x, &y, &d)) continue;
 
         int candIdx = -1;
-        if (nCand < AIR_MAX_COMBOS) { candIdx = nCand; candX[nCand] = x; candY[nCand] = y; nCand++; }
+        if (nCand < AIR_MAX_COMBOS) {
+            candIdx = nCand;
+            candX[nCand] = x; candY[nCand] = y; candD[nCand] = d;
+            candRef[nCand] = (int8_t)ref; candA[nCand] = (int8_t)a; candB[nCand] = (int8_t)b;
+            nCand++;
+        }
 
         // SET DEBUG=3: jedes einzelne Kombinations-Ergebnis mit den dafuer
         // verwendeten Laufzeiten ausgeben (nur fuer echte Schuesse, nicht
@@ -2492,21 +2732,8 @@ static bool solveAirPosition(const int64_t tNs[NUM_AIR], const bool seen[NUM_AIR
     // Loesung angewendet (wirkt dadurch automatisch auch als neue Referenz
     // fuer den Verifizierungsschritt/Stufe 2 unten), 0% schaltet ab.
     if (cfg.bulletShiftPct > 0) {
-        float shiftX = 0.0f, shiftY = 0.0f;
-        for (int k = 0; k < nAll; k++) {
-            const int m = all[k];
-            if (m == bestRef || m == bestA || m == bestB) continue;
-            const float mdx = MIC_X[m] - bestX, mdy = MIC_Y[m] - bestY;
-            const float distM = sqrtf(mdx*mdx + mdy*mdy);
-            if (distM < 1.0e-3f) continue;
-            const float dc = sqrtf(mdx*mdx + mdy*mdy + micStandoffMm*micStandoffMm);
-            const float rc = (float)(tNs[m] - tNs[bestRef]) * soundMmPerNs;
-            const float signedResidual = dc - (bestD + rc);
-            float shift = signedResidual * ((float)cfg.bulletShiftPct / 100.0f);
-            shift = constrain(shift, -cfg.bulletShiftCapMm, cfg.bulletShiftCapMm);
-            shiftX += shift * (mdx / distM);
-            shiftY += shift * (mdy / distM);
-        }
+        float shiftX, shiftY;
+        bulletShiftFor(bestX, bestY, bestD, bestRef, bestA, bestB, all, nAll, tNs, &shiftX, &shiftY);
         bestX += shiftX;
         bestY += shiftY;
     }
@@ -2573,24 +2800,63 @@ static bool solveAirPosition(const int64_t tNs[NUM_AIR], const bool seen[NUM_AIR
     // dieser neuen Referenz neu berechnet (pos_res_um bleibt unveraendert
     // von Stufe 1, da es die Konsistenz der urspruenglichen Loesung
     // beschreibt, nicht die des gemittelten Punkts).
-    float sumX = bestX, sumY = bestY;   // Stufe-1-Loesung zaehlt selbst mit
-    int   nSum = 1;
+    //
+    // Rev 4.12.0: Punktmenge und Ablauf per SET CLUSTERCORR/CLUSTERITER/LSQ
+    // (siehe Header). ptX/ptY = die fuer die Clusterbildung verwendeten
+    // Schnittpunkte: roh, nur die Stufe-1-Loesung korrigiert (bisher,
+    // CLUSTERCORR=0) oder alle korrigiert (CLUSTERCORR=1).
+    float ptX[AIR_MAX_COMBOS], ptY[AIR_MAX_COMBOS];
+    const bool corrAll = cfg.clusterCorr && cfg.bulletShiftPct > 0;
     for (int i = 0; i < nCand; i++) {
-        if (i == bestCandIdx) continue;
-        const float dx = candX[i] - bestX, dy = candY[i] - bestY;
-        if (sqrtf(dx*dx + dy*dy) <= clusterRadiusMm) {
-            sumX += candX[i];
-            sumY += candY[i];
-            nSum++;
+        if (i == bestCandIdx) { ptX[i] = bestX; ptY[i] = bestY; continue; }
+        ptX[i] = candX[i];
+        ptY[i] = candY[i];
+        if (corrAll) {
+            float sx, sy;
+            bulletShiftFor(candX[i], candY[i], candD[i], candRef[i], candA[i], candB[i],
+                           all, nAll, tNs, &sx, &sy);
+            ptX[i] += sx;
+            ptY[i] += sy;
         }
     }
-    const float verX = sumX / (float)nSum;
-    const float verY = sumY / (float)nSum;
+    // Mittelwert aller Punkte im Radius um die Stufe-1-Loesung, danach
+    // (CLUSTERITER) erneut um den jeweils neuen Mittelpunkt (Mean-Shift).
+    // Die Stufe-1-Loesung liegt im ersten Durchgang im Abstand 0 und zaehlt
+    // damit wie bisher selbst mit.
+    float verX = bestX, verY = bestY;
+    for (int pass = 0; pass <= (int)cfg.clusterIter; pass++) {
+        float sumX = 0.0f, sumY = 0.0f;
+        int   nSum = 0;
+        // Stufe-1-Loesung zuerst summieren (k=-1), dann die uebrigen in
+        // Index-Reihenfolge - gleiche Additionsreihenfolge wie bis Rev 4.11.5,
+        // damit CLUSTERCORR=0/CLUSTERITER=0 bitgenau dasselbe Ergebnis liefert.
+        for (int k = -1; k < nCand; k++) {
+            const int i = (k < 0) ? bestCandIdx : k;
+            if (i < 0 || (k >= 0 && i == bestCandIdx)) continue;
+            const float dx = ptX[i] - verX, dy = ptY[i] - verY;
+            if (sqrtf(dx*dx + dy*dy) <= clusterRadiusMm) {
+                sumX += ptX[i];
+                sumY += ptY[i];
+                nSum++;
+            }
+        }
+        if (nSum == 0) break;
+        const float nx = sumX / (float)nSum, ny = sumY / (float)nSum;
+        const float moved = sqrtf((nx - verX)*(nx - verX) + (ny - verY)*(ny - verY));
+        verX = nx;
+        verY = ny;
+        if (moved < 1.0e-4f) break;
+    }
+    if (cfg.lsq) lsqRefine(tNs, seen, &verX, &verY);
 
+    // cluster_hits/precision relativ zur Endposition - bei CLUSTERCORR=1
+    // gegen die korrigierten, sonst (wie bisher) gegen die rohen Schnittpunkte.
     float vd1 = -1.0f, vd2 = -1.0f;
     int   verInRadius = 0;
     for (int i = 0; i < nCand; i++) {
-        const float dx = candX[i] - verX, dy = candY[i] - verY;
+        const float px = corrAll ? ptX[i] : candX[i];
+        const float py = corrAll ? ptY[i] : candY[i];
+        const float dx = px - verX, dy = py - verY;
         const float dist = sqrtf(dx*dx + dy*dy);
         if (dist <= clusterRadiusMm) verInRadius++;
         if (vd1 < 0.0f || dist < vd1)      { vd2 = vd1; vd1 = dist; }
@@ -2836,7 +3102,13 @@ static void processShot()
     // davon unberuehrt.
     int quickAirHits = 0;
     for (int i = 0; i < NUM_AIR; i++) if (localAirN[i] > 0) quickAirHits++;
-    bool quickPlausible = (quickAirHits >= (int)cfg.minMics)
+    // SET PIEZOREQ=1 (bei SET PIEZO=1): genug Mics allein reichen nicht mehr,
+    // ohne Piezo wird der Schuss unten ohnehin abgelehnt - dann ebenfalls nur
+    // die kurze Sperrzeit, damit ein spaeter folgender echter Einschlag
+    // (typisch: Muendungsknall hat das Fenster verfrueht geoeffnet) noch
+    // erfasst wird. Mit Piezo-Signal bleibt es bei der vollen Sperrzeit.
+    const bool piezoGate = cfg.usePiezo && cfg.piezoRequired;
+    bool quickPlausible = (quickAirHits >= (int)cfg.minMics && !piezoGate)
                         || (cfg.usePiezo && localPiezoSeen);
     uint32_t lockMs = quickPlausible ? cfg.debounceMs : cfg.rejectLockoutMs;
     lockoutUntil = (uint64_t)esp_timer_get_time()
@@ -2927,13 +3199,6 @@ static void processShot()
         }
     }
 
-    // Rev 4.6.1: shotCounter/sequenceNo werden jetzt IMMER erhoeht (auch bei
-    // einem Reject) - siehe Kommentar bei der Telegramm-Ausgabe weiter unten:
-    // JEDE Ausloesung soll bei der Anzeige unter einer fortlaufenden Sequenz-
-    // Nummer ankommen, auch wenn sie zu wenige Mics hatte.
-    shotCounter++;
-    sequenceNo++;
-
     // Automatischer Papiervorschub (SET PAPERAUTO/PAPERTRIGGER, siehe
     // servicePaperStepper() weiter oben): ANY/PIEZO werden hier bewusst VOR
     // dem airHits-Reject-Check ausgeloest, da beide Modi unabhaengig davon
@@ -2947,24 +3212,44 @@ static void processShot()
     }
 
     if (airHits < cfg.minMics) {
-        // Rev 4.6.1: nicht mehr an SET DEBUG gebunden - geht jetzt immer
-        // raus, damit bei der Anzeige zu jeder Sequenz-Nummer etwas ankommt
-        // (sonst wuerde ein "zu duenner" Schuss dort spurlos fehlen). SET
-        // DEBUG steuert nur noch die zusaetzlichen "cand"/"_pre"-Diagnose-
-        // felder (SET DEBUG=3), nicht mehr OB ueberhaupt etwas gesendet wird.
+        // Rev 4.6.1: nicht mehr an SET DEBUG gebunden. Rev 4.11.5: per TCP
+        // (mit seq) nur noch bei SET SENDREJECT=1, sonst nur Serial ohne
+        // seq - siehe emitReject(). SET DEBUG steuert nur die zusaetzlichen
+        // "cand"/"_pre"-Diagnosefelder (SET DEBUG=3).
         if (cfg.usePiezo && localPiezoSeen) {
-            emitf("{\"type\":\"reject\",\"seq\":%u,\"algo\":\"classic\",\"reason\":\"only %d mic(s)\","
-                  "\"hits\":%d,\"piezo_ns\":%lld%s}\n",
-                  sequenceNo, airHits, airHits, (long long)piezoT0NsRaw, synSuffix);
+            emitReject("\"algo\":\"classic\",\"reason\":\"only %d mic(s)\","
+                       "\"hits\":%d,\"piezo_ns\":%lld%s}\n",
+                       airHits, airHits, (long long)piezoT0NsRaw, synSuffix);
         } else if (cfg.usePiezo) {
-            emitf("{\"type\":\"reject\",\"seq\":%u,\"algo\":\"classic\",\"reason\":\"only %d mic(s)\","
-                  "\"hits\":%d,\"piezo_ns\":null%s}\n", sequenceNo, airHits, airHits, synSuffix);
+            emitReject("\"algo\":\"classic\",\"reason\":\"only %d mic(s)\","
+                       "\"hits\":%d,\"piezo_ns\":null%s}\n", airHits, airHits, synSuffix);
         } else {
-            emitf("{\"type\":\"reject\",\"seq\":%u,\"algo\":\"classic\",\"reason\":\"only %d mic(s)\","
-                  "\"hits\":%d%s}\n", sequenceNo, airHits, airHits, synSuffix);
+            emitReject("\"algo\":\"classic\",\"reason\":\"only %d mic(s)\","
+                       "\"hits\":%d%s}\n", airHits, airHits, synSuffix);
         }
         return;
     }
+
+    // SET PIEZOREQ=1 (Default, nur wirksam bei SET PIEZO=1): ohne gueltige
+    // Piezo-Bestaetigung ist der Schuss ungueltig -> "reject" statt "shot"
+    // mit clean=0 (Ausgabe/seq-Verhalten siehe emitReject()/SET SENDREJECT).
+    if (piezoGate && !piezoOk) {
+        if (localPiezoSeen) {
+            emitReject("\"algo\":\"classic\",\"reason\":\"piezo out of window\","
+                       "\"hits\":%d,\"piezo_ns\":%lld%s}\n",
+                       airHits, (long long)piezoT0NsRaw, synSuffix);
+        } else {
+            emitReject("\"algo\":\"classic\",\"reason\":\"no piezo\","
+                       "\"hits\":%d,\"piezo_ns\":null%s}\n", airHits, synSuffix);
+        }
+        return;
+    }
+
+    // Gueltiger Schuss: seq/shots erst hier erhoehen (Rejects zaehlen nur bei
+    // SET SENDREJECT=1 mit, siehe emitReject()). Muss vor solveAirPosition()
+    // stehen, da die "cand"-Diagnosezeilen (SET DEBUG=3) sequenceNo tragen.
+    shotCounter++;
+    sequenceNo++;
 
     // Kalibrierten Timing-Offset je Mikrofon abziehen (SET OFS<i> bzw.
     // CAL START, Default 0) - siehe runCalibration().
@@ -2983,21 +3268,6 @@ static void processShot()
                                     &posPrecision, &clusterHits,
                                     &posXPre, &posYPre, &posPrecisionPre, &clusterHitsPre,
                                     nullptr); // Korrigierter Rest-Fehler wird nur fuer die Kalibrierung gebraucht (calCostClassic())
-    // Piezo-Pflicht (SET PIEZO, Default 1): ohne Piezo-Bestaetigung ist die
-    // Position zwar geometrisch loesbar (posOk oben), aber NICHT vertrauens-
-    // wuerdig - bislang floss piezoOk nur in "clean" (weiter unten) ein,
-    // "pos_valid" blieb unberuehrt. Das erlaubte einen realen Vorfall:
-    // Luftschall benachbarter Staende ohne jeden lokalen Einschlag
-    // (piezoOk durchgehend false) wurde trotz stark erhoehtem Rest-Fehler
-    // als "gueltige" Trefferposition gemeldet und gewertet. Ab jetzt macht
-    // fehlende/unplausible Piezo-Bestaetigung den Schuss direkt ungueltig,
-    // sobald SET PIEZO=1 aktiv ist (Default) - wie ein normaler "zu wenige
-    // Mics"-Fall (xUm/yUm/resUm/precUm/clusterN werden unten einheitlich auf
-    // 0 gesetzt, "pos_valid":0 im Telegramm). Bei SET PIEZO=0 (Aufbauten ohne
-    // Piezo-Hardware) unveraendert wie bisher.
-    if (cfg.usePiezo && !piezoOk) {
-        posOk = false;
-    }
     long  xUm    = posOk ? lroundf(posX         * 1000.0f) : 0;
     long  yUm    = posOk ? lroundf(posY         * 1000.0f) : 0;
     long  resUm  = posOk ? lroundf(posRes       * 1000.0f) : 0;
@@ -3067,11 +3337,7 @@ static void processShot()
     // Mic-Kombinationen, precision_um innerhalb der Schwelle, und - falls
     // SET PIEZO=1 - vom Piezo im erwarteten Zeitfenster bestaetigt) - damit
     // muss die Anzeige diese Schwellenlogik nicht selbst nachbilden, um
-    // "gute" von "fragwuerdigen" Schuessen zu unterscheiden. Das
-    // "(!cfg.usePiezo || piezoOk)"-Glied unten ist seit der Piezo-Pflicht
-    // oben (posOk=false bei fehlender Bestaetigung) genaugenommen redundant
-    // (posOk deckt es bereits ab) - bewusst stehengelassen, um die Bedeutung
-    // von "clean" unabhaengig von dieser Verschaltung explizit zu halten.
+    // "gute" von "fragwuerdigen" Schuessen zu unterscheiden.
     bool isClean = posOk
                  && (unsigned long)resUm < cfg.airOutlierUm
                  && clusterN >= (int)cfg.minClusterHits
@@ -3194,9 +3460,6 @@ static void processShotAnchored()
         }
     }
 
-    shotCounter++;
-    sequenceNo++;
-
     // Automatischer Papiervorschub: bei ALGO=RIM ist das Piezo immer der
     // (alleinige) Ausloeser - ANY/PIEZO verhalten sich deshalb hier gleich.
     // CLEAN wird erst unten nach der isClean-Berechnung ausgeloest.
@@ -3233,14 +3496,18 @@ static void processShotAnchored()
     if (!ok) {
         lockoutUntil = (uint64_t)esp_timer_get_time() + (uint64_t)cfg.rejectLockoutMs * 1000ULL;
         if (nAvail < cfg.minMics) {
-            emitf("{\"type\":\"reject\",\"seq\":%u,\"algo\":\"rim\",\"reason\":\"only %d mic(s)\","
-                  "\"hits\":%d%s}\n", sequenceNo, nAvail, nAvail, synSuffix);
+            emitReject("\"algo\":\"rim\",\"reason\":\"only %d mic(s)\","
+                       "\"hits\":%d%s}\n", nAvail, nAvail, synSuffix);
         } else {
-            emitf("{\"type\":\"reject\",\"seq\":%u,\"algo\":\"rim\",\"reason\":\"fit failed\","
-                  "\"hits\":%d%s}\n", sequenceNo, nAvail, synSuffix);
+            emitReject("\"algo\":\"rim\",\"reason\":\"fit failed\","
+                       "\"hits\":%d%s}\n", nAvail, synSuffix);
         }
         return;
     }
+
+    // Gueltiger Schuss: seq/shots erst hier erhoehen (siehe processShot()).
+    shotCounter++;
+    sequenceNo++;
 
     long xUm    = lroundf(r.xMm * 1000.0f) + cfg.offsetXUm;
     long yUm    = lroundf(r.yMm * 1000.0f) + cfg.offsetYUm;
@@ -3300,6 +3567,9 @@ static void sendHelp()
         "#                            Default 5 - bewusst kurz, damit ein spaeter",
         "#                            eintreffender ECHTER Einschlag nicht durch die",
         "#                            (viel laengere) SET DEBOUNCE-Zeit verschluckt wird",
+        "#   SET SENDREJECT=<0|1>     0 (Default): reject-Telegramme nur ueber Serial, ohne",
+        "#                            seq (Stand-PC sieht keine seq-Luecken); 1: auch per",
+        "#                            TCP, mit fortlaufender seq wie shot",
         "#   SET WINDOW=<1-50>        Sammelfenster in ms",
         "#   SET DEBUG=<0-3>          shot/reject-Telegramme gehen seit Rev 4.6.1 IMMER",
         "#                            raus (jede Sequenz-Nummer kommt bei der Anzeige an,",
@@ -3330,6 +3600,14 @@ static void sendHelp()
         "#                            0=Korrektur aus)",
         "#   SET BSHIFTCAP=<0.0-20.0> Kappung der Kugeldurchmesser-Korrektur je Mikrofon",
         "#                            in mm (Default 3.0). Gilt NUR fuer ALGO=CLASSIC",
+        "#   SET CLUSTERCORR=<0|1>    Endposition aus ALLEN kugeldurchmesser-korrigierten",
+        "#                            Schnittpunkten mitteln (Default 1; 0 = nur die",
+        "#                            Stufe-1-Loesung korrigiert, wie bis Rev 4.11.5)",
+        "#   SET CLUSTERITER=<0-10>   Nachzentrier-Durchgaenge des Clusters (Default 5,",
+        "#                            0 = einmalig um die Stufe-1-Loesung)",
+        "#   SET LSQ=<0|1>            Endposition per Ausgleichsrechnung ueber alle Mics",
+        "#                            verfeinern (Default 0, braucht >= 4 Mics)",
+        "#   SET LSQPELLETR=<0.0-5.0> Lochrand-Radius in mm fuer SET LSQ (Default 2.25)",
         "#   SET ALGO=<CLASSIC|RIM>   Auswertepfad (Default CLASSIC = bisheriges",
         "#                            Verhalten unveraendert). RIM: Ringpuffer-Erfassung",
         "#                            (keine Flanke geht mehr durch Muendungsknall/Sperr-",
@@ -3346,6 +3624,10 @@ static void sendHelp()
         "#                            Gegenstueck zu MAXPRECISION/RADIUS/MINCLUSTER (CLASSIC)",
         "#   SET PIEZO=<0|1>          Piezo (Stahlplatte, GPIO34) als Trigger-",
         "#                            Bestaetigung nutzen (Default 1/an)",
+        "#   SET PIEZOREQ=<0|1>       1 (Default): bei SET PIEZO=1 wird ein Schuss",
+        "#                            ohne Piezo bzw. mit Piezo ausserhalb PIEZOMIN..",
+        "#                            PIEZOMAX als reject behandelt (siehe SENDREJECT);",
+        "#                            0: shot mit piezo_ok=0/clean=0 (nur ALGO=CLASSIC)",
         "#   SET PIEZOMIN=<0-5000>    Min. erwartete Piezo-Verzoegerung in us",
         "#                            nach erstem Luft-Ereignis (Default 100)",
         "#   SET PIEZOMAX=<0-5000>    Max. erwartete Piezo-Verzoegerung in us",
@@ -3490,6 +3772,12 @@ static bool handleSet(const String &raw)
         if (v < 0 || v > 2000) { emitLine("{\"type\":\"error\",\"msg\":\"rejectlock 0-2000\"}\n"); return true; }
         cfg.rejectLockoutMs = (uint32_t)v; saveVal<uint32_t>("reject_lock", cfg.rejectLockoutMs);
         emitf("{\"type\":\"ok\",\"set\":\"rejectlock\",\"value\":%u}\n", cfg.rejectLockoutMs);
+    } else if (key == "SENDREJECT") {
+        long v = val.toInt();
+        if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"sendreject 0|1\"}\n"); return true; }
+        cfg.sendRejects = (v == 1);
+        saveVal<bool>("send_reject", cfg.sendRejects);
+        emitf("{\"type\":\"ok\",\"set\":\"sendreject\",\"value\":%d}\n", cfg.sendRejects ? 1 : 0);
     } else if (key == "DEBUG") {
         long v = val.toInt();
         if (v < 0 || v > 3) { emitLine("{\"type\":\"error\",\"msg\":\"debug 0-3\"}\n"); return true; }
@@ -3558,12 +3846,42 @@ static bool handleSet(const String &raw)
         cfg.bulletShiftCapMm = v;
         saveVal<float>("bshift_cap", cfg.bulletShiftCapMm);
         emitf("{\"type\":\"ok\",\"set\":\"bshiftcap\",\"value\":%.2f}\n", cfg.bulletShiftCapMm);
+    } else if (key == "CLUSTERCORR") {
+        long v = val.toInt();
+        if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"clustercorr 0|1\"}\n"); return true; }
+        cfg.clusterCorr = (v == 1);
+        saveVal<bool>("clu_corr", cfg.clusterCorr);
+        emitf("{\"type\":\"ok\",\"set\":\"clustercorr\",\"value\":%d}\n", cfg.clusterCorr ? 1 : 0);
+    } else if (key == "CLUSTERITER") {
+        long v = val.toInt();
+        if (v < 0 || v > 10) { emitLine("{\"type\":\"error\",\"msg\":\"clusteriter 0-10\"}\n"); return true; }
+        cfg.clusterIter = (uint8_t)v;
+        saveVal<uint8_t>("clu_iter", cfg.clusterIter);
+        emitf("{\"type\":\"ok\",\"set\":\"clusteriter\",\"value\":%u}\n", cfg.clusterIter);
+    } else if (key == "LSQ") {
+        long v = val.toInt();
+        if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"lsq 0|1\"}\n"); return true; }
+        cfg.lsq = (v == 1);
+        saveVal<bool>("lsq", cfg.lsq);
+        emitf("{\"type\":\"ok\",\"set\":\"lsq\",\"value\":%d}\n", cfg.lsq ? 1 : 0);
+    } else if (key == "LSQPELLETR") {
+        float v = val.toFloat();
+        if (v < 0.0f || v > 5.0f) { emitLine("{\"type\":\"error\",\"msg\":\"lsqpelletr 0.0-5.0\"}\n"); return true; }
+        cfg.lsqPelletRMm = v;
+        saveVal<float>("lsq_pr", cfg.lsqPelletRMm);
+        emitf("{\"type\":\"ok\",\"set\":\"lsqpelletr\",\"value\":%.2f}\n", cfg.lsqPelletRMm);
     } else if (key == "PIEZO") {
         long v = val.toInt();
         if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"piezo 0|1\"}\n"); return true; }
         cfg.usePiezo = (v == 1);
         saveVal<bool>("use_piezo", cfg.usePiezo);
         emitf("{\"type\":\"ok\",\"set\":\"piezo\",\"value\":%d}\n", cfg.usePiezo ? 1 : 0);
+    } else if (key == "PIEZOREQ") {
+        long v = val.toInt();
+        if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"piezoreq 0|1\"}\n"); return true; }
+        cfg.piezoRequired = (v == 1);
+        saveVal<bool>("piezo_req", cfg.piezoRequired);
+        emitf("{\"type\":\"ok\",\"set\":\"piezoreq\",\"value\":%d}\n", cfg.piezoRequired ? 1 : 0);
     } else if (key == "ALGO") {
         String v = val; v.toUpperCase();
         uint8_t newAlgo;

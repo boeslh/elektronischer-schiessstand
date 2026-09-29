@@ -50,7 +50,10 @@ import (
 type PSWertungScheibe struct {
 	ScheibeID   string  `json:"scheibe_id"`
 	ScheibeName string  `json:"scheibe_name"`
-	Faktor      float64 `json:"faktor"`
+	Faktor      float64 `json:"faktor"` // bei typ='punkte_saison' der Ring-Faktor
+	// FaktorTeiler: eigener Teiler-Faktor, nur bei typ='punkte_saison'
+	// wirksam (migrations/073). 0/fehlend = wie Faktor.
+	FaktorTeiler float64 `json:"faktor_teiler"`
 }
 
 type PSWertung struct {
@@ -243,7 +246,7 @@ func (s *Store) GetWertung(ctx context.Context, id string) (PSWertung, error) {
 // ihres jeweiligen Faktors (JOIN gegen ps_scheiben fuer den Anzeigenamen).
 func (s *Store) listWertungScheiben(ctx context.Context, wertungID string) ([]PSWertungScheibe, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT ws.scheibe_id, sc.name, ws.faktor
+		SELECT ws.scheibe_id, sc.name, ws.faktor, ws.faktor_teiler
 		FROM ps_wertung_scheiben ws
 		JOIN ps_scheiben sc ON sc.id = ws.scheibe_id
 		WHERE ws.wertung_id=$1
@@ -255,7 +258,7 @@ func (s *Store) listWertungScheiben(ctx context.Context, wertungID string) ([]PS
 	out := []PSWertungScheibe{}
 	for rows.Next() {
 		var x PSWertungScheibe
-		if err := rows.Scan(&x.ScheibeID, &x.ScheibeName, &x.Faktor); err != nil {
+		if err := rows.Scan(&x.ScheibeID, &x.ScheibeName, &x.Faktor, &x.FaktorTeiler); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -275,9 +278,13 @@ func setWertungScheiben(ctx context.Context, tx pgx.Tx, wertungID string, scheib
 		if faktor == 0 {
 			faktor = 1
 		}
+		faktorTeiler := sc.FaktorTeiler
+		if faktorTeiler == 0 {
+			faktorTeiler = faktor // aeltere Clients ohne getrennten Teiler-Faktor
+		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO ps_wertung_scheiben (wertung_id, scheibe_id, faktor) VALUES ($1,$2,$3)`,
-			wertungID, sc.ScheibeID, faktor); err != nil {
+			`INSERT INTO ps_wertung_scheiben (wertung_id, scheibe_id, faktor, faktor_teiler) VALUES ($1,$2,$3,$4)`,
+			wertungID, sc.ScheibeID, faktor, faktorTeiler); err != nil {
 			return err
 		}
 	}

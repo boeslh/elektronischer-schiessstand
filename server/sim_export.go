@@ -162,8 +162,7 @@ type simExportInput struct {
 	// MicUsed: Mikrofon hat eine Flanke UND ist per MICEN aktiviert.
 	MicUsed [6]bool `json:"mic_used"`
 	// AirNsCorrected: alle Flanken abzueglich OFS0-5, weiterhin relativ zur
-	// ersten erfassten Flanke. ALGO=RIM verschiebt sie vor rimLocate()
-	// zusaetzlich auf piezo_ns als Nullpunkt (siehe rimTimesFromPiezo()).
+	// ersten erfassten Flanke.
 	AirNsCorrected [6][]int64 `json:"air_ns_corrected"`
 	// TFirstNs: erste Flanke je Mikrofon abzueglich OFS (= tNs[] in
 	// solveAirPosition() bei ALGO=CLASSIC), null wenn nicht genutzt.
@@ -213,19 +212,13 @@ type simExportEffective struct {
 func effectiveSimParams(p SimParams) simExportEffective {
 	micX, micY, standoff, sound, clusterMM := solveParams(p)
 	e := simExportEffective{
-		Algo:            p.Algo,
+		Algo:            "classic", // der Simulator bildet nur ALGO=CLASSIC nach
 		ClusterRadiusUm: int64(math.Round(float64(clusterMM) * 1000)),
 		MicEnabled:      p.micEnabled(),
-		UsePiezo:        p.usePiezo() || p.Algo == "rim",
+		UsePiezo:        p.usePiezo(),
 		MinMics:         3,
 		SoundMmPerNs:    float64(sound),
 		StandoffMM:      float64(standoff),
-	}
-	if e.Algo == "" {
-		e.Algo = "classic"
-	}
-	if e.Algo == "rim" {
-		e.MinMics = p.rimMinMics()
 	}
 	for i := 0; i < 6; i++ {
 		e.MicXMM[i] = float64(micX[i])

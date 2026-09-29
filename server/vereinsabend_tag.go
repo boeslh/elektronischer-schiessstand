@@ -63,6 +63,11 @@ type VATagesergebnis struct {
 	Zehntel              *float64   `json:"zehntel"`
 	BesterTeiler         *float64   `json:"bester_teiler"`
 	Serien               []int64    `json:"serien"`
+	// fuer Grafische Ansicht (/ergebnis-ansicht) und PDF (/api/sessions/{id}/pdf)
+	SessionID      string `json:"session_id"`
+	Discipline     string `json:"discipline"`
+	ShotsPerSeries int    `json:"shots_per_series"`
+	DecimalScoring bool   `json:"decimal_scoring"`
 }
 
 // ListVereinsabendTagesergebnisse liefert alle Scheiben der Saison, deren
@@ -78,7 +83,8 @@ func (s *Store) ListVereinsabendTagesergebnisse(ctx context.Context, preisschies
 		       vsr.shot_count, vsr.total_rings, vsr.total_decimal::float8,
 		       vsr.best_center_distance::float8,
 		       (SELECT array_agg(x.rings ORDER BY x.series_no) FROM v_series_results x
-		        WHERE x.session_id = ks.session_id)
+		        WHERE x.session_id = ks.session_id),
+		       s.id, d.name, d.shots_per_series, d.decimal_scoring
 		FROM ps_kauf_scheiben ks
 		JOIN ps_kaeufe k          ON k.id = ks.kauf_id
 		JOIN ps_teilnehmer pt     ON pt.id = k.teilnehmer_id
@@ -104,7 +110,8 @@ func (s *Store) ListVereinsabendTagesergebnisse(ctx context.Context, preisschies
 		if err := rows.Scan(&x.KaufScheibeID, &x.TeilnehmerID, &x.TeilnehmerNr, &x.Nachname, &x.Vorname,
 			&x.Verein, &x.Klasse, &x.ScheibeID, &x.ScheibeName, &x.ScoringMode, &x.AuswertungUnsichtbar,
 			&x.VorNachschuss, &x.SchiesstagOverride, &x.StartedAt, &x.FinishedAt,
-			&x.ShotCount, &x.Ringe, &x.Zehntel, &x.BesterTeiler, &x.Serien); err != nil {
+			&x.ShotCount, &x.Ringe, &x.Zehntel, &x.BesterTeiler, &x.Serien,
+			&x.SessionID, &x.Discipline, &x.ShotsPerSeries, &x.DecimalScoring); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -230,6 +237,133 @@ func (a *APIServer) getVereinsabendTageswertung(w http.ResponseWriter, r *http.R
 		"wochentag_zaehlt": weekdayAllowed(t, ps.SaisonWochentage),
 		"wertungen":        out,
 	}, nil
+}
+
+// ----------------------------------------------------------------------------
+// Saisonwertung
+// ----------------------------------------------------------------------------
+
+// VASaisonwertungEintrag: Summe aller Tageswertungen eines Teilnehmers an
+// den gueltigen Wochentagen im Saison-Zeitraum - bester Ring/Teiler, Punkte
+// addiert.
+type VASaisonwertungEintrag struct {
+	Platz             int      `json:"platz"`
+	TeilnehmerID      string   `json:"teilnehmer_id"`
+	TeilnehmerNr      int      `json:"teilnehmer_nr"`
+	Nachname          string   `json:"nachname"`
+	Vorname           string   `json:"vorname"`
+	Verein            string   `json:"verein"`
+	Klasse            string   `json:"klasse"`
+	Abende            int      `json:"abende"`
+	BesterRing        *float64 `json:"bester_ring"`
+	BesterTeiler      *float64 `json:"bester_teiler"`
+	RingPunkte        float64  `json:"ring_punkte"`
+	TeilerPunkte      float64  `json:"teiler_punkte"`
+	AnwesenheitPunkte float64  `json:"anwesenheit_punkte"`
+	Punkte            float64  `json:"punkte"`
+}
+
+type VASaisonwertung struct {
+	WertungID    string                   `json:"wertung_id"`
+	ShortDesc    string                   `json:"short_desc"`
+	LongDesc     string                   `json:"long_desc"`
+	Wertungsfeld string                   `json:"wertungsfeld"`
+	Eintraege    []VASaisonwertungEintrag `json:"eintraege"`
+	Summary      VASaisonSummary          `json:"summary"`
+}
+
+// saisonwertungFromTage summiert die Tagesergebnisse (aggregatePunkteSaisonTage,
+// bereits auf die Saison-Wochentage gefiltert) je Teilnehmer ueber den
+// Zeitraum von..bis (JJJJ-MM-TT, leer = offen): Punkte addiert, Ring/Teiler
+// jeweils der beste Tageswert. Platzierung nach Punkten (gleich = gleicher Platz).
+func saisonwertungFromTage(tage []saisonTag, von, bis string) []VASaisonwertungEintrag {
+	idx := map[string]int{}
+	out := []VASaisonwertungEintrag{}
+	for _, t := range tage {
+		if (von != "" && t.tag < von) || (bis != "" && t.tag > bis) {
+			continue
+		}
+		i, ok := idx[t.meta.teilnehmerID]
+		if !ok {
+			i = len(out)
+			idx[t.meta.teilnehmerID] = i
+			out = append(out, VASaisonwertungEintrag{
+				TeilnehmerID: t.meta.teilnehmerID, TeilnehmerNr: t.meta.startNr,
+				Nachname: t.meta.nachname, Vorname: t.meta.vorname,
+				Verein: t.meta.verein, Klasse: t.meta.klasse,
+			})
+		}
+		e := &out[i]
+		e.Abende++
+		if t.ringWert != nil && (e.BesterRing == nil || *t.ringWert > *e.BesterRing) {
+			e.BesterRing = t.ringWert
+		}
+		if t.teilerWert != nil && (e.BesterTeiler == nil || *t.teilerWert < *e.BesterTeiler) {
+			e.BesterTeiler = t.teilerWert
+		}
+		e.RingPunkte += t.ringPunkte
+		e.TeilerPunkte += t.teilerPunkte
+		e.AnwesenheitPunkte += t.anwPunkte
+		e.Punkte += t.punkte()
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Punkte != out[j].Punkte {
+			return out[i].Punkte > out[j].Punkte
+		}
+		if out[i].Nachname != out[j].Nachname {
+			return out[i].Nachname < out[j].Nachname
+		}
+		return out[i].Vorname < out[j].Vorname
+	})
+	for i := range out {
+		if i > 0 && out[i].Punkte == out[i-1].Punkte {
+			out[i].Platz = out[i-1].Platz
+		} else {
+			out[i].Platz = i + 1
+		}
+	}
+	return out
+}
+
+func (a *APIServer) getVereinsabendSaisonwertung(w http.ResponseWriter, r *http.Request) (any, error) {
+	ctx := r.Context()
+	ps, err := a.store.GetPreisschiessen(ctx, r.PathValue("id"))
+	if err != nil {
+		return nil, err
+	}
+	wertungen, err := a.store.ListWertungen(ctx, ps.ID)
+	if err != nil {
+		return nil, err
+	}
+	von, bis := dateOnly(ps.StartsOn), dateOnly(ps.EndsOn)
+	out := []VASaisonwertung{}
+	for _, wt := range wertungen {
+		if wt.Typ != "punkte_saison" {
+			continue
+		}
+		raw, err := loadPunkteSaisonRows(ctx, a.store.pool, wt)
+		if err != nil {
+			return nil, fmt.Errorf("Wertung %q: %w", wt.ShortDesc, err)
+		}
+		tage := aggregatePunkteSaisonTage(raw, wt, ps.SaisonWochentage)
+		out = append(out, VASaisonwertung{
+			WertungID: wt.ID, ShortDesc: wt.ShortDesc, LongDesc: wt.LongDesc, Wertungsfeld: wt.Wertungsfeld,
+			Eintraege: saisonwertungFromTage(tage, von, bis),
+			Summary:   saisonSummary(tage, von, bis),
+		})
+	}
+	return map[string]any{
+		"von": von, "bis": bis, "wochentage": ps.SaisonWochentage,
+		"wertungen": out,
+	}, nil
+}
+
+// dateOnly kuerzt ein Datum/Zeitstempel auf JJJJ-MM-TT (leer bleibt leer).
+func dateOnly(s string) string {
+	if len(s) > 10 {
+		return s[:10]
+	}
+	return s
 }
 
 // ----------------------------------------------------------------------------

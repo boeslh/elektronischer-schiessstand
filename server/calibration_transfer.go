@@ -13,8 +13,7 @@
 //
 // Der Server liefert dem Stand-PC bereits die fertige Liste aus Firmware-
 // Schluessel und SET-Wert (firmwareSettings): nur hier sind die Fallbacks
-// der Simulator-Parameter bekannt (z.B. RADIUS 0 -> 200, fehlendes MINMICS
-// -> 5, siehe SimParams), und die Formatierung entspricht exakt der
+// der Simulator-Parameter bekannt (z.B. RADIUS 0 -> 200, siehe SimParams), und die Formatierung entspricht exakt der
 // SET-Befehls-Ausgabe des Simulators (buildSetCommands in simulator.html).
 // ============================================================================
 package main
@@ -44,10 +43,6 @@ type FirmwareSetting struct {
 func firmwareSettings(p SimParams) []FirmwareSetting {
 	f2 := func(v float64) string { return strconv.FormatFloat(math.Round(v*100)/100, 'f', 2, 64) }
 	i := func(v int64) string { return strconv.FormatInt(v, 10) }
-	algo := "CLASSIC"
-	if p.Algo == "rim" {
-		algo = "RIM"
-	}
 	_, _, _, _, clusterMM := solveParams(p) // RADIUS inkl. Fallback 0 -> Firmware-Default
 	s := []FirmwareSetting{
 		{"STANDOFFPAPER", f2(p.StandoffPaperMM)},
@@ -64,6 +59,28 @@ func firmwareSettings(p SimParams) []FirmwareSetting {
 		FirmwareSetting{"BSHIFTCAP", f2(p.BulletShiftCapMm)},
 		FirmwareSetting{"RADIUS", i(int64(math.Round(float64(clusterMM) * 1000)))},
 	)
+	// Endpositions-Verfahren (Firmware Rev 4.12.0) - "nach Rest-Fehler
+	// gewichten" (PosAlgo.Weighted) gibt es nur im Simulator. Aeltere
+	// Firmware kennt die Schluessel nicht; der Stand-PC ueberspringt sie
+	// dann (standpc/calibration_transfer.go firmwareOptionalKeys).
+	b01 := func(v bool) string {
+		if v {
+			return "1"
+		}
+		return "0"
+	}
+	iter := p.PosAlgo.Iterations
+	if iter < 0 {
+		iter = 0
+	} else if iter > 10 {
+		iter = 10
+	}
+	s = append(s,
+		FirmwareSetting{"CLUSTERCORR", b01(p.PosAlgo.CorrCluster)},
+		FirmwareSetting{"CLUSTERITER", i(int64(iter))},
+		FirmwareSetting{"LSQ", b01(p.PosAlgo.LSQ)},
+		FirmwareSetting{"LSQPELLETR", f2(p.PosAlgo.LSQPelletRMm)},
+	)
 	en := p.micEnabled()
 	for k := 0; k < 6; k++ {
 		v := "0"
@@ -77,12 +94,12 @@ func firmwareSettings(p SimParams) []FirmwareSetting {
 		piezo = "1"
 	}
 	s = append(s,
-		FirmwareSetting{"ALGO", algo},
-		FirmwareSetting{"PELLETR", f2(p.PelletRMm)},
-		FirmwareSetting{"MAXSIGMA", f2(float64(p.MaxSigmaUm) / 1000)},
+		// Der Simulator bildet nur ALGO=CLASSIC nach - das Geraet wird daher
+		// immer auf CLASSIC gestellt (die RIM-Parameter PELLETR/MAXSIGMA/
+		// MINMICS bleiben unberuehrt).
+		FirmwareSetting{"ALGO", "CLASSIC"},
 		FirmwareSetting{"PIEZOMIN", i(int64(p.PiezoMinUs))},
 		FirmwareSetting{"PIEZOMAX", i(int64(p.PiezoMaxUs))},
-		FirmwareSetting{"MINMICS", i(int64(p.rimMinMics()))},
 		FirmwareSetting{"PIEZO", piezo},
 	)
 	return s
