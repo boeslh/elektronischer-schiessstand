@@ -28,14 +28,18 @@ func (s *Store) resolveTargetGeometry(ctx context.Context, sessionID string) (Ta
 	if err != nil {
 		return TargetGeometry{}, err
 	}
-	if geo, ok := targetGeometries[standpcTargetNo]; ok {
-		return geo, nil
-	}
 	target, err := s.LoadTargetDef(ctx, targetID)
 	if err != nil {
 		return TargetGeometry{}, err
 	}
+	// Der Scheibenname ist massgeblich - disciplines.standpc_target_no ist
+	// abgeschafft, enthaelt in Bestandsdaten aber noch veraltete Nummern
+	// (z.B. LGA-30 -> 2 = ZS) und wird nur noch als letzter Ausweg genutzt
+	// (Bugfix: "bei LG-Disziplinen falsche Scheibe im PDF").
 	if geo, ok := matchTargetGeometryByName(target.Name); ok {
+		return geo, nil
+	}
+	if geo, ok := targetGeometries[standpcTargetNo]; ok {
 		return geo, nil
 	}
 	return targetGeometryFromRings(target), nil

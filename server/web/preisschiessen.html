@@ -120,6 +120,12 @@ tr.gw-row.active td{background:#1a2a2a}
 .form-card{position:sticky;top:16px}
 .check-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:.83rem}
 .check-row input[type=checkbox]{accent-color:var(--acc)}
+/* CSV/PDF-Export in Kartenkoepfen (Ergebnisvorschau, Vereins-Wertung) */
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.export-btns{display:flex;gap:6px}
+.export-btns button{font-size:.72rem;padding:3px 10px;background:#1a2230;border:1px solid var(--line);
+                    color:var(--text);border-radius:5px;cursor:pointer}
+.export-btns button:hover{border-color:var(--acc)}
 /* Teiler-Faktor je Scheibe nur bei Punkte-Saison (siehe awUpdateTypFields) */
 #aw-wtf-scheiben .aw-ft, #aw-wtf-scheiben .aw-fhead{display:none}
 #aw-wtf-scheiben.punkte-saison .aw-ft{display:inline-block}
@@ -424,241 +430,261 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
          diese Seite zeigt nur den Status und den vorberechneten Cache an -
          die eigentliche Anzeigetafel läuft als eigener Prozess (preisanzeige/). -->
     <div id="maintab-auswertung" class="tab-content">
-      <div class="card">
-        <h2>Status</h2>
-        <div id="aw-status-text" class="hint">Lade Status…</div>
-        <div class="form-row2" style="margin-top:10px;max-width:420px">
-          <div>
-            <label for="aw-interval">Berechnungsintervall</label>
-            <select id="aw-interval" onchange="awSaveInterval()">
-              <option value="">Aus (nur manuell)</option>
-              <option value="300">5 Minuten</option>
-              <option value="600">10 Minuten</option>
-              <option value="900">15 Minuten</option>
-            </select>
-          </div>
-          <div style="display:flex;align-items:flex-end">
-            <button type="button" class="btn-save" id="aw-recompute-btn" onclick="awRecompute()" style="display:none">Jetzt neu berechnen</button>
-          </div>
-        </div>
-        <p class="hint" style="margin-top:8px">Die Berechnung kann bei großen Preisschießen mehrere Minuten
-          dauern und läuft deshalb automatisch im Hintergrund, nicht bei jedem Seitenaufruf.</p>
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchAuswertungSubtab('wertungen', this)">Wertungen</button>
+        <button class="tab-btn" onclick="switchAuswertungSubtab('vorschau', this)">Ergebnisvorschau</button>
+        <button class="tab-btn" onclick="switchAuswertungSubtab('verein', this)">Vereins-Wertung</button>
+        <button class="tab-btn" onclick="switchAuswertungSubtab('anzeige', this)">Anzeige-Konfiguration</button>
+        <button class="tab-btn" onclick="switchAuswertungSubtab('berechnen', this)">Berechnen</button>
       </div>
 
-      <div class="split">
+      <div id="auswertung-sub-wertungen" class="tab-content active">
+        <div class="split">
+          <div class="card">
+            <h2>Wertungen</h2>
+            <table>
+              <thead><tr><th>Kurzname</th><th>Typ</th><th>Scheiben</th><th>Wertung</th><th>Sichtbar</th><th></th></tr></thead>
+              <tbody id="aw-wt-tbody"></tbody>
+            </table>
+          </div>
+          <div class="card form-card">
+            <h2>Wertung <span id="aw-wtf-title">anlegen</span></h2>
+            <form id="aw-wt-form" onsubmit="awSaveWertung(event)">
+              <input type="hidden" id="aw-wtf-id">
+              <label for="aw-wtf-short">Kurzname *</label>
+              <input type="text" id="aw-wtf-short" required placeholder="z.B. LG Meister">
+              <label for="aw-wtf-long">Langname</label>
+              <input type="text" id="aw-wtf-long">
+              <label for="aw-wtf-typ">Typ</label>
+              <select id="aw-wtf-typ" onchange="awUpdateTypFields()">
+                <option value="meister">Meister (Ringe)</option>
+                <option value="punkt">Punkt (Teiler)</option>
+                <option value="adler">Adler (Mischung)</option>
+                <option value="punkte_saison">Punkte-Saison (Vereinsabend)</option>
+              </select>
+
+              <div id="aw-wtf-mp-fields">
+                <label for="aw-wtf-feld" id="aw-wtf-feld-label">Wertungsfeld</label>
+                <select id="aw-wtf-feld">
+                  <option value="ring">Ganzring</option>
+                  <option value="ring_decimal">Zehntel</option>
+                  <option value="teiler">Teiler</option>
+                </select>
+
+                <label for="aw-wtf-serien-modus">Serien</label>
+                <select id="aw-wtf-serien-modus" onchange="awToggleSerienAnzahlField()">
+                  <option value="alle">Alle (je Serie einzeln)</option>
+                  <option value="gesamt">Gesamt (Scheibe zusammengefasst)</option>
+                  <option value="erste_n">Erste N Serien</option>
+                  <option value="beste_n">Beste N Serien</option>
+                </select>
+                <div id="aw-wtf-serien-anzahl-wrap" style="display:none;margin-top:8px">
+                  <label for="aw-wtf-serien-anzahl">Anzahl Serien (N)</label>
+                  <input type="number" id="aw-wtf-serien-anzahl" min="1">
+                </div>
+                <p class="hint" style="margin-top:4px">Gilt für alle Scheiben dieser Wertung gemeinsam.
+                  "Alle" = unverändertes Verhalten (jede Serie/jeder Schuss zählt einzeln). "Gesamt" fasst
+                  eine ganze Scheibe zu einem Wert zusammen. "Erste/Beste N" wählt nur N Serien aus, zu
+                  einem Wert summiert (z.B. Vereinsabend: nur die ersten 2 von 4 Serien zählen).</p>
+
+                <label>Scheiben (mit Faktor je Scheibe)</label>
+                <p class="hint" style="margin-top:-2px;margin-bottom:6px">Faktor normiert unterschiedliche
+                  Zielgrößen/Kaliber (z.B. LG vs. LP in einer kombinierten Wertung) - Standard 1.
+                  Bei Punkte-Saison getrennt für Ring und Teiler (Ring × Faktor, Teiler × Faktor -
+                  beim Teiler ist kleiner besser, ein Faktor &gt; 1 verschlechtert ihn also).</p>
+                <div class="checklist" id="aw-wtf-scheiben"></div>
+                <label>Nur für Schützenklassen (leer = alle)</label>
+                <div class="checklist" id="aw-wtf-classes"></div>
+                <div id="aw-wtf-anzsumme-wrap">
+                  <label for="aw-wtf-anzsumme">Anzahl beste Werte (Summenwertung)</label>
+                  <input type="number" id="aw-wtf-anzsumme" min="1" max="10" value="1">
+                  <p class="hint" style="margin-top:4px">1 = Einzelwertung (nur die beste Scheibe/der beste
+                    Schuss zählt). Größer als 1 = Summenwertung (die besten N Scheiben/Schüsse werden addiert).</p>
+                </div>
+              </div>
+
+              <div id="aw-wtf-punkte-fields" style="display:none">
+                <label for="aw-wtf-anwesenheit">Anwesenheits-Punkte</label>
+                <input type="number" id="aw-wtf-anwesenheit" step="0.01" min="0" value="0">
+                <p class="hint" style="margin-top:4px">Nur vergeben, wenn an diesem Tag nicht vor-/nachgeschossen
+                  wurde (unabhängig davon, ob zusätzlich ein Ring-/Teiler-Ergebnis vorliegt). "Beste X Abende"
+                  wird zentral in den Saison-Einstellungen festgelegt, nicht hier.</p>
+
+                <label>Ring-Punkte-Tabelle</label>
+                <p class="hint" style="margin-top:-2px;margin-bottom:6px">Ab erreichtem Ringwert (Basis:
+                  Wertungsfeld oben) gibt es die angegebenen Punkte - die höchste erreichte Schranke zählt.
+                  Beispiel: "ab 89 → 8 Punkte".</p>
+                <div id="aw-wtf-punkte-ring-rows"></div>
+                <button type="button" class="btn-cancel" onclick="awAddPunkteRow('ring')">+ Schranke</button>
+
+                <label style="margin-top:14px">Teiler-Punkte-Tabelle</label>
+                <p class="hint" style="margin-top:-2px;margin-bottom:6px">Bis zu diesem Teiler gibt es die
+                  angegebenen Punkte - die niedrigste (engste) erreichte Schranke zählt. Beispiel:
+                  "bis 34,4 → 5 Punkte". Wird unabhängig vom Wertungsfeld immer aus dem besten Teiler des
+                  Tages ermittelt.</p>
+                <div id="aw-wtf-punkte-teiler-rows"></div>
+                <button type="button" class="btn-cancel" onclick="awAddPunkteRow('teiler')">+ Schranke</button>
+              </div>
+
+              <div id="aw-wtf-adler-fields" style="display:none">
+                <label for="aw-wtf-adler-teiler">Teiler-Wertung</label>
+                <select id="aw-wtf-adler-teiler"></select>
+                <label for="aw-wtf-adler-meister">Meister-Wertung</label>
+                <select id="aw-wtf-adler-meister"></select>
+              </div>
+
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="aw-wtf-visible" checked>
+                <span>Sichtbar</span>
+              </label>
+
+              <div class="form-actions">
+                <button type="submit" class="btn-save" id="aw-wtf-save-btn" style="display:none">Speichern</button>
+                <button type="button" class="btn-cancel" onclick="awClearWertungForm()">Abbrechen</button>
+              </div>
+              <div id="aw-wtf-msg" class="msg"></div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="auswertung-sub-vorschau" class="tab-content">
         <div class="card">
-          <h2>Wertungen</h2>
-          <table>
-            <thead><tr><th>Kurzname</th><th>Typ</th><th>Scheiben</th><th>Wertung</th><th>Sichtbar</th><th></th></tr></thead>
-            <tbody id="aw-wt-tbody"></tbody>
+          <div class="card-head"><h2>Ergebnisvorschau</h2>
+            <span class="export-btns"><button type="button" onclick="awExportPreview('csv')">CSV</button>
+              <button type="button" onclick="awExportPreview('pdf')">PDF</button></span></div>
+          <label for="aw-preview-sel">Wertung</label>
+          <select id="aw-preview-sel" onchange="awLoadPreview()"></select>
+          <p class="hint">Bei Gleichstand in der Summe entscheidet die nächstbeste Scheibe/der nächstbeste
+            Schuss (hier die besten 5 zur Kontrolle), bei komplettem Gleichstand die kleinere Teilnehmernummer.</p>
+          <table style="margin-top:10px">
+            <thead><tr id="aw-preview-thead-row">
+              <th>Platz</th><th>Nr.</th><th>Name</th><th>Verein</th><th>Klasse</th>
+              <th id="aw-preview-summe-th">Summe</th><th colspan="5" id="aw-preview-werte-th">Beste 5</th>
+            </tr></thead>
+            <tbody id="aw-preview-tbody"></tbody>
           </table>
         </div>
-        <div class="card form-card">
-          <h2>Wertung <span id="aw-wtf-title">anlegen</span></h2>
-          <form id="aw-wt-form" onsubmit="awSaveWertung(event)">
-            <input type="hidden" id="aw-wtf-id">
-            <label for="aw-wtf-key">Disziplin-Key *</label>
-            <input type="text" id="aw-wtf-key" required placeholder="z.B. AM-LG-Meister">
-            <label for="aw-wtf-short">Kurzname *</label>
-            <input type="text" id="aw-wtf-short" required placeholder="z.B. LG Meister">
-            <label for="aw-wtf-long">Langname</label>
-            <input type="text" id="aw-wtf-long">
-            <label for="aw-wtf-typ">Typ</label>
-            <select id="aw-wtf-typ" onchange="awUpdateTypFields()">
-              <option value="meister">Meister (Ringe)</option>
-              <option value="punkt">Punkt (Teiler)</option>
-              <option value="adler">Adler (Mischung)</option>
-              <option value="punkte_saison">Punkte-Saison (Vereinsabend)</option>
-            </select>
+      </div>
 
-            <div id="aw-wtf-mp-fields">
-              <label for="aw-wtf-feld" id="aw-wtf-feld-label">Wertungsfeld</label>
-              <select id="aw-wtf-feld">
-                <option value="ring">Ganzring</option>
-                <option value="ring_decimal">Zehntel</option>
-                <option value="teiler">Teiler</option>
-              </select>
-
-              <label for="aw-wtf-serien-modus">Serien</label>
-              <select id="aw-wtf-serien-modus" onchange="awToggleSerienAnzahlField()">
-                <option value="alle">Alle (je Serie einzeln)</option>
-                <option value="gesamt">Gesamt (Scheibe zusammengefasst)</option>
-                <option value="erste_n">Erste N Serien</option>
-                <option value="beste_n">Beste N Serien</option>
-              </select>
-              <div id="aw-wtf-serien-anzahl-wrap" style="display:none;margin-top:8px">
-                <label for="aw-wtf-serien-anzahl">Anzahl Serien (N)</label>
-                <input type="number" id="aw-wtf-serien-anzahl" min="1">
-              </div>
-              <p class="hint" style="margin-top:4px">Gilt für alle Scheiben dieser Wertung gemeinsam.
-                "Alle" = unverändertes Verhalten (jede Serie/jeder Schuss zählt einzeln). "Gesamt" fasst
-                eine ganze Scheibe zu einem Wert zusammen. "Erste/Beste N" wählt nur N Serien aus, zu
-                einem Wert summiert (z.B. Vereinsabend: nur die ersten 2 von 4 Serien zählen).</p>
-
-              <label>Scheiben (mit Faktor je Scheibe)</label>
-              <p class="hint" style="margin-top:-2px;margin-bottom:6px">Faktor normiert unterschiedliche
-                Zielgrößen/Kaliber (z.B. LG vs. LP in einer kombinierten Wertung) - Standard 1.
-                Bei Punkte-Saison getrennt für Ring und Teiler (Ring × Faktor, Teiler × Faktor -
-                beim Teiler ist kleiner besser, ein Faktor &gt; 1 verschlechtert ihn also).</p>
-              <div class="checklist" id="aw-wtf-scheiben"></div>
-              <label>Nur für Schützenklassen (leer = alle)</label>
-              <div class="checklist" id="aw-wtf-classes"></div>
-              <div id="aw-wtf-anzsumme-wrap">
-                <label for="aw-wtf-anzsumme">Anzahl beste Werte (Summenwertung)</label>
-                <input type="number" id="aw-wtf-anzsumme" min="1" max="10" value="1">
-                <p class="hint" style="margin-top:4px">1 = Einzelwertung (nur die beste Scheibe/der beste
-                  Schuss zählt). Größer als 1 = Summenwertung (die besten N Scheiben/Schüsse werden addiert).</p>
-              </div>
+      <div id="auswertung-sub-verein" class="tab-content">
+        <div class="card">
+          <div class="card-head"><h2>Vereins-Wertungen</h2>
+            <span class="export-btns"><button type="button" onclick="awExportVereine('csv')">CSV</button>
+              <button type="button" onclick="awExportVereine('pdf')">PDF</button></span></div>
+          <p class="hint">Teilnehmende Vereine und Punkte-Zeiträume werden im Tab "Verwaltung" →
+            "Vereine" konfiguriert. Der Gastgeber-Verein (falls gesetzt) belegt hier immer den
+            letzten Platz.</p>
+          <div id="vw-auswertung-vereine-hint" class="hint" style="display:none">Noch keine Vereine
+            für die Vereins-Auswertung ausgewählt.</div>
+          <div id="vw-auswertung-vereine-tables" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+            <div>
+              <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Anzahl</h3>
+              <table><thead><tr><th>Platz</th><th>Verein</th><th>Anzahl</th></tr></thead>
+                <tbody id="aw-vn-anzahl-tbody"></tbody></table>
             </div>
-
-            <div id="aw-wtf-punkte-fields" style="display:none">
-              <label for="aw-wtf-anwesenheit">Anwesenheits-Punkte</label>
-              <input type="number" id="aw-wtf-anwesenheit" step="0.01" min="0" value="0">
-              <p class="hint" style="margin-top:4px">Nur vergeben, wenn an diesem Tag nicht vor-/nachgeschossen
-                wurde (unabhängig davon, ob zusätzlich ein Ring-/Teiler-Ergebnis vorliegt). "Beste X Abende"
-                wird zentral in den Saison-Einstellungen festgelegt, nicht hier.</p>
-
-              <label>Ring-Punkte-Tabelle</label>
-              <p class="hint" style="margin-top:-2px;margin-bottom:6px">Ab erreichtem Ringwert (Basis:
-                Wertungsfeld oben) gibt es die angegebenen Punkte - die höchste erreichte Schranke zählt.
-                Beispiel: "ab 89 → 8 Punkte".</p>
-              <div id="aw-wtf-punkte-ring-rows"></div>
-              <button type="button" class="btn-cancel" onclick="awAddPunkteRow('ring')">+ Schranke</button>
-
-              <label style="margin-top:14px">Teiler-Punkte-Tabelle</label>
-              <p class="hint" style="margin-top:-2px;margin-bottom:6px">Bis zu diesem Teiler gibt es die
-                angegebenen Punkte - die niedrigste (engste) erreichte Schranke zählt. Beispiel:
-                "bis 34,4 → 5 Punkte". Wird unabhängig vom Wertungsfeld immer aus dem besten Teiler des
-                Tages ermittelt.</p>
-              <div id="aw-wtf-punkte-teiler-rows"></div>
-              <button type="button" class="btn-cancel" onclick="awAddPunkteRow('teiler')">+ Schranke</button>
+            <div>
+              <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Prozent</h3>
+              <table><thead><tr><th>Platz</th><th>Verein</th><th>Prozent</th></tr></thead>
+                <tbody id="aw-vn-prozent-tbody"></tbody></table>
             </div>
-
-            <div id="aw-wtf-adler-fields" style="display:none">
-              <label for="aw-wtf-adler-teiler">Teiler-Wertung</label>
-              <select id="aw-wtf-adler-teiler"></select>
-              <label for="aw-wtf-adler-meister">Meister-Wertung</label>
-              <select id="aw-wtf-adler-meister"></select>
+            <div>
+              <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Punkte</h3>
+              <table><thead><tr><th>Platz</th><th>Verein</th><th>Punkte</th></tr></thead>
+                <tbody id="aw-vn-punkte-tbody"></tbody></table>
             </div>
+          </div>
+        </div>
+      </div>
 
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-              <input type="checkbox" id="aw-wtf-visible" checked>
-              <span>Sichtbar</span>
+      <div id="auswertung-sub-anzeige" class="tab-content">
+        <div class="card">
+          <h2>Anzeige-Konfiguration</h2>
+          <p class="hint">Legt fest, welche Wertungen der eigenständige Anzeige-Prozess (preisanzeige)
+            zeigt und wie schnell er umschaltet. Es gibt zwei unabhängig voneinander bestückbare
+            Kiosk-Anzeigen (<code>/kiosk</code> und <code>/kiosk2</code>, z.B. für zwei Bildschirme mit
+            unterschiedlichen Wertungen) - alle übrigen Einstellungen unten gelten für beide gemeinsam.</p>
+          <div class="form-row2" style="grid-template-columns:1fr 1fr">
+            <div>
+              <label>Angezeigte Wertungen (Kiosk 1)</label>
+              <div class="checklist" id="aw-ac-wertungen"></div>
+            </div>
+            <div>
+              <label>Angezeigte Wertungen (Kiosk 2)</label>
+              <div class="checklist" id="aw-ac-wertungen-2"></div>
+            </div>
+          </div>
+          <div class="form-row2" style="margin-top:10px;grid-template-columns:1fr 1fr 1fr">
+            <div><label for="aw-ac-reload">Reload (Sekunden)</label><input type="number" id="aw-ac-reload" min="1" value="5"></div>
+            <div><label for="aw-ac-font">Titel-Schriftgröße (px)</label><input type="number" id="aw-ac-font" min="10" value="20"></div>
+            <div><label for="aw-ac-list-font">Listentext-Schriftgröße (px)</label><input type="number" id="aw-ac-list-font" min="8" value="18"></div>
+          </div>
+          <label for="aw-ac-werbung" style="margin-top:10px">Werbung: alle N Teilnehmer in den Ergebnislisten</label>
+          <input type="number" id="aw-ac-werbung" min="1" value="20">
+          <p class="hint" style="margin-top:4px">Bilder liegen als Dateien auf dem Rechner des Display-Servers unter
+            <code>/opt/ps/bilder/&lt;preisschiessen-id&gt;/main/</code> (Startseite, unten) bzw.
+            <code>.../lists/</code> (alle N Teilnehmer in Wertungs-/Vereins-Listen) - leeres Verzeichnis = keine
+            Werbung. Die Preisschießen-ID steht oben bei den Grunddaten.</p>
+          <label style="margin-top:10px">Farben</label>
+          <p class="hint" style="margin-top:-2px;margin-bottom:6px">Gelten sowohl für die browsbare
+            Ergebnis-Website als auch für den Kiosk-Modus - darüber lassen sich beide Ansichten
+            aneinander angleichen.</p>
+          <div class="form-row2" style="grid-template-columns:1fr 1fr 1fr 1fr">
+            <div><label for="aw-ac-bg">Hintergrund</label><input type="color" id="aw-ac-bg" value="#80ffff"></div>
+            <div><label for="aw-ac-text">Schrift</label><input type="color" id="aw-ac-text" value="#000000"></div>
+            <div><label for="aw-ac-row-even">Tabelle gerade Zeilen</label><input type="color" id="aw-ac-row-even" value="#eafeff"></div>
+            <div><label for="aw-ac-row-odd">Tabelle ungerade Zeilen</label><input type="color" id="aw-ac-row-odd" value="#cbf5f8"></div>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
+            <input type="checkbox" id="aw-ac-show-scheibe">
+            <span>Spalte "Scheibe" anzeigen</span>
+          </label>
+          <p class="hint" style="margin-top:-2px;margin-bottom:6px">Zeigt den Namen der Scheibe(n), die
+            der Teilnehmer geschossen hat (z.B. "LG Kombi" vs. "LP Kombi") - vor allem hilfreich, wenn
+            mehrere Scheiben in eine Wertung einfließen. Gilt sowohl für die browsbare Ergebnis-Website
+            als auch für den Kiosk-Modus.</p>
+          <label style="margin-top:10px">Kiosk-Modus: Spalten</label>
+          <p class="hint" style="margin-top:-2px;margin-bottom:6px">Verein/Klasse können einzeln ausgeblendet
+            werden - der dadurch frei werdende Platz kommt den Einzelergebnis-Spalten zugute.</p>
+          <div class="form-row2" style="grid-template-columns:1fr 1fr 1fr">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+              <input type="checkbox" id="aw-ac-kiosk-verein" checked>
+              <span>Verein anzeigen</span>
             </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+              <input type="checkbox" id="aw-ac-kiosk-klasse" checked>
+              <span>Klasse anzeigen</span>
+            </label>
+            <div><label for="aw-ac-kiosk-einzel">Anzahl Einzelergebnisse</label>
+              <input type="number" id="aw-ac-kiosk-einzel" min="0" max="10" value="5"></div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn-save" id="aw-ac-save-btn" onclick="awSaveAnzeigeConfig()" style="display:none">Speichern</button>
+          </div>
+          <div id="aw-ac-msg" class="msg"></div>
+        </div>
+      </div>
 
-            <div class="form-actions">
-              <button type="submit" class="btn-save" id="aw-wtf-save-btn" style="display:none">Speichern</button>
-              <button type="button" class="btn-cancel" onclick="awClearWertungForm()">Abbrechen</button>
+      <div id="auswertung-sub-berechnen" class="tab-content">
+        <div class="card">
+          <h2>Berechnen</h2>
+          <div id="aw-status-text" class="hint">Lade Status…</div>
+          <div class="form-row2" style="margin-top:10px;max-width:420px">
+            <div>
+              <label for="aw-interval">Berechnungsintervall</label>
+              <select id="aw-interval" onchange="awSaveInterval()">
+                <option value="">Aus (nur manuell)</option>
+                <option value="300">5 Minuten</option>
+                <option value="600">10 Minuten</option>
+                <option value="900">15 Minuten</option>
+              </select>
             </div>
-            <div id="aw-wtf-msg" class="msg"></div>
-          </form>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Anzeige-Konfiguration</h2>
-        <p class="hint">Legt fest, welche Wertungen der eigenständige Anzeige-Prozess (preisanzeige)
-          zeigt und wie schnell er umschaltet. Es gibt zwei unabhängig voneinander bestückbare
-          Kiosk-Anzeigen (<code>/kiosk</code> und <code>/kiosk2</code>, z.B. für zwei Bildschirme mit
-          unterschiedlichen Wertungen) - alle übrigen Einstellungen unten gelten für beide gemeinsam.</p>
-        <div class="form-row2" style="grid-template-columns:1fr 1fr">
-          <div>
-            <label>Angezeigte Wertungen (Kiosk 1)</label>
-            <div class="checklist" id="aw-ac-wertungen"></div>
+            <div style="display:flex;align-items:flex-end">
+              <button type="button" class="btn-save" id="aw-recompute-btn" onclick="awRecompute()" style="display:none">Jetzt neu berechnen</button>
+            </div>
           </div>
-          <div>
-            <label>Angezeigte Wertungen (Kiosk 2)</label>
-            <div class="checklist" id="aw-ac-wertungen-2"></div>
-          </div>
-        </div>
-        <div class="form-row2" style="margin-top:10px;grid-template-columns:1fr 1fr 1fr">
-          <div><label for="aw-ac-reload">Reload (Sekunden)</label><input type="number" id="aw-ac-reload" min="1" value="5"></div>
-          <div><label for="aw-ac-font">Titel-Schriftgröße (px)</label><input type="number" id="aw-ac-font" min="10" value="20"></div>
-          <div><label for="aw-ac-list-font">Listentext-Schriftgröße (px)</label><input type="number" id="aw-ac-list-font" min="8" value="18"></div>
-        </div>
-        <label for="aw-ac-werbung" style="margin-top:10px">Werbung: alle N Teilnehmer in den Ergebnislisten</label>
-        <input type="number" id="aw-ac-werbung" min="1" value="20">
-        <p class="hint" style="margin-top:4px">Bilder liegen als Dateien auf dem Rechner des Display-Servers unter
-          <code>/opt/ps/bilder/&lt;preisschiessen-id&gt;/main/</code> (Startseite, unten) bzw.
-          <code>.../lists/</code> (alle N Teilnehmer in Wertungs-/Vereins-Listen) - leeres Verzeichnis = keine
-          Werbung. Die Preisschießen-ID steht oben bei den Grunddaten.</p>
-        <label style="margin-top:10px">Farben</label>
-        <p class="hint" style="margin-top:-2px;margin-bottom:6px">Gelten sowohl für die browsbare
-          Ergebnis-Website als auch für den Kiosk-Modus - darüber lassen sich beide Ansichten
-          aneinander angleichen.</p>
-        <div class="form-row2" style="grid-template-columns:1fr 1fr 1fr 1fr">
-          <div><label for="aw-ac-bg">Hintergrund</label><input type="color" id="aw-ac-bg" value="#80ffff"></div>
-          <div><label for="aw-ac-text">Schrift</label><input type="color" id="aw-ac-text" value="#000000"></div>
-          <div><label for="aw-ac-row-even">Tabelle gerade Zeilen</label><input type="color" id="aw-ac-row-even" value="#eafeff"></div>
-          <div><label for="aw-ac-row-odd">Tabelle ungerade Zeilen</label><input type="color" id="aw-ac-row-odd" value="#cbf5f8"></div>
-        </div>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px">
-          <input type="checkbox" id="aw-ac-show-scheibe">
-          <span>Spalte "Scheibe" anzeigen</span>
-        </label>
-        <p class="hint" style="margin-top:-2px;margin-bottom:6px">Zeigt den Namen der Scheibe(n), die
-          der Teilnehmer geschossen hat (z.B. "LG Kombi" vs. "LP Kombi") - vor allem hilfreich, wenn
-          mehrere Scheiben in eine Wertung einfließen. Gilt sowohl für die browsbare Ergebnis-Website
-          als auch für den Kiosk-Modus.</p>
-        <label style="margin-top:10px">Kiosk-Modus: Spalten</label>
-        <p class="hint" style="margin-top:-2px;margin-bottom:6px">Verein/Klasse können einzeln ausgeblendet
-          werden - der dadurch frei werdende Platz kommt den Einzelergebnis-Spalten zugute.</p>
-        <div class="form-row2" style="grid-template-columns:1fr 1fr 1fr">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
-            <input type="checkbox" id="aw-ac-kiosk-verein" checked>
-            <span>Verein anzeigen</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
-            <input type="checkbox" id="aw-ac-kiosk-klasse" checked>
-            <span>Klasse anzeigen</span>
-          </label>
-          <div><label for="aw-ac-kiosk-einzel">Anzahl Einzelergebnisse</label>
-            <input type="number" id="aw-ac-kiosk-einzel" min="0" max="10" value="5"></div>
-        </div>
-        <div class="form-actions">
-          <button type="button" class="btn-save" id="aw-ac-save-btn" onclick="awSaveAnzeigeConfig()" style="display:none">Speichern</button>
-        </div>
-        <div id="aw-ac-msg" class="msg"></div>
-      </div>
-
-      <div class="card">
-        <h2>Ergebnisvorschau</h2>
-        <label for="aw-preview-sel">Wertung</label>
-        <select id="aw-preview-sel" onchange="awLoadPreview()"></select>
-        <p class="hint">Bei Gleichstand in der Summe entscheidet die nächstbeste Scheibe/der nächstbeste
-          Schuss (hier die besten 5 zur Kontrolle), bei komplettem Gleichstand die kleinere Teilnehmernummer.</p>
-        <table style="margin-top:10px">
-          <thead><tr id="aw-preview-thead-row">
-            <th>Platz</th><th>Nr.</th><th>Name</th><th>Verein</th><th>Klasse</th>
-            <th id="aw-preview-summe-th">Summe</th><th colspan="5" id="aw-preview-werte-th">Beste 5</th>
-          </tr></thead>
-          <tbody id="aw-preview-tbody"></tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <h2>Vereins-Wertungen</h2>
-        <p class="hint">Teilnehmende Vereine und Punkte-Zeiträume werden im Tab "Verwaltung" →
-          "Vereine" konfiguriert. Der Gastgeber-Verein (falls gesetzt) belegt hier immer den
-          letzten Platz.</p>
-        <div id="vw-auswertung-vereine-hint" class="hint" style="display:none">Noch keine Vereine
-          für die Vereins-Auswertung ausgewählt.</div>
-        <div id="vw-auswertung-vereine-tables" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
-          <div>
-            <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Anzahl</h3>
-            <table><thead><tr><th>Platz</th><th>Verein</th><th>Anzahl</th></tr></thead>
-              <tbody id="aw-vn-anzahl-tbody"></tbody></table>
-          </div>
-          <div>
-            <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Prozent</h3>
-            <table><thead><tr><th>Platz</th><th>Verein</th><th>Prozent</th></tr></thead>
-              <tbody id="aw-vn-prozent-tbody"></tbody></table>
-          </div>
-          <div>
-            <h3 style="font-size:12px;color:var(--dim);margin-bottom:8px">Teilnehmer Punkte</h3>
-            <table><thead><tr><th>Platz</th><th>Verein</th><th>Punkte</th></tr></thead>
-              <tbody id="aw-vn-punkte-tbody"></tbody></table>
-          </div>
+          <p class="hint" style="margin-top:8px">Die Berechnung kann bei großen Preisschießen mehrere Minuten
+            dauern und läuft deshalb automatisch im Hintergrund, nicht bei jedem Seitenaufruf.</p>
         </div>
       </div>
     </div>
@@ -766,6 +792,21 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
           <div style="margin-top:12px">
             <button class="btn-edit" style="padding:6px 12px" onclick="vwRecalcClasses()">Klasse neu berechnen</button>
           </div>
+          <!-- Art umstellen (nur Admin, siehe updateManageVisibility) -->
+          <div id="vw-kind-box" style="display:none;margin-top:18px;padding-top:12px;border-top:1px solid var(--line)">
+            <label for="vw-kind">Art</label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <select id="vw-kind" style="width:auto">
+                <option value="preisschiessen">Preisschießen</option>
+                <option value="vereinsabend_saison">Vereinsabend-Saison</option>
+              </select>
+              <button type="button" class="btn-edit" style="padding:6px 12px" onclick="vwChangeKind()">Art ändern</button>
+              <a id="vw-kind-va-link" href="#" style="display:none;color:var(--acc);font-size:.85rem">Zur Vereinsabend-Seite →</a>
+            </div>
+            <p class="hint" style="margin-top:4px">Nur Admin. Teilnehmer, Käufe, Ergebnisse und Wertungen bleiben erhalten –
+              die Art bestimmt nur, ob es als Vereinsabend-Saison (Tages-/Saisonwertung, Anwesenheit, Wochentage) geführt wird.</p>
+            <div id="vw-kind-msg" class="msg"></div>
+          </div>
         </div>
       </div>
 
@@ -829,6 +870,12 @@ input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line
                 des Preisschießens gesetzt.</p>
               <label>Nur für Schützenklassen (leer = alle)</label>
               <div class="checklist" id="vw-scf-classes"></div>
+              <label>Nur für Vereine (leer = alle)</label>
+              <input type="search" id="vw-scf-clubs-q" placeholder="Verein suchen…" oninput="vwFilterClubChecklist(this.value)"
+                     style="margin-bottom:4px">
+              <div class="checklist" id="vw-scf-clubs"></div>
+              <p class="hint" style="margin-top:2px">Gilt auch für Sets: ein Set mit dieser Scheibe können nur Teilnehmer
+                der ausgewählten Vereine kaufen. Maßgeblich ist der Verein des Schützen.</p>
               <label>Erfordert vorherigen Kauf eines dieser Sets (leer = kein Gating)</label>
               <div class="checklist" id="vw-scf-requires"></div>
               <div class="form-actions">
@@ -1784,6 +1831,7 @@ async function awLoadForCurrentPS() {
 async function awLoadVereinsAuswertung() {
   if (!currentPS) return;
   const rows = await api(`/preisschiessen/${currentPS.id}/vereine/auswertung`) || [];
+  awVereineRows = rows;
   const hint = document.getElementById('vw-auswertung-vereine-hint');
   const tables = document.getElementById('vw-auswertung-vereine-tables');
   if (!rows.length) {
@@ -2145,7 +2193,6 @@ function awEditWertung(id) {
   if (!wt) return;
   document.getElementById('aw-wtf-id').value = wt.id;
   document.getElementById('aw-wtf-title').textContent = 'bearbeiten';
-  document.getElementById('aw-wtf-key').value = wt.disziplin_key;
   document.getElementById('aw-wtf-short').value = wt.short_desc;
   document.getElementById('aw-wtf-long').value = wt.long_desc || '';
   document.getElementById('aw-wtf-typ').value = wt.typ;
@@ -2172,7 +2219,6 @@ async function awSaveWertung(e) {
   const id = document.getElementById('aw-wtf-id').value;
   const typ = document.getElementById('aw-wtf-typ').value;
   const body = {
-    disziplin_key: document.getElementById('aw-wtf-key').value.trim(),
     typ,
     short_desc: document.getElementById('aw-wtf-short').value.trim(),
     long_desc: document.getElementById('aw-wtf-long').value.trim(),
@@ -2274,6 +2320,101 @@ function awFillPreviewSelect() {
   awLoadPreview();
 }
 
+let awPreviewData = null; // {wt, rows, showSumme} der angezeigten Vorschau - fuer den Export
+let awVereineRows = [];   // zuletzt geladene Vereins-Auswertung - fuer den Export
+
+// ── Export (CSV im Browser, PDF vom Server aus denselben Daten) ─────────────
+const deNum = (v, frac) => v == null ? '' : Number(v).toLocaleString('de-DE', {minimumFractionDigits: frac, maximumFractionDigits: frac});
+
+function psDownloadCSV(filename, columns, rows) {
+  const q = v => /[;"\n]/.test(v) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  const lines = [columns.map(c => q(c.label)).join(';'), ...rows.map(r => r.map(q).join(';'))];
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename.replace(/[^\wäöüÄÖÜß.-]+/g, '_') + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function psOpenPDF(payload) {
+  const win = window.open('', '_blank'); // vor dem await oeffnen, sonst greift der Popup-Blocker
+  try {
+    const resp = await fetch(`/api/preisschiessen/${currentPS.id}/liste/pdf`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const url = URL.createObjectURL(await resp.blob());
+    if (win) win.location = url; else location.href = url;
+  } catch (err) {
+    if (win) win.close();
+    alert('PDF-Erzeugung fehlgeschlagen: ' + err.message);
+  }
+}
+
+function awExportPreview(format) {
+  const d = awPreviewData;
+  if (!d || !d.wt) { alert('Bitte zuerst eine Wertung auswählen.'); return; }
+  const nWerte = Math.max(0, ...d.rows.map(r => Math.min(5, (r.werte || []).length)));
+  const columns = [{label: 'Platz', num: true}, {label: 'Nr.', num: true}, {label: 'Name'},
+    {label: 'Verein'}, {label: 'Klasse'}];
+  if (d.showSumme) columns.push({label: 'Summe', num: true});
+  for (let i = 1; i <= nWerte; i++) columns.push({label: `Wert ${i}`, num: true});
+  const rows = d.rows.map(r => {
+    const row = [`${r.platz}.`, String(r.start_nr), `${r.nachname}, ${r.vorname}`, r.verein || '', r.klasse || ''];
+    if (d.showSumme) row.push(deNum(r.summe || 0, 2));
+    for (let i = 0; i < nWerte; i++) row.push(deNum((r.werte || [])[i], 1));
+    return row;
+  });
+  const titel = `${currentPS.name} – ${d.wt.short_desc}`;
+  if (format === 'csv') { psDownloadCSV(`Ergebnis_${d.wt.short_desc}`, columns, rows); return; }
+  psOpenPDF({
+    title: titel, subtitle: d.wt.long_desc || '',
+    summary: [
+      {label: 'Wertung', value: `${d.wt.short_desc} (${AW_TYP_LABEL[d.wt.typ] || d.wt.typ})`},
+      {label: 'Teilnehmer in der Wertung', value: String(d.rows.length)},
+    ],
+    legend: 'Stand der letzten Berechnung (Tab „Berechnen“). Bei Gleichstand entscheidet der nächstbeste Wert, dann die kleinere Teilnehmernummer.',
+    columns, rows,
+  });
+}
+
+function awExportVereine(format) {
+  const rows = awVereineRows;
+  if (!rows.length) { alert('Noch keine Vereine für die Vereins-Auswertung ausgewählt.'); return; }
+  const name = r => r.club_name + (r.gastgeber ? ' (Gastgeber)' : '');
+  const prozent = r => r.prozent == null ? '' : deNum(r.prozent, 1) + ' %';
+  if (format === 'csv') {
+    const columns = [{label: 'Verein'}, {label: 'Anzahl', num: true}, {label: 'Platz Anzahl', num: true},
+      {label: 'Prozent', num: true}, {label: 'Platz Prozent', num: true},
+      {label: 'Punkte', num: true}, {label: 'Platz Punkte', num: true}];
+    const sorted = [...rows].sort((a, b) => a.club_name.localeCompare(b.club_name, 'de'));
+    psDownloadCSV('Vereinswertung', columns, sorted.map(r => [name(r), String(r.anzahl), String(r.platz_anzahl),
+      prozent(r), String(r.platz_prozent), deNum(r.punkte, 2), String(r.platz_punkte)]));
+    return;
+  }
+  const section = (title, platzKey, label, valueFn) => ({
+    title, columns: [{label: 'Platz', num: true}, {label: 'Verein'}, {label, num: true}],
+    rows: [...rows].sort((a, b) => a[platzKey] - b[platzKey]).map(r => [`${r[platzKey]}.`, name(r), valueFn(r)]),
+  });
+  psOpenPDF({
+    title: `${currentPS.name} – Vereins-Wertungen`, subtitle: '',
+    summary: [
+      {label: 'Vereine', value: String(rows.length)},
+      {label: 'Teilnehmer gesamt', value: String(rows.reduce((n, r) => n + (r.anzahl || 0), 0))},
+    ],
+    legend: 'Der Gastgeber-Verein belegt in allen Wertungen immer den letzten Platz.',
+    orientation: 'P',
+    sections: [
+      section('Teilnehmer Anzahl', 'platz_anzahl', 'Anzahl', r => String(r.anzahl)),
+      section('Teilnehmer Prozent', 'platz_prozent', 'Prozent', prozent),
+      section('Teilnehmer Punkte', 'platz_punkte', 'Punkte', r => deNum(r.punkte, 2)),
+    ],
+  });
+}
+
 async function awLoadPreview() {
   const sel = document.getElementById('aw-preview-sel');
   const tbody = document.getElementById('aw-preview-tbody');
@@ -2283,8 +2424,9 @@ async function awLoadPreview() {
   // anz_summe=1 wäre sie nur eine Dopplung des ohnehin ersten Einzelwerts.
   const showSumme = !!wt && wt.anz_summe > 1;
   document.getElementById('aw-preview-summe-th').style.display = showSumme ? '' : 'none';
-  if (!sel.value) { tbody.innerHTML = ''; return; }
+  if (!sel.value) { tbody.innerHTML = ''; awPreviewData = null; return; }
   const rows = await api(`/preisschiessen/${currentPS.id}/wertungen/${sel.value}/ergebnis`) || [];
+  awPreviewData = {wt, rows, showSumme};
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="10" style="color:var(--dim);text-align:center">Noch keine Ergebnisse (Berechnung ausstehend)</td></tr>';
     return;
@@ -2376,6 +2518,8 @@ function updateManageVisibility() {
     document.getElementById(id).style.display = vwCanManage ? '' : 'none';
   }
   document.getElementById('vw-vz-add-btn').style.display = vwCanManage ? '' : 'none';
+  document.getElementById('vw-kind-box').style.display =
+    window.SCHIESSSTAND_ROLE?.role_key === 'admin' ? '' : 'none';
   vwRenderScheiben();
   vwRenderSets();
 }
@@ -2390,6 +2534,15 @@ function switchVerwaltungSubtab(name, btn) {
   document.getElementById('verwaltung-sub-vereine').classList.remove('active');
   btn.classList.add('active');
   document.getElementById('verwaltung-sub-'+name).classList.add('active');
+}
+
+// Unter-Reiter im Tab "Auswertung" (wie switchVerwaltungSubtab)
+function switchAuswertungSubtab(name, btn) {
+  const scope = document.getElementById('maintab-auswertung');
+  scope.querySelectorAll(':scope > .tabs > .tab-btn').forEach(b => b.classList.remove('active'));
+  scope.querySelectorAll(':scope > .tab-content').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('auswertung-sub-' + name).classList.add('active');
 }
 
 async function vwLoadMetaOnce() {
@@ -2522,6 +2675,37 @@ function vwFillForm(p) {
   document.getElementById('vw-pf-active').checked = p.active;
   document.getElementById('vw-pf-aktuell').checked = !!p.aktuell;
   document.getElementById('vw-pf-sets-standpc').checked = !!p.sets_at_standpc;
+  vwFillKind(p);
+}
+
+function vwFillKind(p) {
+  const kind = p.kind || 'preisschiessen';
+  document.getElementById('vw-kind').value = kind;
+  const link = document.getElementById('vw-kind-va-link');
+  link.style.display = kind === 'vereinsabend_saison' ? '' : 'none';
+  link.href = '/vereinsabende?id=' + encodeURIComponent(p.id);
+}
+
+async function vwChangeKind() {
+  if (!currentPS) return;
+  const kind = document.getElementById('vw-kind').value;
+  if (kind === (currentPS.kind || 'preisschiessen')) { showMsg('vw-kind-msg', 'Art ist bereits eingestellt.', 'info'); return; }
+  const text = kind === 'vereinsabend_saison'
+    ? `"${currentPS.name}" zur Vereinsabend-Saison machen?\n\nEs erscheint dann in der Vereinsabend-Liste mit Tages-/Saisonwertung und Anwesenheit. ` +
+      'Für Punkte braucht es eine Wertung vom Typ „Punkte-Saison“; Wochentage in der Saison-Verwaltung einstellen.'
+    : `"${currentPS.name}" wieder zum normalen Preisschießen machen?\n\nEs verschwindet dann aus der Vereinsabend-Liste.`;
+  if (!confirm(text + '\n\nTeilnehmer, Käufe und Ergebnisse bleiben erhalten.')) {
+    document.getElementById('vw-kind').value = currentPS.kind || 'preisschiessen';
+    return;
+  }
+  try {
+    await api(`/preisschiessen/${currentPS.id}/kind`, jsonOpts('PUT', {kind}));
+    currentPS = await api(`/preisschiessen/${currentPS.id}`);
+    const idx = psList.findIndex(p => p.id === currentPS.id);
+    if (idx !== -1) psList[idx] = currentPS;
+    vwFillKind(currentPS);
+    showMsg('vw-kind-msg', kind === 'vereinsabend_saison' ? 'Umgestellt auf Vereinsabend-Saison.' : 'Umgestellt auf Preisschießen.', 'ok');
+  } catch (err) { showMsg('vw-kind-msg', 'Fehler: ' + err.message, 'err'); }
 }
 
 async function vwSavePS(e) {
@@ -2535,6 +2719,13 @@ async function vwSavePS(e) {
     active: document.getElementById('vw-pf-active').checked,
     aktuell: document.getElementById('vw-pf-aktuell').checked,
     sets_at_standpc: document.getElementById('vw-pf-sets-standpc').checked,
+    // Vereinsabend-Felder werden hier nicht bearbeitet - unveraendert
+    // mitschicken, sonst setzt das Speichern sie zurueck (Wochentage leer,
+    // Vor-/Nachschiessen aus, beste X Abende weg).
+    saison_wochentage: currentPS.saison_wochentage || [],
+    vorschiessen_erlaubt: !!currentPS.vorschiessen_erlaubt,
+    nachschiessen_erlaubt: !!currentPS.nachschiessen_erlaubt,
+    beste_x_abende: currentPS.beste_x_abende ?? null,
   };
   try {
     await api(`/preisschiessen/${currentPS.id}`, jsonOpts('PUT', body));
@@ -2590,6 +2781,26 @@ function vwClassChecklistHTML(checkedIDs) {
     </label>`).join('');
 }
 
+// Vereins-Auswahl je Scheibe: ausgewaehlte zuerst, dann alphabetisch; das
+// Suchfeld blendet nur aus (angehakte bleiben beim Speichern erhalten).
+function vwClubChecklistHTML(checkedIDs) {
+  if (!vwClubs.length) return '<span class="hint">Keine Vereine in den Stammdaten.</span>';
+  const sorted = [...vwClubs].sort((a, b) =>
+    (checkedIDs.includes(b.id) - checkedIDs.includes(a.id)) || a.name.localeCompare(b.name, 'de'));
+  return sorted.map(c => `
+    <label class="check-row" data-club-name="${esc(c.name.toLowerCase())}">
+      <input type="checkbox" data-club-id="${c.id}" ${checkedIDs.includes(c.id)?'checked':''}>
+      <span>${esc(c.name)}</span>
+    </label>`).join('');
+}
+
+function vwFilterClubChecklist(q) {
+  const t = q.trim().toLowerCase();
+  document.querySelectorAll('#vw-scf-clubs [data-club-name]').forEach(el => {
+    el.style.display = !t || el.dataset.clubName.includes(t) ? '' : 'none';
+  });
+}
+
 function vwReadCheckedIDs(containerID, attr) {
   return [...document.querySelectorAll(`#${containerID} input[${attr}]:checked`)]
     .map(el => el.getAttribute(attr));
@@ -2621,7 +2832,8 @@ function vwRenderScheiben() {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${sc.target_color ? `<span class="color-dot" style="background:${esc(sc.target_color)}"></span>` : ''}${esc(sc.name)}
-        ${sc.auswertung_unsichtbar ? '<span class="badge badge-no" title="Unsichtbar in der Auswertung">Unsichtbar</span>' : ''}</td>
+        ${sc.auswertung_unsichtbar ? '<span class="badge badge-no" title="Unsichtbar in der Auswertung">Unsichtbar</span>' : ''}
+        ${(sc.club_ids || []).length ? `<span class="badge badge-no" title="${esc(vwClubNames(sc.club_ids))}">nur ${sc.club_ids.length} Verein${sc.club_ids.length === 1 ? '' : 'e'}</span>` : ''}</td>
       <td style="font-size:.8rem">${esc(sc.discipline_name)}</td>
       <td style="font-size:.8rem">${sc.price.toFixed(2)} €</td>
       <td><span class="badge ${sc.standalone_erlaubt?'badge-yes':'badge-no'}">${sc.standalone_erlaubt?'Ja':'Nur im Set'}</span></td>
@@ -2636,6 +2848,10 @@ function vwRenderScheiben() {
   }
 }
 
+function vwClubNames(ids) {
+  return ids.map(id => (vwClubs.find(c => c.id === id) || {}).name || '?').join(', ');
+}
+
 function vwClearScheibeForm() {
   document.getElementById('vw-sc-form').reset();
   document.getElementById('vw-scf-id').value = '';
@@ -2645,6 +2861,8 @@ function vwClearScheibeForm() {
   document.getElementById('vw-scf-auswertung-unsichtbar').checked = false;
   vwSetColorFields('#000000');
   document.getElementById('vw-scf-classes').innerHTML = vwClassChecklistHTML([]);
+  document.getElementById('vw-scf-clubs').innerHTML = vwClubChecklistHTML([]);
+  document.getElementById('vw-scf-clubs-q').value = '';
   document.getElementById('vw-scf-requires').innerHTML = vwSetsChecklistHTML([]);
 }
 
@@ -2663,6 +2881,8 @@ function vwEditScheibe(id) {
   document.getElementById('vw-scf-maxtag').value = sc.max_pro_tag ?? '';
   document.getElementById('vw-scf-auswertung-unsichtbar').checked = !!sc.auswertung_unsichtbar;
   document.getElementById('vw-scf-classes').innerHTML = vwClassChecklistHTML(sc.class_ids || []);
+  document.getElementById('vw-scf-clubs').innerHTML = vwClubChecklistHTML(sc.club_ids || []);
+  document.getElementById('vw-scf-clubs-q').value = '';
   document.getElementById('vw-scf-requires').innerHTML = vwSetsChecklistHTML(sc.required_set_ids || []);
   window.scrollTo({top: document.getElementById('vw-scf-title').offsetTop, behavior:'smooth'});
 }
@@ -2700,8 +2920,10 @@ async function vwSaveScheibe(e) {
       scID = res.id;
     }
     const classIDs = vwReadCheckedIDs('vw-scf-classes', 'data-class-id');
+    const clubIDs = vwReadCheckedIDs('vw-scf-clubs', 'data-club-id');
     const setIDs = vwReadCheckedIDs('vw-scf-requires', 'data-set-id');
     await api(`/preisschiessen/${currentPS.id}/scheiben/${scID}/classes`, jsonOpts('PUT', {class_ids: classIDs}));
+    await api(`/preisschiessen/${currentPS.id}/scheiben/${scID}/clubs`, jsonOpts('PUT', {club_ids: clubIDs}));
     await api(`/preisschiessen/${currentPS.id}/scheiben/${scID}/requires`, jsonOpts('PUT', {set_ids: setIDs}));
     await vwLoadScheiben();
     vwRefreshOpenSetItemsChecklist();

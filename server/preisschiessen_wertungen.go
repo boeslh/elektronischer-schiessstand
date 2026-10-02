@@ -1176,15 +1176,45 @@ func (a *APIServer) listWertungen(w http.ResponseWriter, r *http.Request) (any, 
 	return a.store.ListWertungen(r.Context(), r.PathValue("id"))
 }
 
+// prepareWertungName: Der Kurzname identifiziert eine Wertung fuer den
+// Benutzer und muss je Preisschiessen eindeutig sein (ohne Gross-/Klein-
+// schreibung). disziplin_key (Ueberbleibsel aus gs26, nur noch DB-Schluessel
+// UNIQUE(preisschiessen_id, disziplin_key)) wird automatisch aus dem
+// Kurznamen gesetzt - daher auch gegen die Schluessel aelterer Wertungen
+// pruefen, sonst meldet die Datenbank einen unverstaendlichen Konflikt.
+// excludeID: die gerade bearbeitete Wertung ("" beim Anlegen).
+func (s *Store) prepareWertungName(ctx context.Context, w *PSWertung, excludeID string) error {
+	w.ShortDesc = strings.TrimSpace(w.ShortDesc)
+	if w.ShortDesc == "" {
+		return errBadRequest("Kurzname erforderlich")
+	}
+	w.DisziplinKey = w.ShortDesc
+	var belegt bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM ps_wertungen
+		               WHERE preisschiessen_id=$1 AND id::text <> $3
+		                 AND (lower(short_desc) = lower($2) OR disziplin_key = $2))`,
+		w.PreisschiessenID, w.ShortDesc, excludeID).Scan(&belegt); err != nil {
+		return err
+	}
+	if belegt {
+		return &httpError{code: 409, msg: fmt.Sprintf("Kurzname „%s“ ist in diesem Preisschießen bereits vergeben", w.ShortDesc)}
+	}
+	return nil
+}
+
 func (a *APIServer) createWertung(w http.ResponseWriter, r *http.Request) (any, error) {
 	if _, err := a.requireManagePreisschiessen(w, r); err != nil {
 		return nil, err
 	}
 	body, err := decodeBody[PSWertung](r)
-	if err != nil || body.DisziplinKey == "" || body.ShortDesc == "" {
-		return nil, errors.New("disziplin_key und short_desc erforderlich")
+	if err != nil {
+		return nil, errBadRequest("ungültiger Body")
 	}
 	body.PreisschiessenID = r.PathValue("id")
+	if err := a.store.prepareWertungName(r.Context(), &body, ""); err != nil {
+		return nil, err
+	}
 	id, err := a.store.CreateWertung(r.Context(), body)
 	if err != nil {
 		return nil, err
@@ -1198,10 +1228,14 @@ func (a *APIServer) updateWertung(w http.ResponseWriter, r *http.Request) (any, 
 		return nil, err
 	}
 	body, err := decodeBody[PSWertung](r)
-	if err != nil || body.DisziplinKey == "" || body.ShortDesc == "" {
-		return nil, errors.New("disziplin_key und short_desc erforderlich")
+	if err != nil {
+		return nil, errBadRequest("ungültiger Body")
 	}
 	body.ID = r.PathValue("wid")
+	body.PreisschiessenID = r.PathValue("id")
+	if err := a.store.prepareWertungName(r.Context(), &body, body.ID); err != nil {
+		return nil, err
+	}
 	if err := a.store.UpdateWertung(r.Context(), body); err != nil {
 		return nil, err
 	}

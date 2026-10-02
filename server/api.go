@@ -121,13 +121,8 @@ func (a *APIServer) Run(ctx context.Context) error {
 		serveHTML(webSub, "import-export.html")(w, r)
 	})
 
-	mux.HandleFunc("GET /entwicklung", func(w http.ResponseWriter, r *http.Request) {
-		if _, err := a.requireAdmin(w, r); err != nil {
-			writeAccessDeniedPage(w, err)
-			return
-		}
-		serveHTML(webSub, "entwicklung.html")(w, r)
-	})
+	// Entwicklung: gleiche Berechtigung wie der Simulator (Kachel "simulator")
+	mux.HandleFunc("GET /entwicklung", a.serveHTMLGated(webSub, "entwicklung.html", "simulator"))
 	mux.HandleFunc("POST /api/admin/testdaten/generate", a.h(a.generateTestdatenHandler))
 	mux.HandleFunc("POST /api/admin/testdaten/cleanup", a.h(a.cleanupTestdatenHandler))
 	mux.HandleFunc("POST /api/admin/testdaten/bestand", a.h(a.generateBestandTestdatenHandler))
@@ -152,6 +147,10 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/lanes/{no}/preisschiessen/teilnehmer-suche", a.h(a.getSearchTeilnehmerForSelfServiceLane))
 	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/teilnehmer", a.h(a.postSelectTeilnehmerAtLane))
 	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/verlassen", a.h(a.postLeaveSelfServiceMode))
+	mux.HandleFunc("GET /api/lanes/{no}/ergebnis-ausgabe", a.h(a.getLaneErgebnisAusgabe))
+	mux.HandleFunc("POST /api/lanes/{no}/ergebnis-ausgabe/mail", a.h(a.postLaneErgebnisMail))
+	mux.HandleFunc("POST /api/lanes/{no}/ergebnis-ausgabe/print", a.h(a.postLaneErgebnisPrint))
+	mux.HandleFunc("GET /api/lanes/{no}/ergebnis-ausgabe/qr.svg", a.getLaneErgebnisQR)
 	mux.HandleFunc("GET /stammdaten", a.serveHTMLGated(webSub, "stammdaten.html", "stammdaten"))
 
 	mux.HandleFunc("GET /api/gaue", a.h(a.listGaue))
@@ -227,6 +226,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/preisschiessen/{id}", a.h(a.getPreisschiessen))
 	mux.HandleFunc("PUT /api/preisschiessen/{id}", a.h(a.updatePreisschiessen))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}", a.h(a.deletePreisschiessen))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/kind", a.h(a.putPreisschiessenKind))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/clone", a.h(a.clonePreisschiessen))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/scheiben-einheiten/by-physical-serial", a.h(a.scheibeEinheitByPhysicalSerial))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/scheiben-einheiten/{unit}/manual-result", a.h(a.manualResultScheibeEinheit))
@@ -235,6 +235,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/preisschiessen/{id}/scheiben/{sid}", a.h(a.updateScheibe))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}/scheiben/{sid}", a.h(a.deleteScheibe))
 	mux.HandleFunc("PUT /api/preisschiessen/{id}/scheiben/{sid}/classes", a.h(a.setScheibeClasses))
+	mux.HandleFunc("PUT /api/preisschiessen/{id}/scheiben/{sid}/clubs", a.h(a.setScheibeClubs))
 	mux.HandleFunc("PUT /api/preisschiessen/{id}/scheiben/{sid}/requires", a.h(a.setScheibeRequiredSets))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/sets", a.h(a.listSets))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/sets", a.h(a.createSet))
@@ -261,6 +262,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/tageswertung", a.h(a.getVereinsabendTageswertung))
 	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/saisonwertung", a.h(a.getVereinsabendSaisonwertung))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/vereinsabend/pdf", a.postVereinsabendPDF)
+	mux.HandleFunc("POST /api/preisschiessen/{id}/liste/pdf", a.postVereinsabendPDF) // allgemein: Liste aus der Oberflaeche als PDF
 	mux.HandleFunc("GET /api/preisschiessen/{id}/vereinsabend/anwesenheit", a.h(a.getVereinsabendAnwesenheit))
 	mux.HandleFunc("POST /api/preisschiessen/{id}/vereinsabend/anwesenheit", a.h(a.postVereinsabendAnwesenheit))
 	mux.HandleFunc("DELETE /api/preisschiessen/{id}/vereinsabend/anwesenheit/{ksid}", a.h(a.deleteVereinsabendAnwesenheit))
@@ -350,6 +352,10 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/settings/font-sizes/push", a.h(a.pushFontSizes))
 	mux.HandleFunc("PUT /api/settings/standpc-admin-password", a.h(a.setStandpcAdminPassword))
 	mux.HandleFunc("POST /api/settings/standpc-admin-password/push", a.h(a.pushStandpcAdminPasswordHash))
+	mux.HandleFunc("GET /api/settings/ergebnis-ausgabe", a.h(a.getAusgabeSettings))
+	mux.HandleFunc("PUT /api/settings/ergebnis-ausgabe", a.h(a.putAusgabeSettings))
+	mux.HandleFunc("POST /api/settings/ergebnis-ausgabe/test-mail", a.h(a.postAusgabeTestMail))
+	mux.HandleFunc("POST /api/settings/ergebnis-ausgabe/test-print", a.h(a.postAusgabeTestPrint))
 	mux.HandleFunc("POST /api/esp32-calibrations", a.h(a.postESP32Calibration))
 	mux.HandleFunc("GET /api/esp32-calibrations/{mac}", a.h(a.getESP32Calibration))
 	mux.HandleFunc("GET /api/esp32-calibrations", a.h(a.getESP32CalibrationByLane))

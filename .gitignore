@@ -6,6 +6,7 @@
 !/standpc/
 !/preisanzeige/
 !/wertmaschine/
+!/standanzeige/
 !/README.md
 !/datenmodell.sql
 !/install-services.sh
@@ -49,3 +50,6 @@
 
 # Editor/OS
 .DS_Store
+
+# ---- standanzeige/ (Flutter-App, eigene .gitignore fuer build/ usw.) ----
+/standanzeige/Versionen/

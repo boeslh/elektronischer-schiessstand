@@ -59,12 +59,12 @@
   #modeBtn:disabled { opacity: 0.35; cursor: default; }
 
   /* ── Menü-Buttons ── */
-  #psBtn, #discBtn, #zoomBtn, #releaseBtn {
+  #psBtn, #discBtn, #zoomBtn, #releaseBtn, #ergBtn {
     font-size: 16px; padding: 3px 10px; border-radius: 4px; cursor: pointer;
     border: 1px solid var(--line); background: var(--panel); color: var(--text);
     line-height: 1;
   }
-  #psBtn:hover, #discBtn:hover, #zoomBtn:hover, #releaseBtn:hover { background: var(--line); }
+  #psBtn:hover, #discBtn:hover, #zoomBtn:hover, #releaseBtn:hover, #ergBtn:hover { background: var(--line); }
 
   /* ── Menü-Modale (3 unabhängige: Preisschießen / Disziplin / Zoom) ── */
   .menu-overlay {
@@ -83,6 +83,26 @@
      am Stand (öffnet sich automatisch), soll entsprechend im Fokus stehen. */
   #psOverlay { align-items: center; justify-content: center; }
   #psOverlay .menu-panel { margin: 0; width: 560px; max-width: calc(100vw - 24px); }
+  /* Ergebnis-Ausgabe ebenfalls mittig (QR-Code muss gross genug fuer die
+     Handykamera sein) */
+  #ergOverlay { align-items: center; justify-content: center; }
+  #ergOverlay .menu-panel { margin: 0; width: 520px; max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px); overflow-y: auto; }
+  .erg-info { padding: 4px 14px 10px; font-size: var(--fs-menu); }
+  .erg-info .erg-sub { color: var(--dim); font-size: calc(var(--fs-menu) - 3px); margin-top: 3px; }
+  .erg-actions { display: flex; flex-direction: column; gap: 8px; padding: 6px 14px 14px; }
+  .erg-btn { text-align: left; padding: 11px 14px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: var(--fs-menu); }
+  .erg-btn:hover:not(:disabled) { background: var(--line); }
+  .erg-btn:disabled { opacity: .45; cursor: default; }
+  .erg-btn .erg-hint { display: block; color: var(--dim); font-size: calc(var(--fs-menu) - 4px); margin-top: 2px; }
+  .erg-msg { margin: 0 14px 12px; padding: 8px 10px; border-radius: 6px; font-size: calc(var(--fs-menu) - 2px); display: none; }
+  .erg-msg.ok { display: block; background: #1a3a2a; color: #4ab8a0; }
+  .erg-msg.err { display: block; background: #3a1a1a; color: #e05c5c; }
+  #ergQR { display: none; padding: 0 14px 14px; text-align: center; }
+  #ergQR img { width: min(440px, calc(100vh - 220px), 100%); aspect-ratio: 1; background: #fff;
+    border-radius: 6px; image-rendering: pixelated; }
+  #ergQR .erg-sub { color: var(--dim); font-size: calc(var(--fs-menu) - 3px); margin-top: 6px; }
   .menu-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 14px; border-bottom: 1px solid var(--line);
@@ -243,6 +263,7 @@
   </div>
   <button id="psBtn" title="Preisschießen" style="display:none">🏆</button>
   <button id="releaseBtn" title="Stand freigeben" style="display:none">🔓</button>
+  <button id="ergBtn" title="Ergebnis mitnehmen (E-Mail, Druck, QR-Code)">📤</button>
   <button id="discBtn" title="Disziplin wählen">🎯</button>
   <button id="zoomBtn" title="Zoom">🔍</button>
   <span id="devBadge" title="Klick auf die Scheibe löst einen Schuss aus">🛠 Testmodus</span>
@@ -302,6 +323,30 @@
     </div>
     <div class="menu-section">
       <div id="discList"><!-- wird per JS befüllt --></div>
+    </div>
+  </div>
+</div>
+
+<!-- Ergebnis-Ausgabe: juengstes Ergebnis dieses Stands per E-Mail (an die
+     Adresse aus den Stammdaten), Ausdruck oder QR-Code fuer die App -->
+<div class="menu-overlay" id="ergOverlay">
+  <div class="menu-panel">
+    <div class="menu-header">
+      <span>Ergebnis mitnehmen</span>
+      <button class="menu-close" onclick="closeMenu('ergOverlay')">✕</button>
+    </div>
+    <div class="menu-section">
+      <div class="erg-info" id="ergInfo">Lade …</div>
+      <div class="erg-actions" id="ergActions" style="display:none">
+        <button type="button" class="erg-btn" id="ergMailBtn">✉️ Per E-Mail senden<span class="erg-hint" id="ergMailHint"></span></button>
+        <button type="button" class="erg-btn" id="ergPrintBtn">🖨️ Ausdrucken<span class="erg-hint" id="ergPrintHint"></span></button>
+        <button type="button" class="erg-btn" id="ergQRBtn">📱 QR-Code für die App<span class="erg-hint" id="ergQRHint"></span></button>
+      </div>
+      <div class="erg-msg" id="ergMsg"></div>
+      <div id="ergQR">
+        <img id="ergQRImg" alt="QR-Code">
+        <div class="erg-sub">Mit der App „My Shootings“ → QR-Code scannen</div>
+      </div>
     </div>
   </div>
 </div>
@@ -895,7 +940,7 @@ document.getElementById('zoomBtn').addEventListener('click', () => {
   buildZoomMenu();
   openMenu('zoomOverlay');
 });
-['psOverlay', 'discOverlay', 'zoomOverlay'].forEach(id => {
+['psOverlay', 'discOverlay', 'zoomOverlay', 'ergOverlay'].forEach(id => {
   const el = document.getElementById(id);
   el.addEventListener('click', e => { if (e.target === el) closeMenu(id); });
 });
@@ -947,6 +992,81 @@ function buildDiscList(currentName) {
 }
 
 fetch('/disciplines').then(r => r.json()).then(list => { allDisciplines = list || []; });
+
+// ── Ergebnis-Ausgabe (📤) ────────────────────────────────────────────────────
+// Der Server liefert das juengste Ergebnis dieses Stands (letzte 12 h, mit
+// Wertungsschuessen) - auch nach "Stand freigeben" noch abrufbar.
+let ergSession = null;
+
+function ergMsg(text, cls) {
+  const el = document.getElementById('ergMsg');
+  el.textContent = text || '';
+  el.className = 'erg-msg' + (cls ? ' ' + cls : '');
+}
+
+function ergSetBtn(id, hintId, enabled, hint) {
+  document.getElementById(id).disabled = !enabled;
+  document.getElementById(hintId).textContent = hint;
+}
+
+document.getElementById('ergBtn').addEventListener('click', () => {
+  ergSession = null;
+  ergMsg('');
+  document.getElementById('ergInfo').textContent = 'Lade …';
+  document.getElementById('ergActions').style.display = 'none';
+  document.getElementById('ergQR').style.display = 'none';
+  openMenu('ergOverlay');
+  fetch('/ergebnis')
+    .then(r => r.json().catch(() => ({error: r.statusText})).then(d => { if (!r.ok) throw new Error(d.error || r.statusText); return d; }))
+    .then(d => {
+      ergSession = d.session_id;
+      const t = new Date(d.started_at);
+      const info = document.getElementById('ergInfo');
+      info.innerHTML = '';
+      const name = document.createElement('div');
+      name.textContent = d.shooter_name || 'Ohne Schützen';
+      const sub = document.createElement('div');
+      sub.className = 'erg-sub';
+      sub.textContent = `${d.discipline} · ${d.shot_count} Wertungsschüsse · ` +
+        t.toLocaleDateString('de-DE') + ' ' + t.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+      info.append(name, sub);
+      ergSetBtn('ergMailBtn', 'ergMailHint', d.mail_configured && d.has_email,
+        !d.mail_configured ? 'Kein Mailserver eingerichtet'
+          : d.has_email ? 'an ' + d.email_masked : 'Keine E-Mail-Adresse in den Stammdaten');
+      ergSetBtn('ergPrintBtn', 'ergPrintHint', d.print_available,
+        d.print_available ? '' : 'Kein Drucker eingerichtet');
+      ergSetBtn('ergQRBtn', 'ergQRHint', d.shot_count <= d.qr_max_shots,
+        d.shot_count <= d.qr_max_shots ? 'Schüsse mit Trefferlage in die App übernehmen'
+          : `Nur bis ${d.qr_max_shots} Schüsse möglich`);
+      document.getElementById('ergActions').style.display = '';
+    })
+    .catch(err => { document.getElementById('ergInfo').textContent = err.message; });
+});
+
+function ergPost(path, btn, busyText, okText) {
+  if (!ergSession) return;
+  btn.disabled = true;
+  ergMsg(busyText, 'ok');
+  fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+               body: JSON.stringify({session_id: ergSession})})
+    .then(r => r.json().catch(() => ({error: r.statusText})).then(d => { if (!r.ok) throw new Error(d.error || r.statusText); return d; }))
+    .then(d => ergMsg(okText(d), 'ok'))
+    .catch(err => ergMsg('Fehler: ' + err.message, 'err'))
+    .finally(() => { btn.disabled = false; });
+}
+
+document.getElementById('ergMailBtn').addEventListener('click', e =>
+  ergPost('/ergebnis/mail', e.currentTarget, 'E-Mail wird gesendet …', d => 'E-Mail an ' + d.email_masked + ' gesendet.'));
+document.getElementById('ergPrintBtn').addEventListener('click', e =>
+  ergPost('/ergebnis/print', e.currentTarget, 'Druckauftrag wird gesendet …', d => 'Druckauftrag an ' + d.printer + ' gesendet.'));
+document.getElementById('ergQRBtn').addEventListener('click', () => {
+  if (!ergSession) return;
+  ergMsg('');
+  const img = document.getElementById('ergQRImg');
+  img.onerror = () => { document.getElementById('ergQR').style.display = 'none'; ergMsg('QR-Code konnte nicht erzeugt werden.', 'err'); };
+  img.src = '/ergebnis/qr.svg?session_id=' + encodeURIComponent(ergSession) + '&t=' + Date.now();
+  document.getElementById('ergQR').style.display = 'block';
+});
 
 // ── Preisschießen ────────────────────────────────────────────────────────────
 function formatEuro(v) { return (v || 0).toFixed(2).replace('.', ',') + ' €'; }

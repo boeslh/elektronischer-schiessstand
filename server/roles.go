@@ -65,6 +65,10 @@ type RoleInfo struct {
 	Tiles                   []string `json:"tiles"`
 	CanCorrectResults       bool     `json:"can_correct_results"`
 	CanManagePreisschiessen bool     `json:"can_manage_preisschiessen"`
+	// NewSession: diese Anfrage hat eine neue (automatische Anwender-)
+	// Sitzung angelegt - role.js bietet dann die zuletzt benutzte Rolle zur
+	// Anmeldung an (Passwort bzw. andere Rolle waehlen).
+	NewSession bool `json:"new_session,omitempty"`
 }
 
 type RoleAdmin struct {
@@ -302,11 +306,12 @@ func (s *Store) DeleteRole(ctx context.Context, roleKey string) error {
 type PublicRoleInfo struct {
 	RoleKey     string `json:"role_key"`
 	DisplayName string `json:"display_name"`
+	HasPassword bool   `json:"has_password"` // Anmeldedialog: Passwortfeld nur wenn noetig
 }
 
 func (s *Store) PublicRoleList(ctx context.Context) ([]PublicRoleInfo, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT role_key, display_name FROM ui_roles ORDER BY sort_order`)
+		`SELECT role_key, display_name, password_hash IS NOT NULL FROM ui_roles ORDER BY sort_order`)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +319,7 @@ func (s *Store) PublicRoleList(ctx context.Context) ([]PublicRoleInfo, error) {
 	var out []PublicRoleInfo
 	for rows.Next() {
 		var p PublicRoleInfo
-		if err := rows.Scan(&p.RoleKey, &p.DisplayName); err != nil {
+		if err := rows.Scan(&p.RoleKey, &p.DisplayName, &p.HasPassword); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -329,11 +334,17 @@ func (s *Store) createSession(ctx context.Context, roleKey string) (string, erro
 	}
 	token := hex.EncodeToString(buf)
 	if _, err := s.pool.Exec(ctx,
-		`INSERT INTO ui_role_sessions (token, role_key) VALUES ($1,$2)`, token, roleKey); err != nil {
+		`INSERT INTO ui_role_sessions (token, role_key, browser_session) VALUES ($1,$2,true)`, token, roleKey); err != nil {
 		return "", err
 	}
 	return token, nil
 }
+
+// roleSessionIdleTimeout: Sitzungen von Rollen MIT Passwort enden nach so
+// langer Untaetigkeit (kein Seitenaufruf/keine API-Anfrage) - zusaetzlich zum
+// Browser-Sitzungs-Cookie, da manche Browser Sitzungs-Cookies beim Neustart
+// wiederherstellen. Rollen ohne Passwort (z.B. Anwender) laufen nicht ab.
+const roleSessionIdleTimeout = "1 hour"
 
 // ResolveOrCreateSession liest den Cookie-Token. Ohne (gültigen) Token wird
 // automatisch eine Anwender-Session angelegt, SOFERN für 'anwender' kein
@@ -343,8 +354,19 @@ func (s *Store) createSession(ctx context.Context, roleKey string) (string, erro
 func (s *Store) ResolveOrCreateSession(ctx context.Context, token string) (roleKey, newToken string, ok bool, err error) {
 	if token != "" {
 		var rk string
-		scanErr := s.pool.QueryRow(ctx,
-			`SELECT role_key FROM ui_role_sessions WHERE token=$1`, token).Scan(&rk)
+		var abgelaufen bool
+		scanErr := s.pool.QueryRow(ctx, `
+			SELECT s.role_key,
+			       r.password_hash IS NOT NULL
+			       AND (NOT s.browser_session OR s.last_seen_at < now() - $2::interval)
+			FROM ui_role_sessions s JOIN ui_roles r ON r.role_key = s.role_key
+			WHERE s.token=$1`, token, roleSessionIdleTimeout).Scan(&rk, &abgelaufen)
+		if scanErr == nil && abgelaufen {
+			// Rolle mit Passwort: altes Jahres-Cookie bzw. zu lange untaetig -
+			// Sitzung verwerfen, neu anmelden (siehe Kommentar roleSessionIdleTimeout).
+			_, _ = s.pool.Exec(ctx, `DELETE FROM ui_role_sessions WHERE token=$1`, token)
+			scanErr = pgx.ErrNoRows
+		}
 		if scanErr == nil {
 			_, _ = s.pool.Exec(ctx,
 				`UPDATE ui_role_sessions SET last_seen_at=now() WHERE token=$1`, token)
@@ -625,13 +647,14 @@ func (a *APIServer) resolveRole(w http.ResponseWriter, r *http.Request) (RoleInf
 	if newToken != "" {
 		http.SetCookie(w, &http.Cookie{
 			Name: roleCookieName, Value: newToken, Path: "/",
-			HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 60 * 60 * 24 * 365,
+			HttpOnly: true, SameSite: http.SameSiteLaxMode, // Browser-Sitzungs-Cookie (kein MaxAge)
 		})
 	}
 	info, err := a.store.RoleInfo(r.Context(), roleKey)
 	if err != nil {
 		return RoleInfo{}, false, err
 	}
+	info.NewSession = newToken != ""
 	return info, true, nil
 }
 
@@ -752,7 +775,7 @@ func (a *APIServer) switchRole(w http.ResponseWriter, r *http.Request) (any, err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: roleCookieName, Value: token, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 60 * 60 * 24 * 365,
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, // Browser-Sitzungs-Cookie (kein MaxAge)
 	})
 	return a.store.RoleInfo(r.Context(), body.RoleKey)
 }

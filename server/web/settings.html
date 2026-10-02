@@ -31,6 +31,11 @@
   input[type=number]{width:120px}
   input[type=url]{width:100%;font-family:monospace;font-size:13px}
   input[type=number]:focus,input[type=url]:focus{outline:none;border-color:var(--acc)}
+  .ea-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 16px}
+  .ea-grid input,.ea-grid select,#ea-printer{width:100%;background:#0e1218;border:1px solid var(--line);
+    border-radius:6px;color:var(--text);font-size:14px;padding:8px 12px}
+  .ea-grid input:focus,.ea-grid select:focus{outline:none;border-color:var(--acc)}
+  .ea-sub{font-size:12px;font-weight:600;color:var(--text);margin:6px 0 12px}
 
   .range-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .range-row span{color:var(--dim);font-size:13px}
@@ -169,6 +174,44 @@
     </div>
   </div>
 
+  <div class="section">
+    <h2>Ergebnis-Ausgabe am Stand (E-Mail / Drucker)</h2>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px">
+      Am Stand-PC kann sich der Schütze über „📤 Ergebnis“ sein Einzelergebnis als PDF per E-Mail
+      (an die in den Stammdaten hinterlegte Adresse) schicken oder ausdrucken lassen. Der QR-Code für die App
+      ist immer verfügbar. E-Mail bzw. Druck werden am Stand nur angeboten, wenn sie hier eingerichtet sind.
+    </p>
+    <div class="ea-sub">Mailserver (SMTP)</div>
+    <div class="ea-grid">
+      <div class="field"><label for="ea-host">Server</label><input id="ea-host" placeholder="smtp.example.de"></div>
+      <div class="field"><label for="ea-port">Port</label><input id="ea-port" type="number" min="1" max="65535" value="587"></div>
+      <div class="field"><label for="ea-sec">Verschlüsselung</label>
+        <select id="ea-sec" onchange="eaSecChanged()">
+          <option value="starttls">STARTTLS (meist Port 587)</option>
+          <option value="ssl">SSL/TLS (meist Port 465)</option>
+          <option value="none">keine (nur ohne Anmeldung / lokal)</option>
+        </select></div>
+      <div class="field"><label for="ea-user">Benutzername</label><input id="ea-user" autocomplete="off"></div>
+      <div class="field"><label for="ea-pw">Passwort</label><input id="ea-pw" type="password" autocomplete="new-password">
+        <div class="desc" id="ea-pw-desc"></div></div>
+      <div class="field"><label for="ea-from">Absenderadresse</label><input id="ea-from" placeholder="schiessstand@verein.de"></div>
+      <div class="field"><label for="ea-fromname">Absendername</label><input id="ea-fromname" placeholder="Schützenverein …"></div>
+    </div>
+    <div class="ea-sub">Drucker</div>
+    <div class="field">
+      <label for="ea-printer">Drucker für den Ergebnis-Ausdruck</label>
+      <select id="ea-printer"></select>
+      <div class="desc" id="ea-printer-desc">In CUPS eingerichtete Drucker dieses Servers.</div>
+    </div>
+    <div class="actions" style="flex-wrap:wrap">
+      <button class="btn-save" onclick="saveAusgabe()">Speichern</button>
+      <input id="ea-testto" placeholder="Testmail an …" style="background:#0e1218;border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:13px;padding:8px 10px;width:220px">
+      <button class="btn-reset" onclick="testAusgabe('mail')">Testmail senden</button>
+      <button class="btn-reset" onclick="testAusgabe('print')">Testseite drucken</button>
+      <div id="msg-ausgabe" class="msg"></div>
+    </div>
+  </div>
+
   <div class="actions">
     <button class="btn-save" onclick="save()">Speichern</button>
     <button class="btn-reset" onclick="resetDefaults()">Zurücksetzen</button>
@@ -218,6 +261,7 @@ function showMsg(text, type) {
 load();
 loadLaneURLs();
 loadDevMode();
+loadAusgabe();
 loadFontSizes();
 
 async function loadFontSizes() {
@@ -311,6 +355,87 @@ async function pushAdminPassword() {
     }
   } catch(e) {
     showMsgEl('msg-adminpw', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+// ---- Ergebnis-Ausgabe (Mailserver / Drucker) ----
+async function loadAusgabe() {
+  try {
+    const r = await fetch('/api/settings/ergebnis-ausgabe');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    const s = d.settings;
+    document.getElementById('ea-host').value = s.smtp_host;
+    document.getElementById('ea-port').value = s.smtp_port;
+    document.getElementById('ea-sec').value = s.smtp_security;
+    document.getElementById('ea-user').value = s.smtp_user;
+    document.getElementById('ea-pw').value = '';
+    document.getElementById('ea-pw').placeholder = s.smtp_password_set ? '•••••• (unverändert)' : '';
+    document.getElementById('ea-pw-desc').textContent = s.smtp_password_set
+      ? 'Gespeichert. Leer lassen = unverändert.' : 'Noch kein Passwort gespeichert.';
+    document.getElementById('ea-from').value = s.smtp_from;
+    document.getElementById('ea-fromname').value = s.smtp_from_name;
+    const sel = document.getElementById('ea-printer');
+    const printers = d.printers || [];
+    if (s.printer_name && !printers.includes(s.printer_name)) printers.push(s.printer_name);
+    sel.innerHTML = '<option value="">– kein Ausdruck –</option>' + printers.map(p =>
+      `<option value="${esc(p)}">${esc(p)}${p === d.default_printer ? ' (Standard)' : ''}</option>`).join('');
+    sel.value = s.printer_name;
+    document.getElementById('ea-printer-desc').textContent = d.printer_error
+      ? 'Drucker konnten nicht gelesen werden: ' + d.printer_error
+      : (printers.length ? 'In CUPS eingerichtete Drucker dieses Servers.' : 'In CUPS ist kein Drucker eingerichtet.');
+  } catch (e) {
+    showMsgEl('msg-ausgabe', 'Laden fehlgeschlagen: ' + e.message, 'err');
+  }
+}
+
+function eaSecChanged() {
+  const port = document.getElementById('ea-port');
+  const sec = document.getElementById('ea-sec').value;
+  if (sec === 'ssl' && port.value === '587') port.value = 465;
+  if (sec === 'starttls' && port.value === '465') port.value = 587;
+}
+
+async function saveAusgabe() {
+  const body = {
+    smtp_host: document.getElementById('ea-host').value,
+    smtp_port: parseInt(document.getElementById('ea-port').value) || 0,
+    smtp_security: document.getElementById('ea-sec').value,
+    smtp_user: document.getElementById('ea-user').value,
+    smtp_from: document.getElementById('ea-from').value,
+    smtp_from_name: document.getElementById('ea-fromname').value,
+    printer_name: document.getElementById('ea-printer').value,
+  };
+  const pw = document.getElementById('ea-pw').value;
+  if (pw) body.smtp_password = pw;
+  try {
+    const r = await fetch('/api/settings/ergebnis-ausgabe', {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    await loadAusgabe();
+    showMsgEl('msg-ausgabe', 'Gespeichert.', 'ok');
+  } catch (e) {
+    showMsgEl('msg-ausgabe', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function testAusgabe(kind) {
+  const opts = {method: 'POST', headers: {'Content-Type':'application/json'}};
+  if (kind === 'mail') {
+    const to = document.getElementById('ea-testto').value.trim();
+    if (!to) { showMsgEl('msg-ausgabe', 'Bitte eine Empfängeradresse für die Testmail eingeben.', 'err'); return; }
+    opts.body = JSON.stringify({to});
+  }
+  showMsgEl('msg-ausgabe', kind === 'mail' ? 'Sende Testmail …' : 'Sende Testseite …', 'ok');
+  try {
+    const r = await fetch('/api/settings/ergebnis-ausgabe/test-' + kind, opts);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    showMsgEl('msg-ausgabe', kind === 'mail' ? 'Testmail versendet.' : 'Testseite an den Drucker gesendet.', 'ok');
+  } catch (e) {
+    showMsgEl('msg-ausgabe', 'Fehler: ' + e.message, 'err');
   }
 }
 

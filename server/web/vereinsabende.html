@@ -939,6 +939,10 @@ async function saveSaison(e) {
     shooting_type: saison.shooting_type,
     max_negative_guthaben: saison.max_negative_guthaben,
     active: saison.active,
+    // hier nicht bearbeitet - unveraendert mitschicken, sonst setzt das
+    // Speichern "Aktuell"/"Sets am Stand-PC" zurueck
+    aktuell: !!saison.aktuell,
+    sets_at_standpc: !!saison.sets_at_standpc,
     kind: 'vereinsabend_saison',
     saison_wochentage: wochentage,
     vorschiessen_erlaubt: document.getElementById('pf-vorschiessen').checked,

@@ -618,7 +618,7 @@ func (s *Store) cleanupBestandTestdaten(ctx context.Context) (TestdatenCleanupRe
 }
 
 func (a *APIServer) generateBestandTestdatenHandler(w http.ResponseWriter, r *http.Request) (any, error) {
-	if _, err := a.requireAdmin(w, r); err != nil {
+	if _, err := a.requireTile(w, r, "simulator"); err != nil { // wie Simulator
 		return nil, err
 	}
 	body, err := decodeBody[struct {

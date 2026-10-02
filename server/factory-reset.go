@@ -36,7 +36,7 @@ var factoryResetWipeTables = []string{
 	"audit_log", "clubs", "competition_participants", "events", "gaue",
 	"preisschiessen", "ps_anzeige_config", "ps_auswertung_status", "ps_gewinne",
 	"ps_guthaben_buchungen", "ps_kaeufe", "ps_kauf_scheiben", "ps_lane_pending",
-	"ps_lane_selfservice", "ps_scheibe_classes", "ps_scheibe_requires_set",
+	"ps_lane_selfservice", "ps_scheibe_classes", "ps_scheibe_clubs", "ps_scheibe_requires_set",
 	"ps_scheiben", "ps_set_classes", "ps_set_items", "ps_sets", "ps_teilnehmer",
 	"ps_verein_punkte_zeitraum", "ps_verein_teilnahme", "ps_wertung_ergebnisse",
 	"ps_wertung_punkte_ring", "ps_wertung_punkte_teiler", "ps_wertung_scheiben",

@@ -5,7 +5,7 @@
 # auf einem anderen Rechner mit install.sh installiert werden kann.
 #
 # Verwendung (auf DIESEM Entwicklungsrechner, kein sudo noetig):
-#   ./package.sh [Zielverzeichnis] [--with-deps]
+#   ./package.sh [Zielverzeichnis] [--with-deps] [--with-app]
 #
 # Enthalten sind alle git-verfolgten Dateien (Arbeitsstand inkl. noch nicht
 # committeter Aenderungen, aber OHNE Build-Artefakte/Secrets - siehe
@@ -30,6 +30,11 @@
 # Debian-Version/Architektur koennen sie inkompatibel sein; install.sh faellt
 # in dem Fall automatisch auf den normalen Online-Weg zurueck (siehe dortigen
 # apt_ensure()-Kommentar), was ohne Internet dann fehlschlaegt.
+#
+# --with-app (optional, NICHT der Standard): nimmt zusaetzlich den Quelltext
+# der Android-App standanzeige/ mit. Fuer die Installation der Anlage wird
+# sie nicht gebraucht (die App wird als APK direkt auf die Geraete gespielt)
+# und bleibt deshalb standardmaessig draussen.
 # ============================================================================
 set -euo pipefail
 
@@ -37,9 +42,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 OUT_DIR="${SCRIPT_DIR}"
 WITH_DEPS=false
+WITH_APP=false
 for arg in "$@"; do
   case "${arg}" in
     --with-deps) WITH_DEPS=true ;;
+    --with-app)  WITH_APP=true ;;
     *)           OUT_DIR="${arg}" ;;
   esac
 done
@@ -73,6 +80,12 @@ trap cleanup EXIT
 # Gruppe wuerden frisch angelegte, noch nicht committete Dateien (z.B. eine
 # neue .go-Datei) im Archiv fehlen, obwohl sie auf der Platte liegen.
 git ls-files -z --cached --others --exclude-standard > "${FILELIST}"
+
+# Android-App (standanzeige/) nur mit --with-app
+if ! $WITH_APP; then
+  grep -zv '^standanzeige/' "${FILELIST}" > "${FILELIST}.tmp" || true
+  mv "${FILELIST}.tmp" "${FILELIST}"
+fi
 
 # install.sh/package.sh selbst mitnehmen, auch falls (noch) nicht committet -
 # ohne sie waere ein frisch gepacktes Archiv nicht selbst installierbar.

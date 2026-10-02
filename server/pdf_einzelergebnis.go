@@ -15,6 +15,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -205,6 +206,12 @@ func drawTargetGraphic(pdf *fpdf.Fpdf, geo TargetGeometry, caliberMM float64, cx
 	// ueberlappen sich").
 	pdf.ClipRect(cx-boxHalf, cy-boxHalf, 2*boxHalf, 2*boxHalf, false)
 	defer pdf.ClipEnd()
+	// Beschriftungen (Ringnummern/Schussnummern) ausserhalb des Ausschnitts
+	// duerfen keinen automatischen Seitenumbruch ausloesen - der wuerde
+	// mitten im Clipping eine neue Seite beginnen und das PDF zerstoeren.
+	autoBreak, breakMargin := pdf.GetAutoPageBreak()
+	pdf.SetAutoPageBreak(false, breakMargin)
+	defer pdf.SetAutoPageBreak(autoBreak, breakMargin)
 
 	rings := append([]RingGeom{}, geo.Rings...)
 	sort.Slice(rings, func(i, j int) bool { return rings[i].D > rings[j].D }) // groesster Durchmesser zuerst
@@ -248,6 +255,34 @@ func drawTargetGraphic(pdf *fpdf.Fpdf, geo TargetGeometry, caliberMM float64, cx
 		}
 		pdf.Circle(cx, cy, rg.D/2*scale, "D")
 	}
+
+	// Ringnummern in der Mitte jedes Ringbands, waagrecht und senkrecht
+	// (wie auf der gedruckten Scheibe) - im Spiegel hell, ausserhalb dunkel.
+	// Nur wenn das Band in der aktuellen Zoomstufe breit genug ist.
+	for i, rg := range rings {
+		innerD := 0.0
+		if i+1 < len(rings) {
+			innerD = rings[i+1].D
+		}
+		bandW := (rg.D - innerD) / 2 * scale
+		if rg.V >= 10 || bandW < 1.2 || (rg.D+innerD)/4*scale > boxHalf {
+			continue
+		}
+		midR := (rg.D + innerD) / 4 * scale
+		if rg.D/2 <= darkR+1e-9 {
+			pdf.SetTextColor(235, 235, 235)
+		} else {
+			pdf.SetTextColor(70, 70, 70)
+		}
+		fs := math.Min(bandW*0.75, 5.5)
+		pdf.SetFontUnitSize(fs)
+		label := fmt.Sprintf("%d", rg.V)
+		for _, d := range [][2]float64{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+			pdf.SetXY(cx+d[0]*midR-bandW/2, cy+d[1]*midR-bandW/2)
+			pdf.CellFormat(bandW, bandW, label, "", 0, "CM", false, 0, "")
+		}
+	}
+	pdf.SetTextColor(0, 0, 0)
 
 	// Innenzehner (gestrichelt, falls vorgesehen)
 	if geo.InnerTenD > 0 {
@@ -449,6 +484,24 @@ func buildEinzelergebnisPDF(header SessionResultHeader, shots []pdfShot, geo Tar
 				pdf.SetXY(textX+float64(j)*cellW, shotsY)
 				pdf.CellFormat(cellW, 6, tr(v), "", 0, "C", false, 0, "")
 			}
+			// Zweite Zeile (grau, in Klammern) mit der jeweils anderen
+			// Wertungsart: bei Zehntelwertung der ganze Ring, sonst der
+			// Zehntelwert. Annullierte Schuesse (oben bereits in Klammern)
+			// bleiben hier leer, damit sie nicht doppelt erscheinen.
+			pdf.SetFont("Helvetica", "", 9)
+			pdf.SetTextColor(110, 110, 110)
+			for j, s := range ser.Shots {
+				if s.Status == "annulled" {
+					continue
+				}
+				v := deFloat1(s.Decimal)
+				if header.DecimalScoring {
+					v = fmt.Sprintf("%d", s.Ring)
+				}
+				pdf.SetXY(textX+float64(j)*cellW, shotsY+6)
+				pdf.CellFormat(cellW, 5, tr("("+v+")"), "", 0, "C", false, 0, "")
+			}
+			pdf.SetTextColor(0, 0, 0)
 		}
 
 		pdf.SetXY(left, rowTop+rowH)
@@ -462,43 +515,51 @@ func buildEinzelergebnisPDF(header SessionResultHeader, shots []pdfShot, geo Tar
 	return pdf, pdf.Error()
 }
 
-func (a *APIServer) getSessionPDF(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("id")
-	ctx := r.Context()
-
+// buildSessionPDF erzeugt das Einzelergebnis-PDF einer Session - gemeinsam
+// genutzt vom Download (getSessionPDF) und der Ergebnis-Ausgabe am Stand-PC
+// (Mail/Druck, siehe ergebnis_ausgabe.go). Fehler mit Status (404 wenn
+// Session/Wertungsschuesse fehlen).
+func (a *APIServer) buildSessionPDF(ctx context.Context, sessionID string) ([]byte, SessionResultHeader, []pdfShot, error) {
 	header, err := a.store.GetSessionResultHeader(ctx, sessionID)
 	if err != nil {
-		http.Error(w, "Session nicht gefunden", http.StatusNotFound)
-		return
+		return nil, header, nil, &httpError{code: 404, msg: "Session nicht gefunden"}
 	}
 	shots, err := a.store.getSessionMatchShots(ctx, sessionID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, header, nil, err
 	}
 	if len(shots) == 0 {
-		http.Error(w, "Keine Wertungsschüsse für dieses Ergebnis.", http.StatusNotFound)
-		return
+		return nil, header, nil, &httpError{code: 404, msg: "Keine Wertungsschüsse für dieses Ergebnis."}
 	}
-
-	var geo TargetGeometry
 	var caliberMM float64
 	if targetID, _, _, _, err := a.store.SessionTargets(ctx, sessionID); err == nil {
 		if td, err := a.store.LoadTargetDef(ctx, targetID); err == nil {
 			caliberMM = td.CaliberMM
 		}
 	}
-	geo, _ = a.store.resolveTargetGeometry(ctx, sessionID) // Zero-Value -> PDF ohne Trefferbild
-
+	geo, _ := a.store.resolveTargetGeometry(ctx, sessionID) // Zero-Value -> PDF ohne Trefferbild
 	pdf, err := buildEinzelergebnisPDF(header, shots, geo, caliberMM)
 	if err != nil {
-		http.Error(w, "PDF-Erzeugung fehlgeschlagen: "+err.Error(), http.StatusInternalServerError)
+		return nil, header, shots, fmt.Errorf("PDF-Erzeugung fehlgeschlagen: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return nil, header, shots, fmt.Errorf("PDF-Ausgabe fehlgeschlagen: %w", err)
+	}
+	return buf.Bytes(), header, shots, nil
+}
+
+func (a *APIServer) getSessionPDF(w http.ResponseWriter, r *http.Request) {
+	data, header, _, err := a.buildSessionPDF(r.Context(), r.PathValue("id"))
+	if err != nil {
+		code := http.StatusInternalServerError
+		if he, ok := err.(*httpError); ok {
+			code = he.code
+		}
+		http.Error(w, err.Error(), code)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", `inline; filename="`+pdfFilenameSafe(header.ShooterName)+`.pdf"`)
-	if err := pdf.Output(w); err != nil {
-		http.Error(w, "PDF-Ausgabe fehlgeschlagen: "+err.Error(), http.StatusInternalServerError)
-	}
+	w.Write(data)
 }

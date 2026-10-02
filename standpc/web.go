@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -152,6 +153,10 @@ func (ws *WebServer) Run(ctx context.Context) {
 	mux.HandleFunc("POST /preisschiessen/teilnehmer", ws.handleSelectTeilnehmerPreisschiessen)
 	mux.HandleFunc("POST /preisschiessen/verlassen", ws.handleLeaveSelfServicePreisschiessen)
 	mux.HandleFunc("POST /freigeben", ws.handleReleaseLane)
+	mux.HandleFunc("GET /ergebnis", ws.handleErgebnisAusgabe)
+	mux.HandleFunc("POST /ergebnis/mail", ws.handleErgebnisAusgabe)
+	mux.HandleFunc("POST /ergebnis/print", ws.handleErgebnisAusgabe)
+	mux.HandleFunc("GET /ergebnis/qr.svg", ws.handleErgebnisAusgabe)
 	mux.HandleFunc("GET /api/local-sessions", ws.handleLocalSessions)
 	mux.HandleFunc("GET /api/local-sessions/{id}/shots", ws.handleLocalSessionShots)
 	mux.HandleFunc("PUT /api/disciplines/config", ws.handlePutDisciplinesConfig)
@@ -629,6 +634,40 @@ func (ws *WebServer) handleReleaseLane(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)
+}
+
+// handleErgebnisAusgabe reicht die Ergebnis-Ausgabe ("📤 Ergebnis": Info,
+// Mail, Druck, QR-Code) an den Server weiter - /ergebnis/<x> ->
+// /api/lanes/{no}/ergebnis-ausgabe/<x>. Der Server waehlt selbst die juengste
+// Session dieses Stands mit Wertungsschuessen (auch nach "Stand freigeben").
+func (ws *WebServer) handleErgebnisAusgabe(w http.ResponseWriter, r *http.Request) {
+	if ws.cfg.ServerURL == "" {
+		http.Error(w, "kein server_url konfiguriert", http.StatusServiceUnavailable)
+		return
+	}
+	url := fmt.Sprintf("%s/api/lanes/%d/ergebnis-ausgabe%s", ws.cfg.ServerURL, ws.cfg.LaneNo,
+		strings.TrimPrefix(r.URL.Path, "/ergebnis"))
+	if r.URL.RawQuery != "" {
+		url += "?" + r.URL.RawQuery
+	}
+	req, err := http.NewRequest(r.Method, url, r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Mailversand kann je nach Mailserver etwas dauern (Server-Timeout 60s)
+	client := &http.Client{Timeout: 75 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Server nicht erreichbar: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func (ws *WebServer) handleScheibeAbschliessenPreisschiessen(w http.ResponseWriter, r *http.Request) {

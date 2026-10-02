@@ -127,6 +127,16 @@ func (s *Store) ClonePreisschiessen(ctx context.Context, sourceID, newName strin
 		return "", err
 	}
 
+	// ---- Scheiben-Vereins-Restriktion ----
+	if err := cloneJoinRows(ctx, tx,
+		`SELECT scheibe_id, club_id FROM ps_scheibe_clubs WHERE scheibe_id = ANY($1::uuid[])`,
+		scheibeIDs(scheiben),
+		`INSERT INTO ps_scheibe_clubs (scheibe_id, club_id) VALUES ($1,$2)`,
+		scheibeIDMap,
+	); err != nil {
+		return "", err
+	}
+
 	// ---- Sets ----
 	setIDMap := map[string]string{}
 	stRows, err := tx.Query(ctx, `

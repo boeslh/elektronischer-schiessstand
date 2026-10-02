@@ -98,6 +98,13 @@ type vaPDFKV struct {
 	Value string `json:"value"`
 }
 
+// vaPDFSection: weitere Tabelle mit eigener Ueberschrift im selben PDF.
+type vaPDFSection struct {
+	Title   string        `json:"title"`
+	Columns []vaPDFColumn `json:"columns"`
+	Rows    [][]string    `json:"rows"`
+}
+
 type vaPDFRequest struct {
 	Title    string        `json:"title"`
 	Subtitle string        `json:"subtitle"`
@@ -107,12 +114,19 @@ type vaPDFRequest struct {
 	Legend   string        `json:"legend"`
 	// Orientation: "P" (hoch) / "L" (quer) erzwingen, leer = automatisch
 	// (quer ab 9 Spalten). Die Kompakt-Fassung ohne Verein/Klasse ist hoch.
-	Orientation string `json:"orientation"`
+	Orientation string         `json:"orientation"`
+	Sections    []vaPDFSection `json:"sections"`
 }
 
 func buildVereinsabendPDF(req vaPDFRequest) *fpdf.Fpdf {
 	orientation := "P"
-	if len(req.Columns) > 8 {
+	maxCols := len(req.Columns)
+	for _, sec := range req.Sections {
+		if len(sec.Columns) > maxCols {
+			maxCols = len(sec.Columns)
+		}
+	}
+	if maxCols > 8 {
 		orientation = "L"
 	}
 	if req.Orientation == "P" || req.Orientation == "L" {
@@ -176,80 +190,95 @@ func buildVereinsabendPDF(req vaPDFRequest) *fpdf.Fpdf {
 		pdf.Ln(3)
 	}
 
-	if len(req.Columns) == 0 {
-		return pdf
+	// Abschnitte: die Einzeltabelle (Columns/Rows) plus ggf. weitere
+	// Tabellen mit eigener Ueberschrift (Sections, z.B. Vereins-Wertung).
+	sections := req.Sections
+	if len(req.Columns) > 0 {
+		sections = append([]vaPDFSection{{Columns: req.Columns, Rows: req.Rows}}, sections...)
 	}
-
-	// Spaltenbreiten aus dem breitesten Inhalt, auf die Seitenbreite skaliert
 	const fontSize, rowH = 8.5, 5.6
-	pdf.SetFont("Helvetica", "", fontSize)
-	widths := make([]float64, len(req.Columns))
-	for i, c := range req.Columns {
-		pdf.SetFont("Helvetica", "B", fontSize)
-		widths[i] = pdf.GetStringWidth(tr(c.Label))
-		pdf.SetFont("Helvetica", "", fontSize)
-		for _, r := range req.Rows {
-			if i < len(r) {
-				if w := pdf.GetStringWidth(tr(r[i])); w > widths[i] {
-					widths[i] = w
+	for si, sec := range sections {
+		if len(sec.Columns) == 0 {
+			continue
+		}
+		if si > 0 {
+			pdf.Ln(4)
+		}
+		// Ueberschrift + Kopf + mindestens zwei Zeilen zusammenhalten
+		if pdf.GetY()+8+3*rowH > bottom {
+			pdf.AddPage()
+			pdf.SetY(top)
+		}
+		if sec.Title != "" {
+			pdf.SetFont("Helvetica", "B", 11)
+			pdf.CellFormat(0, 7, tr(sec.Title), "", 1, "L", false, 0, "")
+		}
+
+		// Spaltenbreiten aus dem breitesten Inhalt, auf die Seitenbreite skaliert
+		widths := make([]float64, len(sec.Columns))
+		for i, c := range sec.Columns {
+			pdf.SetFont("Helvetica", "B", fontSize)
+			widths[i] = pdf.GetStringWidth(tr(c.Label))
+			pdf.SetFont("Helvetica", "", fontSize)
+			for _, r := range sec.Rows {
+				if i < len(r) {
+					if w := pdf.GetStringWidth(tr(r[i])); w > widths[i] {
+						widths[i] = w
+					}
 				}
 			}
+			widths[i] += 3
 		}
-		widths[i] += 3
-	}
-	total := 0.0
-	for _, w := range widths {
-		total += w
-	}
-	scale := usableW / total
-	if scale > 1.35 {
-		scale = 1.35 // schmale Tabellen nicht ueber die ganze Breite ziehen
-	}
-	for i := range widths {
-		widths[i] *= scale
-	}
+		total := 0.0
+		for _, w := range widths {
+			total += w
+		}
+		scale := usableW / total
+		if scale > 1.35 {
+			scale = 1.35 // schmale Tabellen nicht ueber die ganze Breite ziehen
+		}
+		for i := range widths {
+			widths[i] *= scale
+		}
 
-	header := func() {
-		pdf.SetFont("Helvetica", "B", fontSize)
-		pdf.SetFillColor(225, 228, 232)
-		for i, c := range req.Columns {
-			align := "L"
-			if c.Num {
-				align = "R"
+		header := func() {
+			pdf.SetFont("Helvetica", "B", fontSize)
+			pdf.SetFillColor(225, 228, 232)
+			for i, c := range sec.Columns {
+				align := "L"
+				if c.Num {
+					align = "R"
+				}
+				pdf.CellFormat(widths[i], rowH+0.6, truncateToWidth(pdf, tr, c.Label, widths[i]-1.5), "B", 0, align, true, 0, "")
 			}
-			pdf.CellFormat(widths[i], rowH+0.6, truncateToWidth(pdf, tr, c.Label, widths[i]-1.5), "B", 0, align, true, 0, "")
+			pdf.Ln(-1)
+			pdf.SetFont("Helvetica", "", fontSize)
 		}
-		pdf.Ln(-1)
-		pdf.SetFont("Helvetica", "", fontSize)
-	}
-	if pdf.GetY()+2*rowH > bottom {
-		pdf.AddPage()
-		pdf.SetY(top)
-	}
-	header()
-	for n, r := range req.Rows {
-		if pdf.GetY()+rowH > bottom-2 {
-			pdf.AddPage()
-			header()
-		}
-		fill := n%2 == 1
-		pdf.SetFillColor(245, 246, 248)
-		for i, c := range req.Columns {
-			v := ""
-			if i < len(r) {
-				v = r[i]
+		header()
+		for n, r := range sec.Rows {
+			if pdf.GetY()+rowH > bottom-2 {
+				pdf.AddPage()
+				header()
 			}
-			align := "L"
-			if c.Num {
-				align = "R"
+			fill := n%2 == 1
+			pdf.SetFillColor(245, 246, 248)
+			for i, c := range sec.Columns {
+				v := ""
+				if i < len(r) {
+					v = r[i]
+				}
+				align := "L"
+				if c.Num {
+					align = "R"
+				}
+				pdf.CellFormat(widths[i], rowH, truncateToWidth(pdf, tr, v, widths[i]-1.5), "", 0, align, fill, 0, "")
 			}
-			pdf.CellFormat(widths[i], rowH, truncateToWidth(pdf, tr, v, widths[i]-1.5), "", 0, align, fill, 0, "")
+			pdf.Ln(-1)
 		}
-		pdf.Ln(-1)
-	}
-	if len(req.Rows) == 0 {
-		pdf.SetFont("Helvetica", "I", fontSize)
-		pdf.CellFormat(0, rowH, tr("Keine Einträge"), "", 1, "L", false, 0, "")
+		if len(sec.Rows) == 0 {
+			pdf.SetFont("Helvetica", "I", fontSize)
+			pdf.CellFormat(0, rowH, tr("Keine Einträge"), "", 1, "L", false, 0, "")
+		}
 	}
 	if req.Legend != "" {
 		pdf.Ln(2)
@@ -269,7 +298,7 @@ func (a *APIServer) postVereinsabendPDF(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "ungültiger Body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if len(req.Columns) > 30 || len(req.Rows) > 5000 {
+	if len(req.Columns) > 30 || len(req.Rows) > 5000 || len(req.Sections) > 20 {
 		http.Error(w, "Liste zu groß", http.StatusBadRequest)
 		return
 	}

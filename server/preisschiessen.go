@@ -79,6 +79,7 @@ type PSScheibe struct {
 	AuswertungUnsichtbar bool     `json:"auswertung_unsichtbar"`
 	ClassIDs             []string `json:"class_ids"`
 	RequiredSetIDs       []string `json:"required_set_ids"`
+	ClubIDs              []string `json:"club_ids"` // Nur fuer diese Vereine (leer = alle), migrations/076
 	// ScoringMode der zugehoerigen Disziplin ("elektronisch"/"papier") -
 	// bei "papier" verlangt der Kauf-Dialog eine physische Seriennummer
 	// (ps_kauf_scheiben.physical_serial_no, siehe migrations/056).
@@ -357,6 +358,42 @@ func (s *Store) UpdatePreisschiessen(ctx context.Context, p Preisschiessen) erro
 	return tx.Commit(ctx)
 }
 
+// SetPreisschiessenKind stellt ein Preisschiessen nachtraeglich auf
+// Vereinsabend-Saison um (oder zurueck). Teilnehmer, Kaeufe, Ergebnisse und
+// Wertungen bleiben unveraendert - der Typ entscheidet nur, in welcher
+// Oberflaeche es erscheint (Vereinsabend-Liste/-Seite) und welche
+// Auswertungen angeboten werden. Mit Audit-Log-Eintrag.
+func (s *Store) SetPreisschiessenKind(ctx context.Context, id, kind, actor string) error {
+	if kind != "preisschiessen" && kind != "vereinsabend_saison" {
+		return errBadRequest("ungültige Art (preisschiessen | vereinsabend_saison)")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var alt string
+	if err := tx.QueryRow(ctx, `SELECT kind FROM preisschiessen WHERE id=$1 FOR UPDATE`, id).Scan(&alt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &httpError{code: 404, msg: "Preisschießen nicht gefunden"}
+		}
+		return err
+	}
+	if alt == kind {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE preisschiessen SET kind=$2, updated_at=now() WHERE id=$1`, id, kind); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit_log (action, actor, details)
+		VALUES ('ps_kind_changed', $1, jsonb_build_object('preisschiessen_id', $2::text, 'von', $3::text, 'nach', $4::text))`,
+		actor, id, alt, kind); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // DeletePreisschiessen entfernt ein Preisschießen mit allem Zubehör. Die
 // Teilnehmer (und damit deren Käufe/Buchungen, per ON DELETE CASCADE über
 // teilnehmer_id) werden VOR den Scheiben/Sets gelöscht: ps_kaeufe verweist
@@ -390,7 +427,8 @@ func (s *Store) ListScheiben(ctx context.Context, preisschiessenID string) ([]PS
 		       sc.active, sc.sort_order, sc.max_pro_teilnehmer, sc.max_pro_tag, sc.auswertung_unsichtbar,
 		       COALESCE((SELECT array_agg(class_id::text) FROM ps_scheibe_classes WHERE scheibe_id = sc.id), '{}'),
 		       COALESCE((SELECT array_agg(required_set_id::text) FROM ps_scheibe_requires_set WHERE scheibe_id = sc.id), '{}'),
-		       d.scoring_mode
+		       d.scoring_mode,
+		       COALESCE((SELECT array_agg(club_id::text) FROM ps_scheibe_clubs WHERE scheibe_id = sc.id), '{}')
 		FROM ps_scheiben sc
 		JOIN disciplines d ON d.id = sc.discipline_id
 		WHERE sc.preisschiessen_id = $1
@@ -404,7 +442,7 @@ func (s *Store) ListScheiben(ctx context.Context, preisschiessenID string) ([]PS
 		var x PSScheibe
 		if err := rows.Scan(&x.ID, &x.PreisschiessenID, &x.Name, &x.DisciplineID, &x.DisciplineName,
 			&x.Price, &x.TargetColor, &x.StandaloneErlaubt, &x.Active, &x.SortOrder, &x.MaxProTeilnehmer,
-			&x.MaxProTag, &x.AuswertungUnsichtbar, &x.ClassIDs, &x.RequiredSetIDs, &x.ScoringMode); err != nil {
+			&x.MaxProTag, &x.AuswertungUnsichtbar, &x.ClassIDs, &x.RequiredSetIDs, &x.ScoringMode, &x.ClubIDs); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -460,6 +498,29 @@ func (s *Store) SetScheibeClasses(ctx context.Context, scheibeID string, classID
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO ps_scheibe_classes (scheibe_id, class_id) VALUES ($1,$2)`, scheibeID, cid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// SetScheibeClubs ersetzt die Vereins-Restriktion einer Scheibe (leer = alle
+// Vereine), analog SetScheibeClasses.
+func (s *Store) SetScheibeClubs(ctx context.Context, scheibeID string, clubIDs []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM ps_scheibe_clubs WHERE scheibe_id=$1`, scheibeID); err != nil {
+		return err
+	}
+	for _, cid := range clubIDs {
+		if cid == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO ps_scheibe_clubs (scheibe_id, club_id) VALUES ($1,$2)`, scheibeID, cid); err != nil {
 			return err
 		}
 	}
@@ -1271,6 +1332,11 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 		        OR EXISTS (SELECT 1 FROM ps_scheibe_classes psc WHERE psc.scheibe_id = sc.id AND psc.class_id = $2)
 		      )
 		  AND (
+		        NOT EXISTS (SELECT 1 FROM ps_scheibe_clubs pcl WHERE pcl.scheibe_id = sc.id)
+		        OR EXISTS (SELECT 1 FROM ps_scheibe_clubs pcl WHERE pcl.scheibe_id = sc.id
+		                     AND pcl.club_id = (SELECT sh.club_id FROM ps_teilnehmer t JOIN shooters sh ON sh.id = t.shooter_id WHERE t.id = $3))
+		      )
+		  AND (
 		        sc.max_pro_teilnehmer IS NULL
 		        OR (SELECT COUNT(*) FROM ps_kaeufe k WHERE k.teilnehmer_id = $3
 		              AND k.typ = 'scheibe' AND k.scheibe_id = sc.id AND k.returned_at IS NULL)
@@ -1313,6 +1379,14 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 		  AND (
 		        NOT EXISTS (SELECT 1 FROM ps_set_classes psc WHERE psc.set_id = st.id)
 		        OR EXISTS (SELECT 1 FROM ps_set_classes psc WHERE psc.set_id = st.id AND psc.class_id = $2)
+		      )
+		  -- vereinsbeschraenkte Scheiben im Set: alle muessen den Verein zulassen
+		  AND NOT EXISTS (
+		        SELECT 1 FROM ps_set_items si
+		        WHERE si.set_id = st.id
+		          AND EXISTS (SELECT 1 FROM ps_scheibe_clubs pcl WHERE pcl.scheibe_id = si.scheibe_id)
+		          AND NOT EXISTS (SELECT 1 FROM ps_scheibe_clubs pcl WHERE pcl.scheibe_id = si.scheibe_id
+		                            AND pcl.club_id = (SELECT sh.club_id FROM ps_teilnehmer t JOIN shooters sh ON sh.id = t.shooter_id WHERE t.id = $3))
 		      )
 		  AND (
 		        st.max_pro_teilnehmer IS NULL
@@ -1413,6 +1487,11 @@ func (s *Store) purchaseItem(ctx context.Context, tx pgx.Tx, teilnehmerID, preis
 			           )
 			      )
 			  AND (
+			        NOT EXISTS (SELECT 1 FROM ps_scheibe_clubs pcl WHERE pcl.scheibe_id = sc.id)
+			        OR EXISTS (SELECT 1 FROM ps_scheibe_clubs pcl WHERE pcl.scheibe_id = sc.id
+			                     AND pcl.club_id = (SELECT sh.club_id FROM ps_teilnehmer t JOIN shooters sh ON sh.id = t.shooter_id WHERE t.id = $2))
+			      )
+			  AND (
 			        NOT EXISTS (SELECT 1 FROM ps_scheibe_requires_set r WHERE r.scheibe_id = sc.id)
 			        OR EXISTS (
 			             SELECT 1 FROM ps_scheibe_requires_set r
@@ -1447,6 +1526,14 @@ func (s *Store) purchaseItem(ctx context.Context, tx pgx.Tx, teilnehmerID, preis
 			             WHERE psc.set_id = st.id AND psc.class_id = t.class_id
 			           )
 			      )
+			  -- vereinsbeschraenkte Scheiben im Set: alle muessen den Verein zulassen
+			  AND NOT EXISTS (
+			        SELECT 1 FROM ps_set_items si
+			        WHERE si.set_id = st.id
+			          AND EXISTS (SELECT 1 FROM ps_scheibe_clubs pcl WHERE pcl.scheibe_id = si.scheibe_id)
+			          AND NOT EXISTS (SELECT 1 FROM ps_scheibe_clubs pcl WHERE pcl.scheibe_id = si.scheibe_id
+			                            AND pcl.club_id = (SELECT sh.club_id FROM ps_teilnehmer t JOIN shooters sh ON sh.id = t.shooter_id WHERE t.id = $2))
+			      )
 			  AND (
 			        st.max_pro_teilnehmer IS NULL
 			        OR (SELECT COUNT(*) FROM ps_kaeufe k WHERE k.teilnehmer_id = $2
@@ -1456,7 +1543,7 @@ func (s *Store) purchaseItem(ctx context.Context, tx pgx.Tx, teilnehmerID, preis
 	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", 0, &httpError{code: 400, msg: "Nicht verfügbar (Klasse, Set-Voraussetzung, Kauflimit erreicht oder inaktiv)"}
+			return "", 0, &httpError{code: 400, msg: "Nicht verfügbar (Klasse, Verein, Set-Voraussetzung, Kauflimit erreicht oder inaktiv)"}
 		}
 		return "", 0, err
 	}
@@ -2729,6 +2816,24 @@ func (a *APIServer) updatePreisschiessen(w http.ResponseWriter, r *http.Request)
 	return map[string]any{"ok": true}, nil
 }
 
+// putPreisschiessenKind: PUT /api/preisschiessen/{id}/kind {kind} - nur Admin.
+func (a *APIServer) putPreisschiessenKind(w http.ResponseWriter, r *http.Request) (any, error) {
+	role, err := a.requireAdmin(w, r)
+	if err != nil {
+		return nil, err
+	}
+	body, err := decodeBody[struct {
+		Kind string `json:"kind"`
+	}](r)
+	if err != nil {
+		return nil, errBadRequest("ungültiger Body")
+	}
+	if err := a.store.SetPreisschiessenKind(r.Context(), r.PathValue("id"), body.Kind, role.RoleKey); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true, "kind": body.Kind}, nil
+}
+
 func (a *APIServer) deletePreisschiessen(w http.ResponseWriter, r *http.Request) (any, error) {
 	if _, err := a.requireManagePreisschiessen(w, r); err != nil {
 		return nil, err
@@ -2797,6 +2902,22 @@ func (a *APIServer) setScheibeClasses(w http.ResponseWriter, r *http.Request) (a
 		return nil, err
 	}
 	if err := a.store.SetScheibeClasses(r.Context(), r.PathValue("sid"), body.ClassIDs); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (a *APIServer) setScheibeClubs(w http.ResponseWriter, r *http.Request) (any, error) {
+	if _, err := a.requireManagePreisschiessen(w, r); err != nil {
+		return nil, err
+	}
+	body, err := decodeBody[struct {
+		ClubIDs []string `json:"club_ids"`
+	}](r)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.store.SetScheibeClubs(r.Context(), r.PathValue("sid"), body.ClubIDs); err != nil {
 		return nil, err
 	}
 	return map[string]any{"ok": true}, nil

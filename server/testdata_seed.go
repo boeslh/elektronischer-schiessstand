@@ -1,7 +1,7 @@
 // ============================================================================
 // testdata_seed.go – Entwicklung-Kachel: Testdaten für Preisschießen erzeugen
 //
-// Admin-only Werkzeug (wie Import/Export), um ein Preisschießen mit
+// Werkzeug (Berechtigung wie Simulator, Kachel "simulator"), um ein Preisschießen mit
 // plausiblen Testteilnehmern durchzuspielen, ohne echte Mitglieder zu
 // verwenden: legt Schützen mit konfigurierbarem Nachnamen an (Default
 // "Testuser", je Durchlauf frei waehlbar - so lassen sich mehrere Durchlaeufe
@@ -820,11 +820,11 @@ func (s *Store) CleanupTestdaten(ctx context.Context) (TestdatenCleanupResult, e
 }
 
 // ----------------------------------------------------------------------------
-// HTTP-Handler (Entwicklung-Kachel, admin-only)
+// HTTP-Handler (Entwicklung-Kachel, Berechtigung wie Simulator)
 // ----------------------------------------------------------------------------
 
 func (a *APIServer) generateTestdatenHandler(w http.ResponseWriter, r *http.Request) (any, error) {
-	if _, err := a.requireAdmin(w, r); err != nil {
+	if _, err := a.requireTile(w, r, "simulator"); err != nil { // wie Simulator
 		return nil, err
 	}
 	body, err := decodeBody[struct {
@@ -849,7 +849,7 @@ func (a *APIServer) generateTestdatenHandler(w http.ResponseWriter, r *http.Requ
 }
 
 func (a *APIServer) cleanupTestdatenHandler(w http.ResponseWriter, r *http.Request) (any, error) {
-	if _, err := a.requireAdmin(w, r); err != nil {
+	if _, err := a.requireTile(w, r, "simulator"); err != nil { // wie Simulator
 		return nil, err
 	}
 	// Sicherheits-Backup vor dem Löschen, wie bei jeder destruktiven Aktion

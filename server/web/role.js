@@ -14,7 +14,7 @@
   const TILE_BY_PATH = {
     '/lanes': 'lanes', '/stammdaten': 'stammdaten', '/disciplines': 'disciplines',
     '/wettkampf': 'wettkampf', '/standaktion': 'standaktion', '/ergebnisse': 'ergebnisse',
-    '/simulator': 'simulator', '/geraetekonfiguration': 'simulator', '/auswertung': 'auswertung', '/settings': 'settings',
+    '/simulator': 'simulator', '/geraetekonfiguration': 'simulator', '/entwicklung': 'simulator', '/auswertung': 'auswertung', '/settings': 'settings',
     '/archiv': 'archiv',
     '/preisschiessen': 'preisschiessen', '/preisschiessen-liste': 'preisschiessen',
     '/preisschiessen-bearbeiten': 'preisschiessen',
@@ -65,11 +65,14 @@
     overlay.className = 'hidden';
     overlay.innerHTML = `
       <div id="ssrole-panel">
-        <h3>Rolle wechseln</h3>
+        <h3 id="ssrole-title">Rolle wechseln</h3>
+        <div id="ssrole-hint" style="display:none;font-size:12px;color:#75879a;margin:-6px 0 8px;line-height:1.4"></div>
         <label for="ssrole-sel">Rolle</label>
         <select id="ssrole-sel"><!-- wird per JS aus /api/roles/public befuellt --></select>
-        <label for="ssrole-pw">Passwort</label>
-        <input type="password" id="ssrole-pw" autocomplete="current-password">
+        <div id="ssrole-pw-wrap">
+          <label for="ssrole-pw">Passwort</label>
+          <input type="password" id="ssrole-pw" autocomplete="current-password">
+        </div>
         <div id="ssrole-err"></div>
         <div id="ssrole-actions">
           <button type="button" id="ssrole-cancel">Abbrechen</button>
@@ -81,6 +84,7 @@
     badge.addEventListener('click', () => openOverlay(false));
     document.getElementById('ssrole-cancel').addEventListener('click', () => closeOverlay());
     document.getElementById('ssrole-submit').addEventListener('click', submitSwitch);
+    document.getElementById('ssrole-sel').addEventListener('change', updatePwField);
     document.getElementById('ssrole-pw').addEventListener('keydown', e => {
       if (e.key === 'Enter') submitSwitch();
     });
@@ -91,18 +95,42 @@
 
   let widget = null;
   let forcedLogin = false;
+  let HAS_PASSWORD = {}; // role_key -> bool (aus /api/roles/public)
 
-  function openOverlay(forced) {
+  // Passwortfeld nur fuer Rollen mit Passwort anzeigen
+  function updatePwField() {
+    const key = document.getElementById('ssrole-sel').value;
+    const needs = HAS_PASSWORD[key] !== false;
+    document.getElementById('ssrole-pw-wrap').style.display = needs ? '' : 'none';
+    if (needs) document.getElementById('ssrole-pw').focus();
+  }
+
+  // hint: Erklaerung oben im Dialog (z.B. beim Start einer neuen Sitzung),
+  // cancelLabel: Beschriftung von "Abbrechen" (z.B. "Als Anwender weiter").
+  function openOverlay(forced, hint, cancelLabel) {
     forcedLogin = forced;
     document.getElementById('ssrole-err').textContent = '';
     document.getElementById('ssrole-pw').value = '';
-    document.getElementById('ssrole-cancel').style.display = forced ? 'none' : '';
+    document.getElementById('ssrole-title').textContent = hint ? 'Anmelden' : 'Rolle wechseln';
+    const hintEl = document.getElementById('ssrole-hint');
+    hintEl.textContent = hint || '';
+    hintEl.style.display = hint ? '' : 'none';
+    const cancel = document.getElementById('ssrole-cancel');
+    cancel.textContent = cancelLabel || 'Abbrechen';
+    cancel.style.display = forced ? 'none' : '';
     widget.overlay.classList.remove('hidden');
-    document.getElementById('ssrole-pw').focus();
+    updatePwField();
   }
+  let keepRoleOnCancel = null; // neue Sitzung: "Als ... weiter" merkt sich diese Rolle
+
   function closeOverlay() {
     if (forcedLogin) return; // ohne gueltige Rolle kein Abbrechen moeglich
     widget.overlay.classList.add('hidden');
+    if (keepRoleOnCancel) {
+      // bewusst bei der aktuellen Rolle geblieben - beim naechsten Start nicht erneut fragen
+      try { localStorage.setItem(LAST_ROLE_KEY, keepRoleOnCancel); } catch (e) { /* z.B. privater Modus */ }
+      keepRoleOnCancel = null;
+    }
   }
 
   async function submitSwitch() {
@@ -132,10 +160,12 @@
     try {
       const roles = await fetch('/api/roles/public').then(r => r.json());
       ROLE_LABELS = {};
+      HAS_PASSWORD = {};
       const sel = document.getElementById('ssrole-sel');
       sel.innerHTML = '';
       (roles || []).forEach(rl => {
         ROLE_LABELS[rl.role_key] = rl.display_name;
+        HAS_PASSWORD[rl.role_key] = !!rl.has_password;
         const opt = document.createElement('option');
         opt.value = rl.role_key;
         opt.textContent = rl.display_name;
@@ -188,6 +218,32 @@
       updateBadge(role);
       hideDisallowedTiles(role);
       window.dispatchEvent(new CustomEvent('schiessstand-role-ready', { detail: role }));
+
+      // Neue Browser-Sitzung (automatisch als Anwender): die zuletzt benutzte
+      // Rolle anbieten. Ohne Passwort direkt uebernehmen, mit Passwort den
+      // Anmeldedialog zeigen - dort kann auch eine andere Rolle (z.B.
+      // Anwender) gewaehlt werden, "Als ... weiter" bleibt bei der aktuellen.
+      if (role.new_session) {
+        let last = null;
+        try { last = localStorage.getItem(LAST_ROLE_KEY); } catch (e) { /* z.B. privater Modus */ }
+        if (last && last !== role.role_key && ROLE_LABELS[last] !== undefined) {
+          if (!HAS_PASSWORD[last]) {
+            const r = await fetch('/api/role/switch', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ role_key: last, password: '' }),
+            });
+            if (r.ok) { location.reload(); return; }
+          } else {
+            document.getElementById('ssrole-sel').value = last;
+            const cur = ROLE_LABELS[role.role_key] || role.role_key;
+            keepRoleOnCancel = role.role_key;
+            openOverlay(false,
+              `Zuletzt wurde hier als „${ROLE_LABELS[last]}“ gearbeitet. Bitte Passwort eingeben ` +
+              `oder eine andere Rolle wählen.`,
+              `Als ${cur} weiter`);
+          }
+        }
+      }
     } catch (e) {
       console.error('Rolle konnte nicht geladen werden:', e);
     }
