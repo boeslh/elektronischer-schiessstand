@@ -81,11 +81,14 @@ trap cleanup EXIT
 # neue .go-Datei) im Archiv fehlen, obwohl sie auf der Platte liegen.
 git ls-files -z --cached --others --exclude-standard > "${FILELIST}"
 
-# Android-App (standanzeige/) nur mit --with-app
+# Android-App (standanzeige/) nur mit --with-app; die Dokumentation (docs/,
+# u.a. ~6 MB Screenshots) wird fuer die Installation nicht gebraucht
 if ! $WITH_APP; then
   grep -zv '^standanzeige/' "${FILELIST}" > "${FILELIST}.tmp" || true
   mv "${FILELIST}.tmp" "${FILELIST}"
 fi
+grep -zv '^docs/' "${FILELIST}" > "${FILELIST}.tmp" || true
+mv "${FILELIST}.tmp" "${FILELIST}"
 
 # install.sh/package.sh selbst mitnehmen, auch falls (noch) nicht committet -
 # ohne sie waere ein frisch gepacktes Archiv nicht selbst installierbar.

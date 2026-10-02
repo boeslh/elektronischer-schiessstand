@@ -183,7 +183,8 @@ class TargetPainter extends CustomPainter {
     final tp = TextPainter(
       text: TextSpan(
           text: s,
-          style: TextStyle(fontSize: sizeMm * k, color: color, fontWeight: w, height: 1.0)),
+          style: TextStyle(
+              fontFamily: 'Roboto', fontSize: sizeMm * k, color: color, fontWeight: w, height: 1.0)),
       textDirection: TextDirection.ltr,
     )..layout();
     canvas.save();

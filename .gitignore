@@ -7,6 +7,7 @@
 !/preisanzeige/
 !/wertmaschine/
 !/standanzeige/
+!/docs/
 !/README.md
 !/datenmodell.sql
 !/install-services.sh
@@ -53,3 +54,8 @@
 
 # ---- standanzeige/ (Flutter-App, eigene .gitignore fuer build/ usw.) ----
 /standanzeige/Versionen/
+
+# ---- docs/ (Python-Umgebung und erzeugte PDFs nicht versionieren) ----
+/docs/.venv/
+/docs/pdf/
+/docs/tools/__pycache__/
