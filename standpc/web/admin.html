@@ -56,6 +56,30 @@
 
   #app { display:none }
   .warn-box { background:#3a2a10; color:var(--warn); font-size:12px; padding:10px 12px; border-radius:6px; margin-bottom:12px }
+
+  /* Reiter */
+  .tabs { display:flex; gap:4px; max-width:820px; margin:0 auto; padding:14px 24px 0; flex-wrap:wrap }
+  .tabs button { background:none; border:1px solid var(--line); border-bottom:none; border-radius:8px 8px 0 0;
+    color:var(--dim); padding:9px 16px }
+  .tabs button.active { background:var(--panel); color:var(--text) }
+  main { padding-top:0 !important }
+  .tab-panel { display:none; padding-top:18px }
+  .tab-panel.active { display:block }
+
+  /* aufklappbare Gruppen der Konfiguration */
+  details.group { border:1px solid var(--line); border-radius:8px; margin-bottom:10px; background:#151b22 }
+  details.group > summary { cursor:pointer; padding:10px 14px; font-size:14px; font-weight:600; list-style:none;
+    display:flex; align-items:center; gap:10px }
+  details.group > summary::-webkit-details-marker { display:none }
+  details.group > summary::before { content:'▸'; color:var(--dim); transition:transform .15s }
+  details.group[open] > summary::before { transform:rotate(90deg) }
+  details.group > summary .gdesc { color:var(--dim); font-size:12px; font-weight:400 }
+  details.group > summary .gcount { margin-left:auto; color:var(--dim); font-size:11px; font-weight:400 }
+  details.group > .gbody { padding:0 14px 10px }
+  .zone-table td, .zone-table th { padding:5px 6px; font-size:12px; text-align:left; border-bottom:1px solid var(--line) }
+  .zone-table th { color:var(--dim); font-weight:500 }
+  .tag { font-size:11px; padding:2px 8px; border-radius:10px; background:#24303c; color:var(--dim) }
+  .tag.on { background:#1a3a2a; color:var(--acc) }
 </style>
 </head>
 <body>
@@ -75,7 +99,14 @@
   <button class="secondary" onclick="logout()" style="margin-left:8px">Abmelden</button>
   <span class="mac" id="hdr-mac"></span>
 </header>
+<nav class="tabs" id="tabs">
+  <button data-tab="overview" onclick="showTab('overview')">Übersicht</button>
+  <button data-tab="calibration" onclick="showTab('calibration')">Kalibrierung</button>
+  <button data-tab="config" onclick="showTab('config')">Konfiguration</button>
+  <button data-tab="network" onclick="showTab('network')">Netzwerk</button>
+</nav>
 <main>
+<div class="tab-panel" id="tab-overview">
 
   <div class="section">
     <h2>Status</h2>
@@ -85,6 +116,21 @@
       <div id="msg-status" class="msg"></div>
     </div>
   </div>
+
+  <div class="section">
+    <h2>Aktionen</h2>
+    <div class="row">
+      <button onclick="action('LIGHT=ON')">Licht an</button>
+      <button onclick="action('LIGHT=OFF')">Licht aus</button>
+      <button class="secondary" onclick="action('LIGHT=AUTO')">Licht automatisch</button>
+      <button onclick="action('TARGETCHANGE')">Scheibenwechsel</button>
+      <button class="secondary" onclick="rebootDevice()">Gerät neu starten</button>
+    </div>
+    <div id="msg-action" class="msg"></div>
+  </div>
+
+</div>
+<div class="tab-panel" id="tab-calibration">
 
   <div class="section">
     <h2>Kalibrierung</h2>
@@ -105,12 +151,32 @@
       Es werden nur abweichende Werte geschrieben.
     </div>
     <div class="row">
-      <button onclick="transferCheck()">Freigabe prüfen</button>
+      <select id="transfer-config" style="flex:1;min-width:240px;background:#0d1117;border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:13px;padding:8px 10px">
+        <option value="">– zuletzt im Simulator freigegebene Kalibrierung –</option>
+      </select>
+      <button class="secondary" onclick="loadTransferConfigs()" title="Liste der für diesen Stand gespeicherten Kalibrierungen neu laden">↻</button>
+    </div>
+    <div class="row">
+      <button onclick="transferSelectAndCheck()">Freigabe prüfen</button>
       <button id="btn-transfer-apply" style="display:none" onclick="transferApply()">Abweichende Werte übernehmen</button>
     </div>
     <div id="transfer-info" class="kv"></div>
     <table id="transfer-table"></table>
     <div id="msg-transfer" class="msg"></div>
+  </div>
+
+  <div class="section">
+    <h2>Zonen-Kalibrierung</h2>
+    <p style="color:var(--dim);font-size:13px;line-height:1.5;margin-bottom:12px">
+      Ab Firmware 4.17.0 rechnet das Gerät je Bereich der Scheibe mit einem eigenen Satz aus Schallgeschwindigkeit,
+      Mikrofon-Offsets und Nachkorrektur: <b style="color:var(--text)">A</b> im Loch der Vorsatzscheibe,
+      <b style="color:var(--text)">B</b> neben dem Schussband, <b style="color:var(--text)">C</b> Band + Vorsatzscheibe.
+      Die Sätze entstehen im Simulator (Foto-Kalibrierung „One-Click“) und kommen über
+      „Kalibrierung vom Simulator übernehmen“ (oben) aufs Gerät – Bandbreite, Überblendung, Sätze A/B/C und
+      zuletzt ZONES=1. Den Lochradius (ZHOLE) setzt der Stand-PC beim Scheibenwechsel automatisch
+      (LG 15,25 mm, LP 29,75 mm). Einzelne Werte lassen sich unter „Konfiguration → Zonen-Kalibrierung“ ändern.
+    </p>
+    <div id="zones-body" class="kv" style="color:var(--dim)">Noch nicht abgerufen.</div>
   </div>
 
   <div class="section">
@@ -126,22 +192,22 @@
     <table id="history-table"></table>
   </div>
 
-  <div class="section">
-    <h2>Aktionen</h2>
-    <div class="row">
-      <button onclick="action('LIGHT=ON')">Licht an</button>
-      <button onclick="action('LIGHT=OFF')">Licht aus</button>
-      <button class="secondary" onclick="action('LIGHT=AUTO')">Licht automatisch</button>
-      <button onclick="action('TARGETCHANGE')">Scheibenwechsel</button>
-    </div>
-    <div id="msg-action" class="msg"></div>
-  </div>
+</div>
+<div class="tab-panel" id="tab-config">
 
   <div class="section">
     <h2>Konfiguration</h2>
-    <table id="config-table"></table>
+    <div class="row">
+      <input type="text" id="cfg-filter" placeholder="Suchen (Schlüssel oder Beschreibung) …" style="flex:1;min-width:200px" oninput="renderConfigGroups()">
+      <button class="secondary" onclick="setAllGroups(true)">Alle aufklappen</button>
+      <button class="secondary" onclick="setAllGroups(false)">Alle zuklappen</button>
+    </div>
+    <div id="config-groups"></div>
     <div id="msg-config" class="msg"></div>
   </div>
+
+</div>
+<div class="tab-panel" id="tab-network">
 
   <div class="section">
     <h2>Netzwerk</h2>
@@ -160,6 +226,7 @@
     <div id="msg-network" class="msg"></div>
   </div>
 
+</div>
 </main>
 </div>
 
@@ -203,19 +270,151 @@ async function logout() {
   document.getElementById('login-screen').style.display = 'flex';
 }
 
+let lastCfg = null, lastZones = null;
+
 async function showApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  let tab = 'overview';
+  try { tab = localStorage.getItem('admin-tab') || tab; } catch (e) { /* ohne Speicher */ }
+  showTab(tab);
   await loadKeys();
   await refreshStatus();
+  loadTransferConfigs();
+}
+
+// ── Reiter ──────────────────────────────────────────────────────────────
+function showTab(name) {
+  if (!document.getElementById('tab-' + name)) name = 'overview';
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  try { localStorage.setItem('admin-tab', name); } catch (e) { /* ohne Speicher */ }
+}
+
+// ── Konfiguration in Gruppen ────────────────────────────────────────────
+// Schluessel ohne Gruppe landen unter "Weitere" (z.B. neue Firmware-Keys).
+const CONFIG_GROUPS = [
+  {id: 'geo', name: 'Geometrie & Schallgeschwindigkeit', desc: 'Mikrofonlage, Schall, konstante Nachkorrektur',
+   keys: ['STANDOFFPAPER', 'MICHALFX', 'SOUNDSPEED', 'DHT', 'OFFSETX', 'OFFSETY']},
+  {id: 'ofs', name: 'Mikrofon-Offsets', desc: 'Laufzeit-Offsets je Mikrofon, Kalibrierschüsse',
+   keys: ['OFS0', 'OFS1', 'OFS2', 'OFS3', 'OFS4', 'OFS5', 'CALSHOTS']},
+  {id: 'zones', name: 'Zonen-Kalibrierung', desc: 'je Bereich eigener Satz (ab Firmware 4.17.0)',
+   keys: ['ZONES', 'ZHOLE', 'ZBAND', 'ZBLEND', 'ZCALA', 'ZCALB', 'ZCALC']},
+  {id: 'pos', name: 'Positionsbestimmung', desc: 'Auswertepfad, Kugeldurchmesser-Korrektur, Cluster, LSQ',
+   keys: ['ALGO', 'TDOA', 'BSHIFTPCT', 'BSHIFTCAP', 'RADIUS', 'CLUSTERCORR', 'CLUSTERITER', 'LSQ', 'LSQPELLETR', 'PELLETR']},
+  {id: 'clean', name: 'Gültigkeit & Qualität', desc: 'Mindestzahl Mikrofone, „clean“-Schwellen',
+   keys: ['MINMICS', 'OUTLIER', 'MINCLUSTER', 'MAXPRECISION', 'MAXSIGMA']},
+  {id: 'mics', name: 'Mikrofone & Erfassung', desc: 'Mikrofone ein/aus, Capture-Modus, Pulsbreiten-Korrektur',
+   keys: ['MICEN0', 'MICEN1', 'MICEN2', 'MICEN3', 'MICEN4', 'MICEN5', 'CAPTURE', 'WALKK', 'WALKCAL', 'WALKMAX']},
+  {id: 'piezo', name: 'Piezo', desc: 'Bestätigung des Einschlags',
+   keys: ['PIEZO', 'PIEZOREQ', 'PIEZOMIN', 'PIEZOMAX']},
+  {id: 'timing', name: 'Zeitverhalten', desc: 'Sperrzeiten, Sammelfenster',
+   keys: ['DEBOUNCE', 'REJECTLOCK', 'WINDOW']},
+  {id: 'paper', name: 'Papiervorschub', desc: 'Strecke, Geschwindigkeit, Auslöser',
+   keys: ['PAPERFEED', 'PAPERSPEED', 'PAPERAUTO', 'PAPERTRIGGER', 'PAPERDIR', 'PAPERJOGSPEED']},
+  {id: 'misc', name: 'Allgemein & Diagnose', desc: 'Bahnnummer, Debug, Rohdaten für den Simulator',
+   keys: ['LANE', 'DEBUG', 'RAWLOG', 'SENDREJECT', 'TESTCOOLDOWN']},
+];
+
+function groupOpen(id) {
+  try { return localStorage.getItem('admin-grp-' + id) === '1'; } catch (e) { return false; }
+}
+function rememberGroup(id, open) {
+  try { localStorage.setItem('admin-grp-' + id, open ? '1' : '0'); } catch (e) { /* ohne Speicher */ }
+}
+function setAllGroups(open) {
+  document.querySelectorAll('#config-groups details.group').forEach(d => { d.open = open; rememberGroup(d.dataset.id, open); });
+}
+
+function configRow(k, msgId) {
+  const cur = lastCfg ? currentConfigValue(k.key, lastCfg) : undefined;
+  const curStr = (cur === undefined || cur === null) ? '' : String(cur);
+  const wide = /^ZCAL/.test(k.key);
+  return `
+    <tr>
+      <td class="key">${k.key}${k.reboot ? '<span class="reboot-tag">Reboot</span>' : ''}</td>
+      <td class="desc">${esc(k.desc)}<br>${esc(k.range)} (Default ${esc(k.default)})</td>
+      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}" value="${esc(curStr)}"${wide ? ' style="width:260px"' : ''}${k.key === 'SOUNDSPEED' ? ` title="${esc(soundSpeedTooltip())}"` : ''}></td>
+      <td><button onclick="setKey('${k.key}', '${msgId}')">Speichern</button></td>
+    </tr>`;
+}
+
+// renderConfigGroups: Konfiguration als aufklappbare Gruppen; mit Suchtext
+// werden nur passende Schluessel gezeigt und die Gruppen aufgeklappt.
+function renderConfigGroups() {
+  const box = document.getElementById('config-groups');
+  if (!box) return;
+  const q = (document.getElementById('cfg-filter').value || '').trim().toLowerCase();
+  const byKey = new Map(configKeys.map(k => [k.key, k]));
+  const used = new Set();
+  const groups = CONFIG_GROUPS.map(g => {
+    const keys = g.keys.filter(k => byKey.has(k));
+    keys.forEach(k => used.add(k));
+    return {...g, keys};
+  });
+  const rest = configKeys.map(k => k.key).filter(k => !used.has(k));
+  if (rest.length) groups.push({id: 'other', name: 'Weitere', desc: 'übrige Einstellungen', keys: rest});
+  const match = k => !q || k.key.toLowerCase().includes(q) || (k.desc || '').toLowerCase().includes(q);
+  box.innerHTML = groups.map(g => {
+    const keys = g.keys.map(k => byKey.get(k)).filter(match);
+    if (!keys.length) return '';
+    const open = q ? true : groupOpen(g.id);
+    return `<details class="group" data-id="${g.id}"${open ? ' open' : ''}>
+      <summary>${esc(g.name)} <span class="gdesc">${esc(g.desc)}</span><span class="gcount">${keys.length}</span></summary>
+      <div class="gbody"><table>${keys.map(k => configRow(k, 'msg-config')).join('')}</table></div>
+    </details>`;
+  }).join('') || '<div class="kv" style="color:var(--dim)">Kein Schlüssel passt zur Suche.</div>';
+  if (!q) box.querySelectorAll('details.group').forEach(d => d.addEventListener('toggle', () => rememberGroup(d.dataset.id, d.open)));
+}
+
+// renderZones: Uebersicht der Zonen-Saetze am Geraet (SHOWZONES)
+function renderZones(cfg, z) {
+  const el = document.getElementById('zones-body');
+  if (!el) return;
+  if (!cfg) { el.textContent = 'Kein Gerät verbunden.'; return; }
+  if (cfg.zones == null) {
+    el.innerHTML = 'Die Firmware des Geräts kennt noch keine Zonen-Kalibrierung (ab Firmware 4.17.0).';
+    return;
+  }
+  if (!z) { el.textContent = 'Zonenwerte noch nicht abgerufen – Status aktualisieren.'; return; }
+  const mm = um => (um / 1000).toFixed(2).replace('.', ',') + ' mm';
+  const row = (name, label, s) => s
+    ? `<tr><td><b style="display:inline;color:var(--text)">${name}</b> ${label}</td><td>${s.sound_mps.toFixed(1)} m/s</td>
+        <td style="font-family:monospace">${s.mic_offset_ns.join(' / ')}</td><td>${s.offset_x_um} / ${s.offset_y_um} µm</td></tr>`
+    : `<tr><td><b style="display:inline;color:var(--text)">${name}</b> ${label}</td><td colspan="3">kein eigener Satz – Basiswerte</td></tr>`;
+  el.innerHTML = `
+    <div class="row" style="margin-bottom:8px">
+      <span class="tag ${z.active ? 'on' : ''}">${z.active ? 'aktiv' : (z.zones ? 'eingeschaltet, aber nicht wirksam' : 'aus')}</span>
+      <span style="color:var(--text)">Lochradius ${mm(z.z_hole_um)} · halbe Bandbreite ${mm(z.z_band_um)} · Überblendung ±${mm(z.z_blend_um)}</span>
+    </div>
+    ${z.zones && !z.active ? '<div class="warn-box">ZONES=1, wirkt aber nicht: Lochradius 0 oder ALGO=RIM (Zonen nur bei CLASSIC).</div>' : ''}
+    <table class="zone-table"><tr><th>Zone</th><th>Schall</th><th>Offsets OFS0–5 (ns)</th><th>Nachkorrektur x / y</th></tr>
+      ${row('A', 'Loch Vorsatzscheibe', z.a)}${row('B', 'neben Band', z.b)}${row('C', 'Band + Vorsatz', z.c)}</table>`;
 }
 
 async function loadKeys() {
   const r = await fetch('/admin/api/keys').then(r => r.json());
   configKeys = r.config || [];
   networkKeys = r.network || [];
-  renderTable('config-table', configKeys, 'msg-config');
+  renderConfigGroups();
   renderTable('network-table', networkKeys, 'msg-network');
+}
+
+// soundSpeedTooltip: Schallgeschwindigkeit in Luft fuer 8-26 °C in 2-Grad-
+// Schritten als Hilfe fuer SOUNDSPEED - gleiche Formel wie die Firmware
+// (Rev 4.15.0, SET DHT): c = 331,3·√(1 + T/273,15)·(1 + 0,16·x_w),
+// Wasserdampfanteil x_w aus Sättigungsdampfdruck (Magnus) bei 1013,25 hPa.
+function soundSpeedTooltip() {
+  const c = (t, rh) => {
+    const ps = 6.112 * Math.exp(17.62 * t / (243.12 + t));
+    return 331.3 * Math.sqrt(1 + t / 273.15) * (1 + 0.16 * rh * ps / 1013.25);
+  };
+  const f = v => v.toFixed(1).replace('.', ',');
+  const lines = ['Schallgeschwindigkeit in Luft (Formel wie Firmware):', 'Temp.   trocken   50 % rF'];
+  for (let t = 8; t <= 26; t += 2) {
+    lines.push(`${String(t).padStart(2, ' ')} °C   ${f(c(t, 0))}   ${f(c(t, 0.5))} m/s`);
+  }
+  return lines.join('\n');
 }
 
 function renderTable(tableId, keys, msgId, valueFn) {
@@ -227,7 +426,7 @@ function renderTable(tableId, keys, msgId, valueFn) {
     <tr>
       <td class="key">${k.key}${k.reboot ? '<span class="reboot-tag">Reboot</span>' : ''}</td>
       <td class="desc">${esc(k.desc)}<br>${esc(k.range)} (Default ${esc(k.default)})</td>
-      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}" value="${esc(curStr)}"></td>
+      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}" value="${esc(curStr)}"${k.key === 'SOUNDSPEED' ? ` title="${esc(soundSpeedTooltip())}"` : ''}></td>
       <td><button onclick="setKey('${k.key}', '${msgId}')">Speichern</button></td>
     </tr>`;
   }).join('');
@@ -249,6 +448,8 @@ const CONFIG_FIELD_MAP = {
   PAPERFEED:'paper_feed_mm', PAPERSPEED:'paper_speed_mmps', PAPERAUTO:'paper_auto',
   PAPERTRIGGER:'paper_trigger', PAPERDIR:'paper_dir_invert', PAPERJOGSPEED:'paper_jog_speed_mmps',
   CALSHOTS:'cal_shots',
+  // ab Firmware 4.13-4.15
+  WALKK:'walk_k', WALKCAL:'walk_cal', WALKMAX:'walk_max_us', DHT:'dht', RAWLOG:'raw_log',
 };
 const NET_FIELD_MAP = {
   SSID:'ssid', PASS:'pass', HOST:'host', PORT:'port', STATIC:'static_ip',
@@ -266,6 +467,22 @@ function currentConfigValue(key, cfg) {
   // umrechnen, sonst wuerde "Speichern" ohne Aenderung einen um Faktor 1000
   // zu grossen, vom Geraet abgelehnten Wert senden.
   if (key === 'MAXSIGMA') return cfg.max_sigma_um != null ? cfg.max_sigma_um / 1000 : undefined;
+  // SOUNDSPEED: genauer Wert seit Firmware 4.15 in sound_set_mps (sound_mps
+  // ist gerundet - "Speichern" ohne Aenderung wuerde sonst 342.5 -> 343 setzen)
+  if (key === 'SOUNDSPEED') return cfg.sound_set_mps != null ? cfg.sound_set_mps : cfg.sound_mps;
+  if (key === 'CAPTURE') return cfg.capture ? cfg.capture.toUpperCase() : undefined;
+  // Zonen (Firmware 4.17.0): ZBAND/ZBLEND/ZCAL<Zone> stehen in SHOWZONES
+  if (key === 'ZONES') return cfg.zones;
+  if (key === 'ZHOLE') return cfg.z_hole_um;
+  if (lastZones) {
+    if (key === 'ZBAND') return lastZones.z_band_um;
+    if (key === 'ZBLEND') return lastZones.z_blend_um;
+    const zm = key.match(/^ZCAL([ABC])$/);
+    if (zm) {
+      const s = lastZones[zm[1].toLowerCase()];
+      return s ? [s.sound_mps.toFixed(1), ...s.mic_offset_ns, s.offset_x_um, s.offset_y_um].join(',') : 'OFF';
+    }
+  }
   const field = CONFIG_FIELD_MAP[key];
   return field ? cfg[field] : undefined;
 }
@@ -283,8 +500,17 @@ async function setKey(key, msgId) {
   const value = document.getElementById(`cfg-${key}`).value;
   if (!value) { showMsg(msgId, 'Bitte einen Wert eingeben.', 'err'); return; }
   try {
-    await api('/admin/api/set', {key, value});
-    showMsg(msgId, `${key} gespeichert.`, 'ok');
+    const r = await api('/admin/api/set', {key, value});
+    const lines = (r && r.responses) || [];
+    const reboot = lines.some(l => l && l.reboot_required);
+    const warn = lines.map(l => l && l.warn).filter(Boolean).join(' ');
+    if (key === 'CAPTURE' && reboot) {
+      showMsg(msgId, 'CAPTURE gespeichert – wirkt erst nach „Gerät neu starten“. Danach Kalibrierung zurücksetzen und neu kalibrieren (die Offsets gehören zum Erfassungsmodus).', 'ok');
+    } else if (reboot) {
+      showMsg(msgId, `${key} gespeichert – wirkt erst nach einem Neustart des Geräts.`, 'ok');
+    } else {
+      showMsg(msgId, `${key} gespeichert.${warn ? ' Hinweis: ' + warn : ''}`, 'ok');
+    }
   } catch(e) {
     showMsg(msgId, 'Fehler: ' + e.message, 'err');
   }
@@ -321,6 +547,8 @@ function renderStatus(s, fillTables) {
   if (st) {
     html += `<div class="kv"><b>Geraet</b>${esc(mac)} · Firmware ${esc(st.version)} · Bahn ${st.lane} · Laufzeit ${Math.floor(st.uptime_s/60)} min</div>`;
     html += `<div class="kv"><b>Schuesse seit Start</b>${st.shots}</div>`;
+    html += firmwareDiagnostics(st, cfg);
+    if (cfg && cfg.truncated) html += `<div class="kv"><b>Konfiguration</b><span style="color:var(--warn);font-weight:600">Die Firmware hat die SHOW-Antwort abgeschnitten (Puffergrenze) – Felder am Ende (z.B. Papiervorschub) fehlen, die Konfigurationssicherung ist ausgesetzt. Bitte in der Firmware beheben.</span></div>`;
   }
   if (cal) {
     let calLine = `<b>Kalibrierung</b>${esc(cal.state)}`;
@@ -328,7 +556,8 @@ function renderStatus(s, fillTables) {
       calLine += ` (${cal.progress}/${cal.need})`;
     }
     if (cal.state === 'skipped' && cal.reason) calLine += ` – ${esc(cal.reason)}, Schuss nicht gewertet`;
-    if (cal.state === 'done') calLine += ` – ${cal.shots} Schuss verwendet`;
+    if (cal.state === 'done') calLine += ` – ${cal.shots} Schuss verwendet`
+      + (cal.walk_fitted ? ` · WALKK neu bestimmt: ${cal.walk_k.toFixed(3)}` : '');
     html += `<div class="kv">${calLine}</div>`;
     if (cal.state === 'done' || cal.state === 'aborted' || cal.state === 'idle') stopCalPoll();
   }
@@ -343,8 +572,11 @@ function renderStatus(s, fillTables) {
   }
   document.getElementById('status-body').innerHTML = html;
 
+  if (cfg) lastCfg = cfg;
+  if (s.zones) lastZones = s.zones;
+  renderZones(cfg, s.zones);
   if (fillTables) {
-    if (cfg) renderTable('config-table', configKeys, 'msg-config', k => currentConfigValue(k, cfg));
+    if (cfg) renderConfigGroups();
     if (cn) renderTable('network-table', networkKeys, 'msg-network', k => currentNetValue(k, cn));
   }
 }
@@ -422,6 +654,45 @@ function renderTransferItems(items, showAll) {
     : '';
 }
 
+// Gespeicherte Kalibrierungen dieses Stands (Simulator) zur Auswahl
+async function loadTransferConfigs() {
+  const sel = document.getElementById('transfer-config');
+  try {
+    const r = await fetch('/admin/api/transfer/configs');
+    if (!r.ok) throw new Error(await r.text());
+    const list = await r.json();
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">– zuletzt im Simulator freigegebene Kalibrierung –</option>'
+      + list.map(c => {
+        const when = c.created_at ? new Date(c.created_at.replace(' ', 'T')).toLocaleString('de-DE', {dateStyle: 'short', timeStyle: 'short'}) : '';
+        const tags = [c.capture ? c.capture.toUpperCase() : '', c.zones ? 'Zonen' : ''].filter(Boolean).join(', ');
+        return `<option value="${esc(c.id)}">${esc(c.name)} (${esc(when)}${tags ? ' · ' + esc(tags) : ''})</option>`;
+      }).join('');
+    if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  } catch (e) {
+    transferMsg('Liste der gespeicherten Kalibrierungen nicht abrufbar: ' + e.message, 'err');
+  }
+}
+
+// Auswahl gesetzt: erst beim Server als Freigabe fuer diesen Stand setzen,
+// dann wie gewohnt pruefen.
+async function transferSelectAndCheck() {
+  const id = document.getElementById('transfer-config').value;
+  if (id) {
+    const name = document.getElementById('transfer-config').selectedOptions[0].textContent;
+    if (!confirm(`„${name}“ als Freigabe für diesen Stand setzen?\n\nDie bisherige Freigabe wird ersetzt; am Gerät ändert sich erst etwas mit „Abweichende Werte übernehmen“.`)) return;
+    try {
+      const r = await fetch('/admin/api/transfer/select', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id})});
+      if (!r.ok) throw new Error(await r.text());
+      document.getElementById('transfer-config').value = '';
+    } catch (e) {
+      transferMsg('Auswahl fehlgeschlagen: ' + e.message, 'err');
+      return;
+    }
+  }
+  await transferCheck();
+}
+
 async function transferCheck() {
   const info = document.getElementById('transfer-info');
   const btn = document.getElementById('btn-transfer-apply');
@@ -445,7 +716,9 @@ async function transferCheck() {
   const lines = [`Stand ${transferData.lane_no}: freigegeben am ${fmtTs(t.created_at)}`
     + (t.created_by ? ` (${esc(t.created_by)})` : '') + (t.note ? ` – „${esc(t.note)}“` : '')];
   if (t.applied_at) lines.push(`Bereits am ${fmtTs(t.applied_at)} auf Gerät ${esc(t.applied_mac || '?')} ${t.applied_ok ? 'übernommen' : 'teilweise übernommen (Fehler)'}.`);
-  if (!transferData.device_connected) {
+  if (transferData.capture_error) {
+    lines.push(`<span style="color:var(--err)">${esc(transferData.capture_error)}</span>`);
+  } else if (!transferData.device_connected) {
     lines.push(`<span style="color:var(--err)">Gerät nicht erreichbar${transferData.device_error ? ': ' + esc(transferData.device_error) : ''} – Übernahme nicht möglich.</span>`);
   } else if (transferData.changed === 0) {
     lines.push('<span style="color:var(--acc)">Das Gerät hat bereits genau diese Einstellungen.</span>');
@@ -471,6 +744,7 @@ async function transferApply() {
           ...(r.remaining.length ? [`weiterhin abweichend: ${r.remaining.map(it => it.key).join(', ')}`] : []),
         ].join(' · ');
     if (r.report_error) msg += ' · ' + r.report_error;
+    if (r.reboot_required) msg += ' · Mindestens eine Änderung wirkt erst nach „Gerät neu starten“.';
     transferMsg(msg, r.ok && !r.report_error ? 'ok' : 'err');
     document.getElementById('transfer-info').textContent = '';
     renderTransferItems(r.remaining, false);
@@ -570,12 +844,66 @@ async function restoreApply(id, n) {
       : 'Nicht vollständig wiederhergestellt: ' + [
           ...failed.map(st => `${st.cmd}: ${st.error}`),
           ...(r.remaining.length ? [`weiterhin abweichend: ${r.remaining.map(it => it.key).join(', ')}`] : []),
-        ].join(' · '), r.ok ? 'ok' : 'err');
+        ].join(' · ') + (r.reboot_required ? ' · Mindestens eine Änderung wirkt erst nach „Gerät neu starten“.' : ''), r.ok ? 'ok' : 'err');
     refreshStatus(true);
     // die neue Sicherung entsteht asynchron nach der Kontroll-Abfrage
     setTimeout(async () => { const m = document.getElementById('msg-history').textContent; await historyLoad(); historyMsg(m, r.ok ? 'ok' : 'err'); }, 1500);
   } catch(e) {
     historyMsg('Fehler: ' + e.message, 'err');
+  }
+}
+
+// Zusatzanzeigen ab Firmware 4.13-4.15: Erfassungsmodus (mit Warnung bei
+// gescheitertem MCPWM bzw. auffaelliger Zeitbasis), Schallgeschwindigkeit
+// und DHT22, Pulsbreiten-Korrektur. Aeltere Firmware liefert die Felder nicht.
+function firmwareDiagnostics(st, cfg) {
+  const warn = t => `<span style="color:var(--warn);font-weight:600">${t}</span>`;
+  let out = '';
+  if (st.capture) {
+    let line = `<b>Erfassung</b>${esc(st.capture.toUpperCase())}`;
+    if (st.capture === 'mcpwm') {
+      const chk = st.cap_check_ns, re = st.cap_reanchor;
+      line += ` · Zeitbasis-Prüfung ${chk != null ? chk + ' ns' : '–'} · Neuverankerungen ${re != null ? re : '–'}`;
+      if (re > 0) line += ' ' + warn('– Zeitbasis wurde neu verankert, bitte beobachten');
+      else if (chk != null && Math.abs(chk) > 2000) line += ' ' + warn('– Zeitbasis weicht deutlich ab');
+    }
+    if (cfg && cfg.capture && cfg.capture !== st.capture) {
+      line += ' ' + (cfg.capture === 'mcpwm'
+        ? warn('– MCPWM eingestellt, aktiv ist ISR: Gerät noch nicht neu gestartet oder MCPWM beim Boot gescheitert (Grund in der seriellen Boot-Ausgabe)')
+        : warn(`– ${esc(cfg.capture.toUpperCase())} eingestellt, wirkt nach dem nächsten Neustart`));
+    }
+    out += `<div class="kv">${line}</div>`;
+  }
+  if (st.sound_act_mps != null) {
+    let line = `<b>Schall</b>${st.sound_act_mps.toFixed(2)} m/s (${st.sound_src === 'dht' ? 'aus DHT22-Messung' : 'fester Wert SOUNDSPEED'})`;
+    if (cfg && cfg.dht) {
+      if (st.temp_c != null) {
+        line += ` · ${st.temp_c.toFixed(1)} °C · ${st.rh_pct != null ? st.rh_pct.toFixed(0) + ' % rF' : '–'}`
+          + (st.dht_age_s != null ? ` · Messung vor ${st.dht_age_s} s` : '');
+      } else {
+        line += ' · noch keine gültige Messung';
+      }
+      if (st.dht_err) line += ` · Fehlmessungen ${st.dht_err}`;
+      if (st.temp_c == null && st.dht_err > 5) line += ' ' + warn('– DHT22 liefert keine Werte: Verkabelung/Sensor an GPIO15 prüfen');
+    }
+    out += `<div class="kv">${line}</div>`;
+  }
+  if (cfg && cfg.walk_k != null) {
+    let line = `<b>Pulsbreiten-Korr.</b>WALKK ${cfg.walk_k.toFixed(3)}${cfg.walk_cal ? ' · wird bei CAL START mitbestimmt' : ''}`;
+    if (cfg.walk_k > 0 && st.capture && st.capture !== 'mcpwm') line += ' ' + warn('– wirkt nur bei aktivem MCPWM');
+    out += `<div class="kv">${line}</div>`;
+  }
+  return out;
+}
+
+async function rebootDevice() {
+  if (!confirm('ESP32 jetzt neu starten?\n\nDie Verbindung bricht kurz ab. Nicht während eines laufenden Schießens.')) return;
+  try {
+    await api('/admin/api/action', {cmd: 'REBOOT'});
+    showMsg('msg-action', 'Neustart ausgelöst – Status in einigen Sekunden aktualisieren.', 'ok');
+    setTimeout(() => refreshStatus(true), 8000);
+  } catch(e) {
+    showMsg('msg-action', 'Fehler: ' + e.message, 'err');
   }
 }
 

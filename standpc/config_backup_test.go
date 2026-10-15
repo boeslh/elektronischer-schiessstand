@@ -6,7 +6,7 @@ import "testing"
 // Telegramm lesbar sein - sonst fehlt er in der Sicherung und koennte nach
 // einem Platinentausch nicht wiederhergestellt werden.
 func TestDeviceConfigSettings_CoversAllAdminKeys(t *testing.T) {
-	c := transferTestConfig()
+	c := transferTestConfig415()
 	c.PaperTrigger = "piezo"
 	got := deviceConfigSettings(c)
 	for _, k := range adminConfigKeys {

@@ -38,18 +38,24 @@ const (
 
 // serverSession: Antwort von /api/lanes/{no}/session
 type serverSession struct {
-	SessionID     string     `json:"session_id"`
-	Status        string     `json:"status"`
-	Discipline    string     `json:"discipline"`
-	Mode          string     `json:"mode"` // optionales Signal: "wertung" -> sofort umschalten
-	Shooter       string     `json:"shooter"`
-	EventName     string     `json:"event_name"`
-	EventType     string     `json:"event_type"` // einzel | runde | gruppe
-	SensorPosRaw  []sensorXY `json:"sensor_pos"`
-	PlateAngleDeg float64    `json:"plate_angle_deg"`
-	SoundSpeedMPS float64    `json:"sound_speed_mps"`
-	PlateOffsetX  float64    `json:"plate_offset_x"`
-	PlateOffsetY  float64    `json:"plate_offset_y"`
+	SessionID   string `json:"session_id"`
+	Status      string `json:"status"`
+	Discipline  string `json:"discipline"`
+	Mode        string `json:"mode"`        // optionales Signal: "wertung" -> sofort umschalten
+	Maintenance bool   `json:"maintenance"` // Wartungs-Schuetze, siehe maintenance_rawlog.go
+	Shooter     string `json:"shooter"`
+	EventName   string `json:"event_name"`
+	EventType   string `json:"event_type"` // einzel | runde | gruppe
+	// Stechschuss (server/rwk_stechen.go): Durchgang (0 = kein Stechen) und
+	// das Gesamtergebnis der Wertungs-Session fuer die Anzeige
+	StechenNo     int           `json:"stechen_no"`
+	Timing        *serverTiming `json:"timing"` // Schiesszeit, siehe timing.go
+	BaseTotal     string        `json:"base_total"`
+	SensorPosRaw  []sensorXY    `json:"sensor_pos"`
+	PlateAngleDeg float64       `json:"plate_angle_deg"`
+	SoundSpeedMPS float64       `json:"sound_speed_mps"`
+	PlateOffsetX  float64       `json:"plate_offset_x"`
+	PlateOffsetY  float64       `json:"plate_offset_y"`
 
 	// Disziplinparameter, vom Server autoritativ mitgeliefert (siehe
 	// server/store.go ActiveSessionForLane) - ersetzt den frueheren
@@ -135,6 +141,11 @@ type StatusInfo struct {
 	Shooter        string         `json:"shooter"`
 	EventName      string         `json:"event_name,omitempty"`
 	EventType      string         `json:"event_type,omitempty"`   // einzel | runde | gruppe
+	StechenNo      int            `json:"stechen_no,omitempty"`   // Stechschuss-Durchgang (0 = keiner)
+	BaseTotal      string         `json:"base_total,omitempty"`   // Gesamtergebnis bei Stechschuss
+	Timer          TimerInfo      `json:"timer"`                  // Schiesszeit (timing.go)
+	UILocked       bool           `json:"ui_locked"`              // Bedienung gesperrt (uilock.go)
+	NowMs          int64          `json:"now_ms"`                 // Stand-PC-Uhr beim Senden (Abgleich im Browser)
 	WertungCount   int            `json:"wertung_count"`          // abgegebene Wertungsschuesse
 	Notification   string         `json:"notification,omitempty"` // einmaliger Hinweis fuer den Browser
 	HistoryGen     int            `json:"history_gen"`            // aendert sich bei jedem ResetHistory (Session-/Modus-/Disziplinwechsel)
@@ -149,8 +160,11 @@ type SessionManager struct {
 	mu        sync.RWMutex
 	sessionID string
 	shooter   string
-	solver    *TDOASolver
-	shotNo    int // PC-seitiger Zaehler, 1-basiert je Session
+	// maintenance: aktuelle Session ist eine Wartungs-Session (siehe
+	// maintenance_rawlog.go - dann werden die Rohdaten automatisch aktiviert)
+	maintenance bool
+	solver      *TDOASolver
+	shotNo      int // PC-seitiger Zaehler, 1-basiert je Session
 
 	mode              string         // ModeProbe | ModeWertung
 	discipline        *DisciplineDef // aktuelle Disziplin; nil = keine
@@ -160,6 +174,12 @@ type SessionManager struct {
 	wertungShotsFired int            // ALLE Wertungsschuesse inkl. Ueberzahl (fuer Serien-Nummerierung)
 	eventName         string         // Veranstaltungsname (leer = Training/kein Event)
 	eventType         string         // einzel | runde | gruppe
+	stechenNo         int            // Stechschuss-Durchgang (0 = keiner)
+	baseTotal         string         // Gesamtergebnis der Wertungs-Session beim Stechschuss
+	timing            serverTiming   // Schiesszeit vom Server (timing.go)
+	clockOffsetMs     int64          // Server-Uhr minus Stand-PC-Uhr
+	wertungSinceMs    int64          // lokaler Wechsel in die Wertung (0 = unbekannt)
+	uiLocked          bool           // Bedienung gesperrt (uilock.go)
 
 	psInfo  *PSLaneInfoLocal // Preisschiessen-Zustand des Stands; nil = kein Preisschiessen
 	devMode bool             // Entwicklermodus (Schuesse per Mausklick), global vom Server gepollt
@@ -285,6 +305,13 @@ func (m *SessionManager) CurrentSessionID() string {
 	return m.sessionID
 }
 
+// IsMaintenance: ob gerade eine Wartungs-Session laeuft.
+func (m *SessionManager) IsMaintenance() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessionID != "" && m.maintenance
+}
+
 // CurrentDiscipline liefert die aktuelle Disziplin (nil wenn keine).
 func (m *SessionManager) CurrentDiscipline() *DisciplineDef {
 	m.mu.RLock()
@@ -303,6 +330,9 @@ func (m *SessionManager) SetMode(newMode string) (ok bool, reason string) {
 	if newMode == m.mode {
 		return true, ""
 	}
+	if !m.shooterMayToggleLocked() {
+		return false, "Umschalten nur über die Standsteuerung (zentrale Steuerung)"
+	}
 	if newMode == ModeProbe {
 		if m.discipline != nil && m.discipline.TrialShots == 0 {
 			return false, "Disziplin hat keine Probephase (0 Probeschuesse konfiguriert)"
@@ -313,6 +343,7 @@ func (m *SessionManager) SetMode(newMode string) (ok bool, reason string) {
 	}
 	m.mode = newMode
 	if newMode == ModeWertung {
+		m.markWertungLocked()
 		m.wertungCount = 0
 		m.wertungShotsFired = 0
 	}
@@ -361,9 +392,12 @@ func (m *SessionManager) NextShot(counts bool) (sessionID string, shotNo int, mo
 			n := seriesIndex(m.probeCount, shotsPerSeries)
 			seriesNo = &n
 			disc := m.discipline
-			if disc != nil && disc.TrialShots > 0 && m.probeCount >= disc.TrialShots {
+			// zentral: kein Wechsel durch ausgeschoepfte Probeschuesse, nur
+			// ueber die Standsteuerung (timing.go)
+			if disc != nil && disc.TrialShots > 0 && m.probeCount >= disc.TrialShots && m.shooterMayToggleLocked() {
 				// Letzter Probeschuss erreicht: automatisch auf Wertung umschalten
 				m.mode = ModeWertung
+				m.markWertungLocked()
 				m.wertungCount = 0
 				m.wertungShotsFired = 0
 				m.web.ResetHistory()
@@ -455,6 +489,11 @@ func (m *SessionManager) statusLocked() StatusInfo {
 		Shooter:        m.shooter,
 		EventName:      m.eventName,
 		EventType:      m.eventType,
+		StechenNo:      m.stechenNo,
+		BaseTotal:      m.baseTotal,
+		Timer:          m.timerLocked(),
+		UILocked:       m.uiLocked,
+		NowMs:          nowMs(),
 		WertungCount:   m.wertungCount,
 		HistoryGen:     m.web.HistoryGen(),
 		DevMode:        m.devMode,
@@ -638,6 +677,8 @@ func (m *SessionManager) pollCycle(client *http.Client, url, psURL, devModeURL s
 	m.pollCycleMu.Lock()
 	defer m.pollCycleMu.Unlock()
 	m.poll(client, url)
+	m.pollUILock(client)
+	m.tickTiming()
 	m.pollPreisschiessen(client, psURL)
 	m.pollDevMode(client, devModeURL)
 }
@@ -759,6 +800,7 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 	// --- Modus-Signal vom Server (unabhaengig vom Sessionwechsel) ---
 	if s != nil && s.Mode == ModeWertung && m.mode == ModeProbe {
 		m.mode = ModeWertung
+		m.markWertungLocked()
 		m.probeCount = 0
 		m.wertungCount = 0
 		m.wertungShotsFired = 0
@@ -768,7 +810,17 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 	}
 
 	if newID == m.sessionID {
+		// Schiesszeit kann sich jederzeit aendern ("Zeit starten")
+		if s != nil && m.applyTimingLocked(s.Timing) {
+			m.web.BroadcastStatus(m.statusLocked())
+		}
 		return
+	}
+	m.wertungSinceMs = 0
+	if s != nil {
+		m.applyTimingLocked(s.Timing)
+	} else {
+		m.applyTimingLocked(nil)
 	}
 
 	// --- Sessionwechsel ---
@@ -776,6 +828,10 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 		log.Printf("Session: Stand freigegeben (war %s)", m.sessionID)
 		m.sessionID = ""
 		m.shooter = ""
+		m.maintenance = false
+		if m.web != nil {
+			go m.web.syncMaintenanceRawLog()
+		}
 		m.rawDiscipline = ""
 		m.shotNo = 0
 		m.probeCount = 0
@@ -785,6 +841,7 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 		m.discipline = nil
 		m.eventName = ""
 		m.eventType = ""
+		m.stechenNo, m.baseTotal = 0, ""
 		m.solver = NewTDOASolver(m.cfg)
 		m.web.ResetHistory()
 		m.web.BroadcastStatus(m.statusLocked())
@@ -827,8 +884,16 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 
 	m.sessionID = newID
 	m.shooter = s.Shooter
+	m.maintenance = s.Maintenance
+	if m.web != nil {
+		// RAWLOG fuer Wartungs-Sessions sofort abgleichen (nicht erst beim
+		// naechsten Takt), damit schon der erste Schuss Rohdaten hat - laeuft
+		// nach Freigabe von m.mu (Goroutine).
+		go m.web.syncMaintenanceRawLog()
+	}
 	m.eventName = s.EventName
 	m.eventType = s.EventType
+	m.stechenNo, m.baseTotal = s.StechenNo, s.BaseTotal
 
 	// Zaehler-Baseline IMMER vom Server uebernehmen (autoritativ aus den
 	// tatsaechlich gespeicherten Schuessen) - deckt sowohl einen Neustart am

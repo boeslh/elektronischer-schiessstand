@@ -193,8 +193,22 @@ form textarea { resize: vertical; min-height: 56px; }
       <input type="number" id="f-sighting" placeholder="leer = unbegrenzt" min="0" max="999">
       <div class="hint">Leer lassen für unbegrenzte Probe</div>
 
-      <label for="f-time">Wertungszeit (Minuten)</label>
-      <input type="number" id="f-time" placeholder="leer = keine Begrenzung" min="1" max="9999">
+      <label for="f-timerule">Schießzeit</label>
+      <select id="f-timerule" onchange="syncTimeRule()">
+        <option value="combined">Gesamtzeit für Probe und Wertung</option>
+        <option value="separate">Getrennte Zeiten für Probe und Wertung</option>
+      </select>
+      <div class="form-row2" id="f-time-row">
+        <div id="f-sighttime-wrap" style="display:none">
+          <label for="f-sighttime">Probezeit (Minuten)</label>
+          <input type="number" id="f-sighttime" placeholder="leer = keine" min="1" max="9999" step="0.5">
+        </div>
+        <div>
+          <label for="f-time" id="f-time-label">Gesamtzeit (Minuten)</label>
+          <input type="number" id="f-time" placeholder="leer = keine Begrenzung" min="1" max="9999" step="0.5">
+        </div>
+      </div>
+      <div class="hint">Wie die Zeit im Wettkampf wirkt (nur Uhrzeit / Countdown / harte Grenze), wird beim Wettkampf eingestellt.</div>
 
       <div class="check-row">
         <input type="checkbox" id="f-decimal" onchange="autoUpdateRMIIIString()">
@@ -259,7 +273,9 @@ function renderTable() {
     const tr = document.createElement('tr');
     if (!d.active) tr.className = 'inactive';
     const probe = d.max_sighting_shots != null ? d.max_sighting_shots : '∞';
-    const timeMin = d.match_time_s != null ? Math.round(d.match_time_s/60) + ' min' : '–';
+    const timeMin = d.match_time_s == null ? '–'
+      : d.combined_time === false ? `${d.sighting_time_s != null ? Math.round(d.sighting_time_s/60) : 0} + ${Math.round(d.match_time_s/60)} min`
+      : Math.round(d.match_time_s/60) + ' min';
     tr.innerHTML = `
       <td><strong>${esc(d.name)}</strong>${d.rule_no ? `<br><small>${esc(d.rule_no)}</small>` : ''}</td>
       <td style="font-size:.8rem">${esc(d.target_name)}</td>
@@ -281,8 +297,17 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function syncTimeRule() {
+  const sep = document.getElementById('f-timerule').value === 'separate';
+  document.getElementById('f-sighttime-wrap').style.display = sep ? '' : 'none';
+  document.getElementById('f-time-label').textContent = sep ? 'Wertungszeit (Minuten)' : 'Gesamtzeit (Minuten)';
+}
+
 function newDiscipline() {
   clearForm();
+  document.getElementById('f-timerule').value = 'combined';
+  document.getElementById('f-sighttime').value = '';
+  syncTimeRule();
   document.getElementById('form-title').textContent = 'anlegen';
   document.getElementById('form-card').style.display = 'block';
   document.getElementById('form-card').scrollIntoView({behavior:'smooth'});
@@ -301,7 +326,10 @@ function editRow(id) {
   document.getElementById('f-scoring').value = d.match_shot_count;
   document.getElementById('f-series').value = d.shots_per_series;
   document.getElementById('f-sighting').value = d.max_sighting_shots != null ? d.max_sighting_shots : '';
-  document.getElementById('f-time').value = d.match_time_s != null ? Math.round(d.match_time_s/60) : '';
+  document.getElementById('f-time').value = d.match_time_s != null ? d.match_time_s/60 : '';
+  document.getElementById('f-sighttime').value = d.sighting_time_s != null ? d.sighting_time_s/60 : '';
+  document.getElementById('f-timerule').value = d.combined_time === false ? 'separate' : 'combined';
+  syncTimeRule();
   document.getElementById('f-decimal').checked = d.decimal_scoring;
   document.getElementById('f-active').checked = d.active;
   document.getElementById('f-anzeige').value = d.anzeige || 'voll';
@@ -527,6 +555,9 @@ async function saveForm(e) {
     shots_per_series:   parseInt(document.getElementById('f-series').value) || 10,
     max_sighting_shots: sighting !== '' ? parseInt(sighting) : null,
     match_time_s:       timeMin !== '' ? Math.round(parseFloat(timeMin) * 60) : null,
+    combined_time:      document.getElementById('f-timerule').value !== 'separate',
+    sighting_time_s:    document.getElementById('f-timerule').value === 'separate' && document.getElementById('f-sighttime').value !== ''
+      ? Math.round(parseFloat(document.getElementById('f-sighttime').value) * 60) : null,
     decimal_scoring:    document.getElementById('f-decimal').checked,
     active:             document.getElementById('f-active').checked,
     anzeige:            document.getElementById('f-anzeige').value,

@@ -319,6 +319,30 @@ type RawShot struct {
 	Hits        int       `json:"hits"`
 	TsMs        uint64    `json:"ts"`
 	Reason      string    `json:"reason"` // nur bei type=reject
+	// Seit Firmware Rev 4.11.0 ("classic" | "rim") bzw. 4.14.0: Pulsbreite der
+	// ersten Flanke je Mic in ns (nur bei aktivem MCPWM-Capture, null = keine
+	// plausible fallende Flanke) - Grundlage der WALKK-Korrektur.
+	Algo   string   `json:"algo"`
+	AirWNs []*int64 `json:"air_w_ns"`
+	// Seit Rev 4.16.0: fuer diesen Schuss verwendete Schallgeschwindigkeit
+	// (vorrangig vor dem Wert aus dem letzten status, siehe processShot).
+	SoundActMps *float64 `json:"sound_act_mps"`
+	// RawFollows (Rev 4.16.0): 1 = die unmittelbar naechste Zeile ist das
+	// zugehoerige raw-Telegramm, 0 = es kommt keins (RAWLOG=0 oder shot aus
+	// dem Offline-Puffer). nil = Firmware ohne dieses Feld (siehe rawpair.go).
+	RawFollows *int `json:"raw_follows"`
+	// Zone (Rev 4.17.0): bei aktiver Zonen-Kalibrierung die Zone mit dem
+	// groessten Anteil an der Lage ("A"|"B"|"C").
+	Zone string `json:"zone"`
+
+	// RawEdges: vollstaendiges "raw"-Telegramm (SET RAWLOG=1, Rev 4.16.0) -
+	// bei Type=="raw" die Zeile selbst, bei Type=="shot" das von
+	// pairRawTelegrams angehaengte Telegramm mit derselben seq.
+	RawEdges json.RawMessage `json:"-"`
+
+	// Geraetezustand beim Empfang (nicht im Telegramm, siehe
+	// DeviceState.ShotContext) - fuer das Nachrechnen im Simulator.
+	Ctx ShotContext `json:"-"`
 }
 
 // Shot: vollstaendig ausgewerteter Schuss (geht an Log, DB und Anzeige).
@@ -343,6 +367,20 @@ type Shot struct {
 	PiezoOk     *bool     `json:"piezo_ok,omitempty"`
 	Clean       bool      `json:"clean"`
 	DeviceTsMs  uint64    `json:"device_ts_ms"`
+	// Firmware Rev 4.13-4.15: Pulsbreiten (air_w_ns), Auswertepfad und der
+	// Geraetezustand zum Schusszeitpunkt (Schallgeschwindigkeit, Erfassung,
+	// WALKK) - siehe migrations/078_firmware_4_15.sql.
+	AirWNs      []*int64 `json:"air_w_ns,omitempty"`
+	Algo        string   `json:"algo,omitempty"`
+	SoundActMps *float64 `json:"sound_act_mps,omitempty"`
+	Capture     string   `json:"capture,omitempty"`
+	WalkK       *float64 `json:"walk_k,omitempty"`
+	// Rohdaten-Telegramm (SET RAWLOG=1, Firmware Rev 4.16.0): alle steigenden
+	// und fallenden Flanken plus Parameter zum Schusszeitpunkt - Grundlage
+	// fuer das exakte Nachrechnen im Simulator (protokoll-referenz.md 4.5c).
+	RawEdges json.RawMessage `json:"raw_edges,omitempty"`
+	// Zone der Zonen-Kalibrierung (Firmware Rev 4.17.0), "" = ohne Zonen
+	Zone string `json:"zone,omitempty"`
 
 	// ---- Fuer die Anzeige/Wertung (nur x_um/y_um sind dafuer relevant) ----
 	XMM            float64 `json:"x_mm"` // Scheibenkoordinaten, 0/0 = Mitte
@@ -495,6 +533,9 @@ func main() {
 	})
 	deviceState.SetConfigHandler(web.onDeviceConfig)
 	go web.runConfigBackupLoop(ctx)
+	go runStatusPoll(ctx, cmds, deviceState)
+	go web.runMaintenanceRawLog(ctx)
+	go web.runZoneHoleSync(ctx)
 
 	// Session + Kalibrierung vom zentralen Server (oder statisch/lokal)
 	sessions := NewSessionManager(cfg, web, dc.Disciplines)
@@ -510,13 +551,16 @@ func main() {
 	// rawCh wird VOR web.Run() gesetzt, damit POST /dev/shot (Entwicklermodus)
 	// von Anfang an sicher hineinsenden kann (kein Nil-Channel-Race).
 	rawCh := make(chan RawShot, 32)
+	// raw-Telegramme (SET RAWLOG=1) an den zugehoerigen Schuss haengen, siehe rawpair.go
+	pairedCh := make(chan RawShot, 32)
+	go pairRawTelegrams(rawCh, pairedCh, deviceState.RawLogActive)
 	web.devShotCh = rawCh
 
 	go web.Run(ctx)
 	go sessions.Run(ctx)
 
 	go func() {
-		for raw := range rawCh {
+		for raw := range pairedCh {
 			// Scorer zur aktuellen Disziplin waehlen; Fallback = config.json-Target
 			sc := fallbackScorer
 			if disc := sessions.CurrentDiscipline(); disc != nil {
@@ -554,6 +598,14 @@ func main() {
 				mode = sessions.CurrentMode()
 				sessions.WarnPreisschiessenNoScheibe()
 			} else {
+				// Zeit- und Umschaltregeln (timing.go): nicht zulaessige
+				// Schuesse werden wie verworfene nur protokolliert.
+				if !shot.Rejected {
+					if msg := sessions.CheckTime(); msg != "" {
+						shot.Rejected = true
+						shot.RejectMsg = msg
+					}
+				}
 				sid, no, mode, overcount, seriesNo = sessions.NextShot(!shot.Rejected)
 			}
 			shot.Mode = mode
@@ -623,6 +675,16 @@ func processShot(raw RawShot, scorer *Scorer) Shot {
 		Clean:       raw.Clean != 0,
 		DeviceTsMs:  raw.TsMs,
 		RejectMsg:   raw.Reason,
+		AirWNs:      raw.AirWNs,
+		Algo:        raw.Algo,
+		SoundActMps: raw.Ctx.SoundActMps,
+		Capture:     raw.Ctx.Capture,
+		WalkK:       raw.Ctx.WalkK,
+		RawEdges:    raw.RawEdges,
+		Zone:        raw.Zone,
+	}
+	if raw.SoundActMps != nil { // Firmware >= 4.16.0: Wert genau dieses Schusses
+		shot.SoundActMps = raw.SoundActMps
 	}
 	if raw.PiezoNs != nil {
 		ns := *raw.PiezoNs

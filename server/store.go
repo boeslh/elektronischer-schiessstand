@@ -61,6 +61,10 @@ type Lane struct {
 	PSSelfServiceName string `json:"ps_selfservice_name,omitempty"`
 	// Belegung mit dem Wartungs-Schuetzen (sessions.maintenance, migrations/071)
 	Maintenance bool `json:"maintenance,omitempty"`
+	// Stechschuss-Session (rwk_stechen.go): Durchgang, 0 = keine
+	StechenNo int `json:"stechen_no,omitempty"`
+	// UILocked: Bedienung an der Schuetzenanzeige gesperrt (migrations/086)
+	UILocked bool `json:"ui_locked"`
 	// Live-Zustand vom StandPC (in-memory, nicht aus DB)
 	LiveMode         string  `json:"live_mode,omitempty"`
 	LiveWertungCount int     `json:"live_wertung_count,omitempty"`
@@ -121,7 +125,7 @@ func (s *Store) ListLanes(ctx context.Context) ([]Lane, error) {
 		       COALESCE(r.shot_count,0), COALESCE(r.total_rings,0),
 		       COALESCE(ev.name,''), COALESCE(ev.type::text,''),
 		       COALESCE(ps.name,''),
-		       COALESCE(se.maintenance, false)
+		       COALESCE(se.maintenance, false), COALESCE(se.stechen_no, 0), l.ui_locked
 		FROM lanes l
 		LEFT JOIN LATERAL (
 		    SELECT * FROM sessions
@@ -147,7 +151,7 @@ func (s *Store) ListLanes(ctx context.Context) ([]Lane, error) {
 		if err := rows.Scan(&l.ID, &l.LaneNo, &l.Name, &l.Active, &l.StandPCURL,
 			&l.SessionID, &l.SessionState, &l.ShooterID, &l.ShooterName, &l.Discipline,
 			&l.ShotCount, &l.TotalRings, &l.EventName, &l.EventType,
-			&l.PSSelfServiceName, &l.Maintenance); err != nil {
+			&l.PSSelfServiceName, &l.Maintenance, &l.StechenNo, &l.UILocked); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -324,9 +328,14 @@ type DisciplineFull struct {
 	ShotsPerSeries   int     `json:"shots_per_series"`
 	DecimalScoring   bool    `json:"decimal_scoring"`
 	MatchTimeS       *int    `json:"match_time_s"` // nil = keine Begrenzung
-	Active           bool    `json:"active"`
-	Notes            string  `json:"notes"`
-	StandPCTargetNo  int     `json:"standpc_target_no"` // Scheibenummer im StandPC (0 = nicht gesetzt)
+	// Zeitregel: CombinedTime (Standard) = MatchTimeS ist die Gesamtzeit fuer
+	// Probe und Wertung, sonst SightingTimeS (Probe) + MatchTimeS (Wertung)
+	// getrennt. nil beim Update = unveraendert.
+	CombinedTime    *bool  `json:"combined_time"`
+	SightingTimeS   *int   `json:"sighting_time_s"`
+	Active          bool   `json:"active"`
+	Notes           string `json:"notes"`
+	StandPCTargetNo int    `json:"standpc_target_no"` // Scheibenummer im StandPC (0 = nicht gesetzt)
 	// Anzeige steuert, was am Stand-PC während des Schießens tatsächlich
 	// gezeigt wird: "voll" (Standard), "teilverdeckt" (Trefferbild grafisch,
 	// aber Ring/Zehntel/Teiler als "-"), "verdeckt" (auch kein Trefferbild,
@@ -387,7 +396,7 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 		       d.distance_m, d.target_id, COALESCE(t.name,''),
 		       d.match_shot_count, d.max_sighting_shots,
 		       d.shots_per_series, d.decimal_scoring,
-		       d.match_time_s, d.active, COALESCE(d.notes,''),
+		       d.match_time_s, d.combined_time, d.sighting_time_s, d.active, COALESCE(d.notes,''),
 		       d.standpc_target_no, d.anzeige,
 		       d.scoring_mode, d.wertmaschine_caliber_mm,
 		       COALESCE(d.rmiii_config_override,''), COALESCE(d.rmiv_config_override,'')
@@ -406,7 +415,7 @@ func (s *Store) ListDisciplinesFull(ctx context.Context) ([]DisciplineFull, erro
 			&d.DistanceM, &d.TargetID, &d.TargetName,
 			&d.MatchShotCount, &d.MaxSightingShots,
 			&d.ShotsPerSeries, &d.DecimalScoring,
-			&d.MatchTimeS, &d.Active, &d.Notes,
+			&d.MatchTimeS, &d.CombinedTime, &d.SightingTimeS, &d.Active, &d.Notes,
 			&d.StandPCTargetNo, &d.Anzeige,
 			&d.ScoringMode, &d.WertmaschineCaliberMM,
 			&d.RMIIIConfigOverride, &d.RMIVConfigOverride,
@@ -433,14 +442,17 @@ func (s *Store) CreateDiscipline(ctx context.Context, d DisciplineFull) (string,
 		  (name, rule_no, distance_m, target_id,
 		   match_shot_count, max_sighting_shots, shots_per_series,
 		   decimal_scoring, match_time_s, active, notes, anzeige,
-		   scoring_mode, wertmaschine_caliber_mm, rmiii_config_override, rmiv_config_override)
+		   scoring_mode, wertmaschine_caliber_mm, rmiii_config_override, rmiv_config_override,
+		   combined_time, sighting_time_s)
 		VALUES ($1, NULLIF($2,''), $3, $4,
-		        $5, $6, $7, $8, $9, $10, NULLIF($11,''), $12, $13, $14, NULLIF($15,''), NULLIF($16,''))
+		        $5, $6, $7, $8, $9, $10, NULLIF($11,''), $12, $13, $14, NULLIF($15,''), NULLIF($16,''),
+		        COALESCE($17, TRUE), $18)
 		RETURNING id`,
 		d.Name, d.RuleNo, d.DistanceM, d.TargetID,
 		d.MatchShotCount, d.MaxSightingShots, d.ShotsPerSeries,
 		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, anzeige,
 		scoringMode, d.WertmaschineCaliberMM, d.RMIIIConfigOverride, d.RMIVConfigOverride,
+		d.CombinedTime, d.SightingTimeS,
 	).Scan(&id)
 	return id, err
 }
@@ -472,12 +484,15 @@ func (s *Store) UpdateDiscipline(ctx context.Context, d DisciplineFull) error {
 		  scoring_mode            = $15,
 		  wertmaschine_caliber_mm = $16,
 		  rmiii_config_override   = NULLIF($17,''),
-		  rmiv_config_override    = NULLIF($18,'')
+		  rmiv_config_override    = NULLIF($18,''),
+		  combined_time           = COALESCE($19, combined_time),
+		  sighting_time_s         = CASE WHEN $19::bool IS NULL THEN sighting_time_s ELSE $20 END
 		WHERE id = $12`,
 		d.Name, d.RuleNo, d.DistanceM, d.TargetID,
 		d.MatchShotCount, d.MaxSightingShots, d.ShotsPerSeries,
 		d.DecimalScoring, d.MatchTimeS, d.Active, d.Notes, d.ID, d.StandPCTargetNo, anzeige,
 		scoringMode, d.WertmaschineCaliberMM, d.RMIIIConfigOverride, d.RMIVConfigOverride,
+		d.CombinedTime, d.SightingTimeS,
 	)
 	return err
 }
@@ -647,7 +662,9 @@ func (s *Store) SetSessionStatus(ctx context.Context, sessionID, status string) 
 		                     AND $2 IN ('sighting','match')
 		                    THEN now() ELSE started_at END,
 		  finished_at = CASE WHEN $2 IN ('finished','aborted')
-		                     THEN now() ELSE finished_at END
+		                     THEN now() ELSE finished_at END,
+		  match_started_at = CASE WHEN $2 = 'match' AND match_started_at IS NULL
+		                     THEN now() ELSE match_started_at END
 		WHERE id = $1`, sessionID, status)
 	if err != nil {
 		return err
@@ -678,8 +695,22 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 	var decimalScoring bool
 	var anzeige string
 	var lastShotNo, probeCount, wertungShotsFired int
+	var maintenance bool
+	var stechenNo, baseRings int
+	var baseDecimal float64
+	var tm sessionTiming
 	err := s.pool.QueryRow(ctx, `
-		SELECT se.id, se.status, d.name,
+		SELECT COALESCE(ev.time_mode, (SELECT default_time_mode FROM app_settings WHERE id=1), 'soft'),
+		       COALESCE(ev.switch_mode, 'individuell'), d.combined_time,
+		       COALESCE(d.sighting_time_s, 0), COALESCE(d.match_time_s, 0), se.time_bonus_s,
+		       -- zentral: Zeit laeuft nur ab "Zeit starten"
+		       CASE WHEN ev.switch_mode = 'zentral' AND NOT d.combined_time AND COALESCE(d.sighting_time_s,0) > 0
+		            THEN se.time_started_at ELSE COALESCE(se.time_started_at, se.started_at) END,
+		       se.match_started_at,
+		       COALESCE(se.stechen_no, 0),
+		       COALESCE((SELECT total_rings   FROM v_session_results WHERE session_id = se.stechen_of), 0),
+		       COALESCE((SELECT total_decimal FROM v_session_results WHERE session_id = se.stechen_of), 0),
+		       se.id, se.status, d.name, COALESCE(se.maintenance, false),
 		       CASE WHEN se.maintenance THEN $2
 		            ELSE COALESCE(sh.last_name || ', ' || sh.first_name, '') END,
 		       c.sensor_pos, c.plate_angle_deg, c.sound_speed_mps,
@@ -702,7 +733,8 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		WHERE l.lane_no = $1
 		  AND se.status IN ('assigned','sighting','match','paused')
 		ORDER BY se.started_at DESC NULLS LAST LIMIT 1`,
-		laneNo, MaintenanceShooterName).Scan(&sessionID, &status, &discipline, &shooterName,
+		laneNo, MaintenanceShooterName).Scan(&tm.Mode, &tm.Switch, &tm.Combined, &tm.SightingS, &tm.MatchS, &tm.BonusS,
+		&tm.Start, &tm.MatchStart, &stechenNo, &baseRings, &baseDecimal, &sessionID, &status, &discipline, &maintenance, &shooterName,
 		&sensorPos, &plateAngle, &soundSpeed, &offX, &offY,
 		&eventName, &eventType,
 		&trialShots, &scoringShots, &shotsPerSeries, &decimalScoring, &targetName, &anzeige,
@@ -729,10 +761,39 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 	if status == "match" {
 		mode = "wertung"
 	}
+	// Stechschuss (rwk_stechen.go): genau ein Wertungsschuss ohne Probe, ab
+	// dem 4. Durchgang immer Zehntel; das Gesamtergebnis der Wertungs-
+	// Session wird zur Anzeige mitgeliefert.
+	baseTotal := ""
+	if stechenNo > 0 {
+		trialShots, scoringShots, mode = 0, 1, "wertung"
+		if decimalScoring {
+			baseTotal = fmt.Sprintf("%.1f", baseDecimal)
+		} else {
+			baseTotal = fmt.Sprintf("%d", baseRings)
+		}
+		if stechenNo > stechenRingRounds {
+			decimalScoring = true
+		}
+		eventName = fmt.Sprintf("%s – Stechschuss %d", eventName, stechenNo)
+	}
+	// Stechschuss und Wartung ohne Schiesszeit
+	if stechenNo > 0 || maintenance {
+		tm.MatchS = 0
+	}
 	return map[string]any{
-		"session_id":      sessionID,
-		"status":          status,
-		"mode":            mode,
+		// Schiesszeit (siehe sessionTiming): der Stand-PC zeigt Uhrzeit oder
+		// Countdown rechts unten und sperrt bei "hard" Schuesse nach Ablauf
+		"timing":     tm.json(),
+		"stechen_no": stechenNo,
+		"base_total": baseTotal,
+		"session_id": sessionID,
+		"status":     status,
+		"mode":       mode,
+		// Wartungs-Schuetze (migrations/071): der Stand-PC schaltet dafuer
+		// automatisch die Rohdaten (SET RAWLOG=1) fuer die Kalibrierung ein,
+		// siehe standpc/maintenance_rawlog.go.
+		"maintenance":     maintenance,
 		"discipline":      discipline,
 		"shooter":         shooterName,
 		"sensor_pos":      jsonRaw(sensorPos),
@@ -767,6 +828,65 @@ func (s *Store) ActiveSessionForLane(ctx context.Context, laneNo int) (map[strin
 		"probe_count":         probeCount,
 		"wertung_shots_fired": wertungShotsFired,
 	}, nil
+}
+
+// sessionTiming: Schiesszeit einer Session fuer den Stand-PC.
+type sessionTiming struct {
+	Mode       string // uhrzeit | soft | hard
+	Switch     string // individuell | zentral | automatisch
+	Combined   bool   // Gesamtzeit (MatchS) fuer Probe und Wertung
+	SightingS  int    // Probezeit bei getrennten Zeiten
+	MatchS     int    // Gesamt- bzw. Wertungszeit, 0 = keine Zeit
+	BonusS     int    // Zeitgutschrift
+	Start      *time.Time
+	MatchStart *time.Time
+}
+
+func (t sessionTiming) json() map[string]any {
+	ms := func(p *time.Time) int64 {
+		if p == nil {
+			return 0
+		}
+		return p.UnixMilli()
+	}
+	mode := t.Mode
+	if t.MatchS <= 0 {
+		mode = "uhrzeit" // ohne Zeit in der Disziplin nur die Uhrzeit
+	}
+	// Umschalten: bei Gesamtzeit (oder ohne Probezeit) immer individuell
+	sw := t.Switch
+	if t.Combined || t.SightingS <= 0 || t.MatchS <= 0 || sw == "" {
+		sw = "individuell"
+	}
+	return map[string]any{
+		"mode":            mode,
+		"switch":          sw,
+		"combined":        t.Combined,
+		"sighting_time_s": t.SightingS,
+		"match_time_s":    t.MatchS,
+		"bonus_s":         t.BonusS,
+		"start_ms":        ms(t.Start),
+		"match_start_ms":  ms(t.MatchStart),
+		"server_now_ms":   time.Now().UnixMilli(),
+	}
+}
+
+// StartSessionTime: "Zeit starten" (Standsteuerung) fuer die aktive Session
+// eines Stands - die Schiesszeit laeuft ab jetzt.
+func (s *Store) StartSessionTime(ctx context.Context, laneNo int) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE sessions se SET time_started_at = now(), match_started_at = NULL
+		FROM lanes l
+		WHERE l.id = se.lane_id AND l.lane_no = $1
+		  AND se.status IN ('assigned','sighting','match','paused')
+		  AND NOT EXISTS (SELECT 1 FROM shots WHERE session_id = se.id AND kind = 'match')`, laneNo)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("Stand %d: nicht belegt oder Wertung bereits begonnen", laneNo)
+	}
+	return nil
 }
 
 // SessionShots: alle Schuesse einer Session (fuer Anzeige/Reload)
@@ -854,8 +974,11 @@ type Result struct {
 	TotalDecimal       float64 `json:"total_decimal"`
 	InnerTens          int     `json:"inner_tens"`
 	BestCenterDistance float64 `json:"best_center_distance,omitempty"`
-	LiveData           bool    `json:"live_data,omitempty"` // true = Daten kommen vom StandPC, nicht DB
+	LiveData           bool    `json:"live_data,omitempty"`   // true = Daten kommen vom StandPC, nicht DB
 	Maintenance        bool    `json:"maintenance,omitempty"` // Wartungs-Schuetze (migrations/071)
+	// RawShotCount: Schuesse mit Rohdaten (Probe UND Wertung) - nur bei
+	// rawDataOnly (Simulator) befuellt; ShotCount zaehlt nur Wertungsschuesse.
+	RawShotCount int `json:"raw_shot_count,omitempty"`
 }
 
 // SessionResultHeader: Kopfdaten fuer das Einzelergebnis-PDF (siehe
@@ -924,14 +1047,22 @@ func (s *Store) ListResults(ctx context.Context, date, name, eventID string, raw
 		       COALESCE(r.total_decimal,0)::float8,
 		       COALESCE(r.inner_tens,0),
 		       COALESCE(r.best_center_distance,0)::float8,
-		       se.maintenance
+		       se.maintenance,
+		       CASE WHEN $4 THEN (SELECT COUNT(*) FROM shots sr WHERE sr.session_id = se.id AND sr.air_ns IS NOT NULL)
+		            ELSE 0 END
 		FROM sessions se
 		JOIN lanes l          ON l.id  = se.lane_id
 		JOIN disciplines d    ON d.id  = se.discipline_id
 		LEFT JOIN shooters sh ON sh.id = se.shooter_id
 		LEFT JOIN events ev   ON ev.id = se.event_id
 		LEFT JOIN v_session_results r ON r.session_id = se.id
-		WHERE (se.status != 'aborted' OR r.shot_count > 0)
+		-- abgebrochene Sessions ohne Wertungsschuesse ausblenden - fuer den
+		-- Simulator ($4) aber nicht: eine Wartungs-Serie aus lauter
+		-- Probeschuessen endet nach "Stand freigeben" als aborted, ihre
+		-- Rohdaten sind trotzdem genau das, was die Kalibrierung braucht.
+		WHERE (se.status != 'aborted' OR r.shot_count > 0 OR $4)
+		  -- Stechschuss-Sessions (rwk_stechen.go) sind kein eigenes Ergebnis
+		  AND (se.stechen_no IS NULL OR $4)
 		  AND ($1 = '' OR se.started_at AT TIME ZONE 'Europe/Berlin' >= ($1::date)::timestamptz
 		                AND se.started_at AT TIME ZONE 'Europe/Berlin' <  ($1::date + 1)::timestamptz)
 		  AND ($2 = '' OR sh.last_name ILIKE '%'||$2||'%' OR sh.first_name ILIKE '%'||$2||'%'
@@ -959,7 +1090,7 @@ func (s *Store) ListResults(ctx context.Context, date, name, eventID string, raw
 			&r.EventName, &r.EventType,
 			&startedAt, &finishedAt, &r.Status,
 			&r.ShotCount, &r.TotalRings, &r.TotalDecimal,
-			&r.InnerTens, &r.BestCenterDistance, &r.Maintenance); err != nil {
+			&r.InnerTens, &r.BestCenterDistance, &r.Maintenance, &r.RawShotCount); err != nil {
 			return nil, err
 		}
 		if startedAt != nil {
@@ -1965,20 +2096,32 @@ func (s *Store) RemoveTeamMember(ctx context.Context, teamID, shooterID string) 
 
 // Competition bildet die events-Tabelle mit Wettkampf-Erweiterungen ab.
 type Competition struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Type             string `json:"type"` // einzel | runde | gruppe
-	StartsOn         string `json:"starts_on"`
-	EndsOn           string `json:"ends_on"`
-	Status           string `json:"status"`
-	DisciplineID     string `json:"discipline_id"`
-	DisciplineName   string `json:"discipline_name"`
-	Location         string `json:"location"`
-	Liga             string `json:"liga"`
-	Notes            string `json:"notes"`
-	Active           bool   `json:"active"`
-	StarterCount     int    `json:"starter_count"`
-	ParticipantCount int    `json:"participant_count"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"` // einzel | runde | gruppe
+	StartsOn       string `json:"starts_on"`
+	EndsOn         string `json:"ends_on"`
+	Status         string `json:"status"`
+	DisciplineID   string `json:"discipline_id"`
+	DisciplineName string `json:"discipline_name"`
+	Location       string `json:"location"`
+	Liga           string `json:"liga"`
+	Notes          string `json:"notes"`
+	Active         bool   `json:"active"`
+	// RundeModus: nur bei type=runde - "mannschaft" (Mannschaftsergebnis)
+	// oder "paarung" (Punkte je Paarung, siehe rwk_paarung.go)
+	RundeModus string `json:"runde_modus"`
+	// TimeMode: Umgang mit der Schiesszeit - "uhrzeit" (nur Uhrzeit),
+	// "soft" (Countdown ohne Wirkung), "hard" (nach Ablauf kein Schuss mehr)
+	TimeMode string `json:"time_mode"`
+	// SwitchMode: Umschalten Probe -> Wertung - "individuell", "zentral"
+	// (Standsteuerung) oder "automatisch" (nach Ablauf der Probezeit)
+	SwitchMode string `json:"switch_mode"`
+	// BestOf: Rundenwettkampf (Mannschaftswertung) - die besten N Schuetzen
+	// je Mannschaft zaehlen, 0 = alle. nil beim Update = unveraendert.
+	BestOf           *int `json:"best_of"`
+	StarterCount     int  `json:"starter_count"`
+	ParticipantCount int  `json:"participant_count"`
 }
 
 // CompetitionParticipant ist eine antretende Einheit (Mannschaft, Verein oder Gau).
@@ -2006,7 +2149,42 @@ type CompetitionStarter struct {
 	TeamName     string `json:"team_name"`
 	DisciplineID string `json:"discipline_id"`
 	StartNo      string `json:"start_no"`
-	Role         string `json:"role"` // S=Stammschütze, E=Ersatz, AK=Außer Konkurrenz
+	Role         string `json:"role"`    // S=Stammschütze, E=Ersatz, AK=Außer Konkurrenz
+	PairNo       *int   `json:"pair_no"` // Paarungswettkampf: Paarung 1..5, nil = keine
+}
+
+// rundeModus: gueltiger Wert fuer events.runde_modus (Default mannschaft).
+func rundeModus(m string) string {
+	if m == "paarung" {
+		return "paarung"
+	}
+	return "mannschaft"
+}
+
+// timeMode: gueltiger events.time_mode, "" = Default bzw. unveraendert.
+func timeMode(m string) string {
+	switch m {
+	case "uhrzeit", "soft", "hard":
+		return m
+	}
+	return ""
+}
+
+// switchMode: gueltiger events.switch_mode, "" = Default bzw. unveraendert.
+func switchMode(m string) string {
+	switch m {
+	case "individuell", "zentral", "automatisch":
+		return m
+	}
+	return ""
+}
+
+// rundeModusOrKeep: leer = bisherigen Wert behalten (Update ohne Feld).
+func rundeModusOrKeep(m string) string {
+	if m == "" {
+		return ""
+	}
+	return rundeModus(m)
 }
 
 func (s *Store) ListCompetitions(ctx context.Context, compType, status string, activeOnly, includeArchived bool) ([]Competition, error) {
@@ -2015,7 +2193,7 @@ func (s *Store) ListCompetitions(ctx context.Context, compType, status string, a
 		       COALESCE(e.ends_on::text,''), e.status::text,
 		       COALESCE(e.discipline_id::text,''), COALESCE(d.name,''),
 		       COALESCE(e.location,''), COALESCE(e.liga,''), COALESCE(e.notes,''),
-		       COALESCE(e.active,TRUE),
+		       COALESCE(e.active,TRUE), e.runde_modus, e.time_mode, e.switch_mode, e.best_of,
 		       (SELECT COUNT(*) FROM starters st WHERE st.event_id = e.id),
 		       (SELECT COUNT(*) FROM competition_participants cp WHERE cp.event_id = e.id)
 		FROM events e
@@ -2036,7 +2214,7 @@ func (s *Store) ListCompetitions(ctx context.Context, compType, status string, a
 		if err := rows.Scan(
 			&c.ID, &c.Name, &c.Type, &c.StartsOn, &c.EndsOn, &c.Status,
 			&c.DisciplineID, &c.DisciplineName,
-			&c.Location, &c.Liga, &c.Notes, &c.Active,
+			&c.Location, &c.Liga, &c.Notes, &c.Active, &c.RundeModus, &c.TimeMode, &c.SwitchMode, &c.BestOf,
 			&c.StarterCount, &c.ParticipantCount,
 		); err != nil {
 			return nil, err
@@ -2053,7 +2231,7 @@ func (s *Store) GetCompetition(ctx context.Context, id string) (Competition, err
 		       COALESCE(e.ends_on::text,''), e.status::text,
 		       COALESCE(e.discipline_id::text,''), COALESCE(d.name,''),
 		       COALESCE(e.location,''), COALESCE(e.liga,''), COALESCE(e.notes,''),
-		       COALESCE(e.active,TRUE),
+		       COALESCE(e.active,TRUE), e.runde_modus, e.time_mode, e.switch_mode, e.best_of,
 		       (SELECT COUNT(*) FROM starters st WHERE st.event_id = e.id),
 		       (SELECT COUNT(*) FROM competition_participants cp WHERE cp.event_id = e.id)
 		FROM events e
@@ -2062,7 +2240,7 @@ func (s *Store) GetCompetition(ctx context.Context, id string) (Competition, err
 	).Scan(
 		&c.ID, &c.Name, &c.Type, &c.StartsOn, &c.EndsOn, &c.Status,
 		&c.DisciplineID, &c.DisciplineName,
-		&c.Location, &c.Liga, &c.Notes, &c.Active,
+		&c.Location, &c.Liga, &c.Notes, &c.Active, &c.RundeModus, &c.TimeMode, &c.SwitchMode, &c.BestOf,
 		&c.StarterCount, &c.ParticipantCount,
 	)
 	return c, err
@@ -2073,11 +2251,15 @@ func (s *Store) CreateCompetition(ctx context.Context, c Competition) (string, e
 	ed, _ := time.Parse("2006-01-02", c.EndsOn)
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO events (name, type, starts_on, ends_on, discipline_id, location, liga, notes, active)
-		VALUES ($1, $2, $3, $4, NULLIF($5,'')::uuid, NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), $9)
+		INSERT INTO events (name, type, starts_on, ends_on, discipline_id, location, liga, notes, active, runde_modus,
+		                    time_mode, switch_mode, best_of)
+		VALUES ($1, $2, $3, $4, NULLIF($5,'')::uuid, NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), $9, $10,
+		        COALESCE(NULLIF($11,''), (SELECT default_time_mode FROM app_settings WHERE id=1), 'soft'),
+		        COALESCE(NULLIF($12,''), (SELECT default_switch_mode FROM app_settings WHERE id=1), 'individuell'),
+		        COALESCE($13::smallint, 5))
 		RETURNING id`,
 		c.Name, c.Type, nullTime(sd), nullTime(ed),
-		c.DisciplineID, c.Location, c.Liga, c.Notes, c.Active,
+		c.DisciplineID, c.Location, c.Liga, c.Notes, c.Active, rundeModus(c.RundeModus), timeMode(c.TimeMode), switchMode(c.SwitchMode), c.BestOf,
 	).Scan(&id)
 	return id, err
 }
@@ -2092,11 +2274,14 @@ func (s *Store) UpdateCompetition(ctx context.Context, c Competition) error {
 		  discipline_id = NULLIF($5,'')::uuid,
 		  location      = NULLIF($6,''),  liga = NULLIF($7,''), notes = NULLIF($8,''),
 		  status        = $9::event_status,
-		  active        = $10, updated_at    = now()
+		  active        = $10, runde_modus = COALESCE(NULLIF($12,''), runde_modus),
+		  time_mode = COALESCE(NULLIF($13,''), time_mode),
+		  switch_mode = COALESCE(NULLIF($14,''), switch_mode),
+		  best_of = COALESCE($15::smallint, best_of), updated_at    = now()
 		WHERE id = $11`,
 		c.Name, c.Type, nullTime(sd), nullTime(ed),
 		c.DisciplineID, c.Location, c.Liga, c.Notes, c.Status,
-		c.Active, c.ID,
+		c.Active, c.ID, rundeModusOrKeep(c.RundeModus), timeMode(c.TimeMode), switchMode(c.SwitchMode), c.BestOf,
 	)
 	return err
 }
@@ -2175,13 +2360,13 @@ func (s *Store) ListStarters(ctx context.Context, eventID string) ([]Competition
 		       COALESCE(st.team_id::text,''), COALESCE(t.name,''),
 		       COALESCE(st.discipline_id::text,''),
 		       COALESCE(st.start_no,''),
-		       COALESCE(st.role,'S')
+		       COALESCE(st.role,'S'), st.pair_no
 		FROM starters st
 		JOIN shooters sh ON sh.id = st.shooter_id
 		LEFT JOIN clubs c ON c.id  = sh.club_id
 		LEFT JOIN teams t ON t.id  = st.team_id
 		WHERE st.event_id = $1
-		ORDER BY st.team_id NULLS LAST, st.role, st.start_no NULLS LAST, sh.last_name`, eventID)
+		ORDER BY st.team_id NULLS LAST, st.pair_no NULLS LAST, st.role, st.start_no NULLS LAST, sh.last_name`, eventID)
 	if err != nil {
 		return nil, err
 	}
@@ -2194,7 +2379,7 @@ func (s *Store) ListStarters(ctx context.Context, eventID string) ([]Competition
 			&st.LastName, &st.FirstName,
 			&st.PassNo, &st.ClubName,
 			&st.TeamID, &st.TeamName,
-			&st.DisciplineID, &st.StartNo, &st.Role,
+			&st.DisciplineID, &st.StartNo, &st.Role, &st.PairNo,
 		); err != nil {
 			return nil, err
 		}
@@ -2219,6 +2404,31 @@ func (s *Store) AddStarter(ctx context.Context, eventID, shooterID, disciplineID
 		return "", errors.New("Schütze ist bereits eingetragen")
 	}
 	return id, err
+}
+
+// SetStarterPair: Paarung eines Starters (nil = keine). Ist die Paarung in
+// seiner Mannschaft schon vergeben, wird sie dort vorher geloest - so laesst
+// sich eine Paarung einfach "umhaengen".
+func (s *Store) SetStarterPair(ctx context.Context, eventID, starterID string, pairNo *int) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if pairNo != nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE starters SET pair_no = NULL
+			WHERE event_id = $1::uuid AND pair_no = $2 AND id <> $3::uuid
+			  AND team_id IS NOT DISTINCT FROM (SELECT team_id FROM starters WHERE id = $3::uuid)`,
+			eventID, *pairNo, starterID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE starters SET pair_no = $1 WHERE id = $2::uuid AND event_id = $3::uuid`,
+		pairNo, starterID, eventID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) SetStarterRole(ctx context.Context, starterID, role string) error {
@@ -2402,6 +2612,7 @@ func (s *Store) ListGruppenwettkampfData(ctx context.Context, eventID string) (*
 			WHERE (se.starter_id = st.id
 			    OR (se.event_id = $1::uuid AND se.shooter_id = st.shooter_id
 			        AND se.status::text <> 'aborted'))
+			  AND se.stechen_no IS NULL
 			ORDER BY COALESCE(vsr.shot_count,0) DESC, se.finished_at DESC NULLS LAST
 			LIMIT 1
 		) best ON TRUE
@@ -2440,23 +2651,27 @@ func (s *Store) ListGruppenwettkampfData(ctx context.Context, eventID string) (*
 
 // RundenwettkampfEntry enthält das Ergebnis eines Starters für die Rundenwettkampf-Auswertung.
 type RundenwettkampfEntry struct {
-	StarterID      string  `json:"starter_id"`
-	ShooterID      string  `json:"shooter_id"`
-	LastName       string  `json:"last_name"`
-	FirstName      string  `json:"first_name"`
-	ClubName       string  `json:"club_name"`
-	TeamID         string  `json:"team_id"`
-	TeamName       string  `json:"team_name"`
-	Role           string  `json:"role"` // S | E | AK
-	StartNo        string  `json:"start_no"`
-	DisciplineName string  `json:"discipline_name"`
-	DecimalScoring bool    `json:"decimal_scoring"`
-	ShotCount      int     `json:"shot_count"`
-	TotalRings     int     `json:"total_rings"`
-	TotalDecimal   float64 `json:"total_decimal"`
-	InnerTens      int     `json:"inner_tens"`
-	SessionStatus  string  `json:"session_status"`
-	SessionID      string  `json:"session_id"`
+	StarterID      string        `json:"starter_id"`
+	ShooterID      string        `json:"shooter_id"`
+	LastName       string        `json:"last_name"`
+	FirstName      string        `json:"first_name"`
+	ClubName       string        `json:"club_name"`
+	TeamID         string        `json:"team_id"`
+	TeamName       string        `json:"team_name"`
+	Role           string        `json:"role"` // S | E | AK
+	StartNo        string        `json:"start_no"`
+	DisciplineName string        `json:"discipline_name"`
+	DecimalScoring bool          `json:"decimal_scoring"`
+	ShotCount      int           `json:"shot_count"`
+	TotalRings     int           `json:"total_rings"`
+	TotalDecimal   float64       `json:"total_decimal"`
+	InnerTens      int           `json:"inner_tens"`
+	SessionStatus  string        `json:"session_status"`
+	SessionID      string        `json:"session_id"`
+	PairNo         int           `json:"pair_no"`           // Paarungswettkampf: Paarung, 0 = keine
+	MatchShotCount int           `json:"match_shot_count"`  // Wertungsschuesse der Disziplin (Hochrechnung)
+	TeamSide       int           `json:"team_side"`         // 0 = Heim, 1 = Gast (competition_participants.sort_order), -1 = sonst
+	Stechen        []StechenShot `json:"stechen,omitempty"` // Stechschuesse nach Durchgang (rwk_stechen.go)
 }
 
 func (s *Store) ListRundenwettkampfResults(ctx context.Context, eventID string) ([]RundenwettkampfEntry, error) {
@@ -2477,8 +2692,12 @@ func (s *Store) ListRundenwettkampfResults(ctx context.Context, eventID string) 
 			COALESCE(best.total_decimal,  0.0),
 			COALESCE(best.inner_tens,     0),
 			COALESCE(best.session_status, ''),
-			COALESCE(best.session_id,     '')
+			COALESCE(best.session_id,     ''),
+			COALESCE(st.pair_no, 0),
+			COALESCE(d.match_shot_count, 0),
+			COALESCE(cp.sort_order, -1)::int
 		FROM starters st
+		LEFT JOIN competition_participants cp ON cp.event_id = st.event_id AND cp.team_id = st.team_id
 		JOIN  shooters sh ON sh.id = st.shooter_id
 		LEFT JOIN clubs      c ON c.id = sh.club_id
 		LEFT JOIN teams      t ON t.id = st.team_id
@@ -2496,6 +2715,7 @@ func (s *Store) ListRundenwettkampfResults(ctx context.Context, eventID string) 
 			WHERE (se.starter_id = st.id
 			    OR (se.event_id = $1::uuid AND se.shooter_id = st.shooter_id
 			        AND se.status::text <> 'aborted'))
+			  AND se.stechen_no IS NULL
 			ORDER BY COALESCE(vsr.shot_count,0) DESC, se.finished_at DESC NULLS LAST
 			LIMIT 1
 		) best ON TRUE
@@ -2522,13 +2742,17 @@ func (s *Store) ListRundenwettkampfResults(ctx context.Context, eventID string) 
 			&e.ClubName, &e.TeamID, &e.TeamName,
 			&e.Role, &e.StartNo, &e.DisciplineName, &e.DecimalScoring,
 			&e.ShotCount, &e.TotalRings, &e.TotalDecimal, &e.InnerTens,
-			&e.SessionStatus, &e.SessionID,
+			&e.SessionStatus, &e.SessionID, &e.PairNo, &e.MatchShotCount, &e.TeamSide,
 		); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	return out, s.attachStechen(ctx, eventID, out)
 }
 
 // ----------------------------------------------------------------------------
@@ -2552,6 +2776,19 @@ type SimShotRaw struct {
 	PiezoNs      *int64     `json:"piezo_ns,omitempty"`
 	HasRaw       bool       `json:"has_raw"`
 	RejectReason string     `json:"reject_reason,omitempty"`
+
+	// Firmware Rev 4.13-4.15 (migrations/078, nil/"" bei aelteren Schuessen):
+	// Pulsbreiten der ersten Flanken (nur MCPWM), zum Schusszeitpunkt aktive
+	// Schallgeschwindigkeit, Erfassungsmodus, eingestelltes WALKK und
+	// Auswertepfad - siehe SimShotRaw.solveInput.
+	AirWNs      [6]*int64 `json:"air_w_ns"`
+	SoundActMps *float64  `json:"sound_act_mps,omitempty"`
+	Capture     string    `json:"capture,omitempty"`
+	WalkK       *float64  `json:"walk_k,omitempty"`
+	Algo        string    `json:"algo,omitempty"`
+	// Raw: Rohdaten-Telegramm (SET RAWLOG=1, Firmware 4.16.0, migrations/079)
+	// - nil ohne RAWLOG. Siehe sim_raw.go.
+	Raw *RawEdges `json:"raw,omitempty"`
 }
 
 // SessionShotsRaw laedt alle Schuesse einer Session inkl. air_ns-Rohdaten
@@ -2561,7 +2798,9 @@ type SimShotRaw struct {
 func (s *Store) SessionShotsRaw(ctx context.Context, sessionID string) ([]SimShotRaw, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT shot_no, kind::text, status::text, x_mm, y_mm, ring, decimal_value,
-		       air_ns, piezo_ns, COALESCE(reject_reason,'')
+		       air_ns, piezo_ns, COALESCE(reject_reason,''),
+		       air_w_ns, sound_act_mps::float8, COALESCE(capture,''), walk_k::float8, COALESCE(algo,''),
+		       raw_edges
 		FROM shots WHERE session_id=$1 ORDER BY shot_no`, sessionID)
 	if err != nil {
 		return nil, err
@@ -2570,10 +2809,18 @@ func (s *Store) SessionShotsRaw(ctx context.Context, sessionID string) ([]SimSho
 	var out []SimShotRaw
 	for rows.Next() {
 		var r SimShotRaw
-		var airNsRaw []byte
+		var airNsRaw, airWRaw, rawEdges []byte
 		if err := rows.Scan(&r.ShotNo, &r.Kind, &r.Status, &r.XMM, &r.YMM,
-			&r.Ring, &r.Decimal, &airNsRaw, &r.PiezoNs, &r.RejectReason); err != nil {
+			&r.Ring, &r.Decimal, &airNsRaw, &r.PiezoNs, &r.RejectReason,
+			&airWRaw, &r.SoundActMps, &r.Capture, &r.WalkK, &r.Algo, &rawEdges); err != nil {
 			return nil, err
+		}
+		r.Raw = parseRawEdges(rawEdges)
+		if len(airWRaw) > 0 {
+			var w []*int64
+			if err := json.Unmarshal(airWRaw, &w); err == nil && len(w) == 6 {
+				copy(r.AirWNs[:], w)
+			}
 		}
 		if len(airNsRaw) > 0 {
 			var nested [][]int64
@@ -2681,6 +2928,23 @@ func (s *Store) SaveSimulatorConfig(ctx context.Context, name string, laneNo *in
 		ON CONFLICT (name) DO UPDATE SET params = EXCLUDED.params, lane_no = EXCLUDED.lane_no, created_at = now()
 		RETURNING id::text`, name, paramsJSON, laneNo).Scan(&id)
 	return id, err
+}
+
+// GetSimulatorConfig: ein gespeicherter Parametersatz (nil = unbekannt).
+func (s *Store) GetSimulatorConfig(ctx context.Context, id string) (*SimulatorConfig, error) {
+	var c SimulatorConfig
+	var paramsRaw []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT id::text, name, params, lane_no, created_at::text
+		FROM simulator_configs WHERE id=$1::uuid`, id).Scan(&c.ID, &c.Name, &paramsRaw, &c.LaneNo, &c.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal(paramsRaw, &c.Params)
+	return &c, nil
 }
 
 func (s *Store) DeleteSimulatorConfig(ctx context.Context, id string) error {

@@ -122,10 +122,13 @@
     updatePwField();
   }
   let keepRoleOnCancel = null; // neue Sitzung: "Als ... weiter" merkt sich diese Rolle
+  // reloginResolve: offene Neuanmeldung aus window.ssRelogin (ohne Neuladen)
+  let reloginResolve = null;
 
   function closeOverlay() {
     if (forcedLogin) return; // ohne gueltige Rolle kein Abbrechen moeglich
     widget.overlay.classList.add('hidden');
+    if (reloginResolve) { const f = reloginResolve; reloginResolve = null; f(false); }
     if (keepRoleOnCancel) {
       // bewusst bei der aktuellen Rolle geblieben - beim naechsten Start nicht erneut fragen
       try { localStorage.setItem(LAST_ROLE_KEY, keepRoleOnCancel); } catch (e) { /* z.B. privater Modus */ }
@@ -146,6 +149,19 @@
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { errEl.textContent = j.error || 'Fehler'; return; }
       try { localStorage.setItem(LAST_ROLE_KEY, roleKey); } catch (e) { /* z.B. privater Modus */ }
+      if (reloginResolve) {
+        // Neuanmeldung aus einer laufenden Aktion: Seite NICHT neu laden
+        const f = reloginResolve;
+        reloginResolve = null;
+        widget.overlay.classList.add('hidden');
+        try {
+          const role = await fetch('/api/role').then(x => x.json());
+          window.SCHIESSSTAND_ROLE = role;
+          updateBadge(role);
+        } catch (e) { /* Badge bleibt */ }
+        f(true);
+        return;
+      }
       location.reload();
     } catch (e) {
       errEl.textContent = 'Fehler: ' + e.message;
@@ -248,6 +264,17 @@
       console.error('Rolle konnte nicht geladen werden:', e);
     }
   }
+
+  // window.ssRelogin(hint): Anmeldedialog fuer eine abgelaufene Sitzung, ohne
+  // die Seite neu zu laden - liefert true nach erfolgreicher Anmeldung.
+  window.ssRelogin = (hint) => new Promise(resolve => {
+    if (!widget) { resolve(false); return; }
+    reloginResolve = resolve;
+    let last = null;
+    try { last = localStorage.getItem(LAST_ROLE_KEY); } catch (e) { /* z.B. privater Modus */ }
+    if (last && ROLE_LABELS[last] !== undefined) document.getElementById('ssrole-sel').value = last;
+    openOverlay(false, hint, 'Abbrechen');
+  });
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

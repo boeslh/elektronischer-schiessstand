@@ -46,7 +46,9 @@ func classifyConfigChange(first, macChanged bool, changes map[string]string) str
 	// (SOUNDSPEED ist laut Firmware "rein manuell") - eine reine
 	// Schallgeschwindigkeits-/Offset-Korrektur zaehlt als Einstellung.
 	for k := range changes {
-		if strings.HasPrefix(k, "OFS") {
+		// WALKK aendert CAL START mit, wenn SET WALKCAL=1 (Firmware 4.14.0)
+		// Zonen-Saetze (ZCALA/B/C, Firmware 4.17.0) sind Kalibrierwerte
+		if strings.HasPrefix(k, "OFS") || k == "WALKK" || strings.HasPrefix(k, "ZCAL") {
 			return "kalibrierung"
 		}
 	}

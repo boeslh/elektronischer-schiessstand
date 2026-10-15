@@ -1,0 +1,837 @@
+== Baseline (23 Referenzschuesse)
+Geraet (beim Schuss)              n=23 ung=0  <1mm   8.7%  P50  4.20  P90  8.88  RMS  5.79  max 13.18
+Nutzer-Kalibrierung HWCapture     n=23 ung=0  <1mm   8.7%  P50  2.52  P90  4.03  RMS  2.67  max  4.46
+== Laufzeit-Reste je Mikrofon (Nutzer-Kalibrierung, Lochrand-Modell, ns)
+Mic 0 n=23  mittel   3144  Streuung 10389 | vs Abstand:  208.6 ns/mm (r= 0.65, Rest 7855) a=-28255 | vs Pulsbreite:  0.143 ns/ns (r= 0.37, Rest 9707)
+Mic 1 n=23  mittel   1687  Streuung 12396 | vs Abstand:  171.6 ns/mm (r= 0.49, Rest 10800) a=-24118 | vs Pulsbreite:  0.126 ns/ns (r= 0.27, Rest 11730)
+Mic 2 n=23  mittel  -1087  Streuung  3551 | vs Abstand:   54.6 ns/mm (r= 0.55, Rest 2971) a= -8801 | vs Pulsbreite:  0.039 ns/ns (r= 0.17, Rest 3380)
+Mic 3 n=23  mittel   -516  Streuung  3782 | vs Abstand:   76.5 ns/mm (r= 0.68, Rest 2788) a=-11417 | vs Pulsbreite:  0.018 ns/ns (r= 0.07, Rest 3747)
+Mic 4 n=23  mittel  -3067  Streuung  5455 | vs Abstand:  104.4 ns/mm (r= 0.67, Rest 4042) a=-15438 | vs Pulsbreite:  0.008 ns/ns (r= 0.02, Rest 5208)
+Mic 5 n=23  mittel   -161  Streuung  5194 | vs Abstand:  117.3 ns/mm (r= 0.81, Rest 3053) a=-14105 | vs Pulsbreite:  0.161 ns/ns (r= 0.40, Rest 4788)
+gesamt RMS 7841 ns, nach Abzug Mittel je Mic 7585 ns (1 mm Laufweg = 2915 ns)
+== Physikalisches Modell (Position per Ausgleichsrechnung, Huber 3000 ns)
+Geometrie=none Pulsbreite=false Huber=   0 | Fit-Rest  6168 ns | alle: n=23 ung=0  <1mm  21.7%  P50  1.61  P90  3.75  RMS  2.31  max  4.75
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  17.4%  P50  1.72  P90  3.63  RMS  2.41  max  5.09
+Geometrie=none Pulsbreite=false Huber=3000 | Fit-Rest  4324 ns | alle: n=23 ung=0  <1mm  39.1%  P50  1.72  P90  3.40  RMS  2.16  max  4.81
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  39.1%  P50  1.54  P90  3.78  RMS  2.25  max  5.18
+Geometrie=sym  Pulsbreite=false Huber=   0 | Fit-Rest  5645 ns | alle: n=23 ung=0  <1mm  30.4%  P50  1.50  P90  3.09  RMS  2.00  max  3.63
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  21.7%  P50  1.98  P90  3.14  RMS  2.20  max  4.25
+Geometrie=sym  Pulsbreite=false Huber=3000 | Fit-Rest  4147 ns | alle: n=23 ung=0  <1mm  17.4%  P50  1.49  P90  2.87  RMS  1.90  max  3.78
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  13.0%  P50  1.73  P90  3.32  RMS  2.14  max  4.01
+Geometrie=free Pulsbreite=false Huber=   0 | Fit-Rest  4927 ns | alle: n=23 ung=0  <1mm  39.1%  P50  1.68  P90  2.99  RMS  1.90  max  3.22
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  26.1%  P50  1.93  P90  3.59  RMS  2.25  max  4.09
+Geometrie=free Pulsbreite=false Huber=3000 | Fit-Rest  3892 ns | alle: n=23 ung=0  <1mm  34.8%  P50  1.45  P90  3.03  RMS  1.89  max  3.49
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  13.0%  P50  2.23  P90  3.53  RMS  2.35  max  4.24
+Geometrie=sym  Pulsbreite=true  Huber=   0 | Fit-Rest  5381 ns | alle: n=23 ung=0  <1mm  30.4%  P50  1.46  P90  3.01  RMS  1.89  max  3.82
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  13.0%  P50  2.06  P90  3.33  RMS  2.43  max  5.18
+Geometrie=sym  Pulsbreite=true  Huber=3000 | Fit-Rest  3814 ns | alle: n=23 ung=0  <1mm  43.5%  P50  1.21  P90  2.80  RMS  1.74  max  3.86
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  21.7%  P50  1.83  P90  3.12  RMS  2.23  max  4.98
+Geometrie=free Pulsbreite=true  Huber=   0 | Fit-Rest  4864 ns | alle: n=23 ung=0  <1mm  43.5%  P50  1.49  P90  2.95  RMS  1.87  max  3.35
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm  21.7%  P50  1.67  P90  4.18  RMS  2.51  max  5.08
+Geometrie=free Pulsbreite=true  Huber=3000 | Fit-Rest  3729 ns | alle: n=23 ung=0  <1mm  39.1%  P50  1.28  P90  2.70  RMS  1.73  max  3.48
+                                           | KREUZVALIDIERT       n=23 ung=0  <1mm   8.7%  P50  1.86  P90  3.22  RMS  2.31  max  4.49
+== Flankenlage relativ zur erwarteten Ankunft (us), [x] = von der Firmware gewaehlte erste Flanke, (w) Pulsbreite us
+acc1e961 #11 (   8.1/ -15.9)  M0: [-3.4(80)] | M1: [+2.3(83)] | M2: [+1.4(77)] | M3: [+0.0(86)] | M4: [-4.8(74)] | M5: [-7.9(75)]
+acc1e961 #7  ( -50.4/ -32.4)  M0: [-2.7(95)] | M1: [-0.6(73)] | M2: [+6.6(75)] | M3: [+0.0(75)] | M4: [+5.2(70)] | M5: [-0.1(70)]
+acc1e961 #6  (  -6.4/ -51.5)  M0: [-0.8(73)] | M1: [-4.3(70)] | M2: [+0.1(57)] | M3: [+0.0(86)] | M4: [+2.1(58)] | M5: [-0.9(52)]
+acc1e961 #5  (  36.8/ -42.5)  M0: [-2.8(63)] | M1: [+1.5(76)] | M2: [-3.6(59)] | M3: [+1.4(80)] | M4: [-0.7(50)] | M5: [+0.0(65)]
+acc1e961 #8  ( -56.8/   8.2)  M0: [-5.1(20)] +35.1(65) | M1: [+1.8(80)] | M2: [+1.6(76)] | M3: [-3.3(61)] | M4: [-0.5(65)] | M5: [+0.0(69)]
+acc1e961 #12 ( -17.2/ -16.8)  M0: [+2.3(79)] | M1: [+0.0(78)] | M2: [-4.7(34)] | M3: [+0.7(81)] | M4: [-3.3(42)] | M5: [-3.4(39)] +50.8(22)
+acc1e961 #9  ( -15.3/  14.9)  M0: [-3.7] +27.0(61) | M1: [+25.6(66)] | M2: [+0.0(63)] | M3: [-5.2(71)] | M4: [-0.1(38)] | M5: [+0.4(74)]
+acc1e961 #1  ( -47.4/  47.0)  M0: [-3.3(20)] +38.9(65) | M1: [-6.2(15)] +22.0(63) | M2: [-0.1(67)] | M3: [+0.0(42)] | M4: [+4.1(66)] | M5: [+0.6(70)]
+acc1e961 #3  (  39.5/  45.7)  M0: [+9.7(71)] | M1: [-4.6(23)] +36.8(58) | M2: [-1.3(47)] | M3: [-2.9(71)] | M4: [+0.0(53)] | M5: [+3.0(70)]
+acc1e961 #2  (  -7.5/  50.8)  M0: [-8.0(16)] +29.7(65) | M1: [-8.8(16)] +26.5(64) | M2: [+0.0(61)] | M3: [-0.5(57)] | M4: [+1.0(69)] | M5: [+2.1(69)]
+acc1e961 #10 (  25.2/  10.5)  M0: [+15.9(72)] | M1: [-8.2(89)] | M2: [+0.0(63)] | M3: [-4.6(74)] | M4: [+2.9(67)] | M5: [-3.2(41)] +46.7(20)
+6d11a607 #11 (  56.8/  -2.9)  M0: [+5.9(69)] | M1: [-3.8(21)] +37.2(65) | M2: [-3.7(65)] | M3: [+6.4(74)] | M4: [-1.8(73)] | M5: [+0.0(67)]
+6d11a607 #5  ( -52.7/ -11.0)  M0: [-2.6(28)] +30.4(66) | M1: [+1.1(72)] | M2: [+5.9(73)] | M3: [-2.8(71)] | M4: [+0.0(67)] | M5: [-1.4(70)]
+6d11a607 #2  (   7.1/  55.4)  M0: [+1.3(84)] | M1: [-6.2(89)] | M2: [-4.7(48)] | M3: [-3.9(50)] | M4: [+0.0(63)] | M5: [+1.2(61)]
+6d11a607 #3  (  52.2/  26.1)  M0: [+14.1(65)] | M1: [-1.4(21)] +41.9(35) | M2: [-3.0(58)] | M3: [+0.0(80)] | M4: [-3.8(66)] | M5: [+2.3(70)]
+6d11a607 #1  ( -50.1/  44.2)  M0: [+0.0(21)] +39.7(63) | M1: [+16.1(63)] | M2: [-7.2(69)] | M3: [-5.4(46)] | M4: [+0.2(68)] | M5: [-5.0(68)]
+6d11a607 #9  (  -0.2/ -21.5)  M0: [+4.6(73)] | M1: [+0.0(63)] | M2: [+2.5(100)] | M3: [-1.8(30)] +49.0(33) | M4: [-4.9(34)] | M5: [-7.7(32)] +57.0(14)
+6d11a607 #10 ( -22.1/  -4.0)  M0: [-3.8(82)] | M1: [+8.2(80)] | M2: [-4.4(37)] | M3: [+0.0(74)] | M4: [-8.5(60)] | M5: [+5.6(68)]
+6d11a607 #8  (  29.6/   2.5)  M0: [+8.5(86)] | M1: [-12.9(81)] | M2: [+0.0(36)] | M3: [-6.2(43)] +44.0(29) | M4: [+6.3(59)] | M5: [-8.7(37)]
+6d11a607 #7  (  21.1/  34.3)  M0: [-7.3(16)] +27.0(63) | M1: [-4.5(21)] +36.3(61) | M2: [+0.0(60)] | M3: [+1.9(72)] | M4: [-5.5(35)] +38.1(44) | M5: [+4.4(72)]
+6d11a607 #6  ( -22.3/  26.8)  M0: [-13.2(89)] | M1: [+29.6(67)] | M2: [+1.0(68)] | M3: [+0.0(63)] | M4: [-7.5(60)] | M5: [-1.2(73)]
+6d11a607 #4  (  43.1/ -38.5)  M0: [-3.8(71)] | M1: [+15.6(68)] | M2: [-5.9(73)] | M3: [+2.6(75)] | M4: [-8.5(80)] | M5: [+0.0(70)]
+Verteilung gewaehlte Flanke - erwartet (us gerundet): -13:2 -9:4 -8:5 -7:2 -6:5 -5:11 -4:10 -3:12 -2:2 -1:9 +0:29 +1:9 +2:10 +3:3 +4:2 +5:2 +6:5 +7:1 +8:2 +10:1 +14:1 +16:3 +26:1 +30:1
+== Zeitmerkmale (Modell sym, Huber 3000; KV = kreuzvalidiert)
+erste Flanke (Firmware)            fehlende Mics   0 | Rest  4147 ns | alle n=23 ung=0  <1mm  17.4%  P50  1.49  P90  2.87  RMS  1.90  max  3.78
+                                                     |            | KV   n=23 ung=0  <1mm  13.0%  P50  1.73  P90  3.32  RMS  2.14  max  4.01
+Hauptpuls Beginn (w>=35us)         fehlende Mics   4 | Rest  5093 ns | alle n=23 ung=0  <1mm  21.7%  P50  2.18  P90  4.02  RMS  2.74  max  6.50
+                                                     |            | KV   n=23 ung=0  <1mm   8.7%  P50  3.17  P90  4.62  RMS  3.48  max  7.13
+Hauptpuls Mitte (w>=35us)          fehlende Mics   4 | Rest  4929 ns | alle n=23 ung=0  <1mm  21.7%  P50  1.89  P90  4.94  RMS  2.90  max  5.67
+                                                     |            | KV   n=23 ung=0  <1mm  17.4%  P50  2.12  P90  4.62  RMS  2.98  max  5.67
+Hauptpuls Ende (w>=35us)           fehlende Mics   4 | Rest  5755 ns | alle n=23 ung=0  <1mm  26.1%  P50  2.67  P90  6.59  RMS  4.30  max 10.32
+                                                     |            | KV   n=23 ung=0  <1mm  21.7%  P50  2.93  P90  7.47  RMS  4.43  max 10.65
+Hauptpuls Beginn (w>=45us)         fehlende Mics  15 | Rest  5040 ns | alle n=23 ung=0  <1mm  21.7%  P50  2.24  P90  5.02  RMS  3.14  max  6.69
+                                                     |            | KV   n=23 ung=0  <1mm   8.7%  P50  3.34  P90  5.83  RMS  3.93  max  7.58
+Hauptpuls Mitte (w>=45us)          fehlende Mics  15 | Rest  4491 ns | alle n=23 ung=0  <1mm  13.0%  P50  2.41  P90  4.89  RMS  3.22  max  9.37
+                                                     |            | KV   n=23 ung=0  <1mm  26.1%  P50  2.14  P90  5.06  RMS  3.32  max  7.97
+Hauptpuls Ende (w>=45us)           fehlende Mics  15 | Rest  4753 ns | alle n=23 ung=0  <1mm  26.1%  P50  2.20  P90  5.93  RMS  5.02  max 18.43
+                                                     |            | KV   n=23 ung=0  <1mm  21.7%  P50  2.22  P90  5.51  RMS  4.88  max 17.08
+Hauptpuls Beginn (w>=55us)         fehlende Mics  22 | Rest  4998 ns | alle n=23 ung=0  <1mm  13.0%  P50  2.24  P90  5.35  RMS  4.94  max 18.41
+                                                     |            | KV   n=23 ung=0  <1mm   8.7%  P50  3.49  P90  5.57  RMS  5.11  max 17.77
+Hauptpuls Mitte (w>=55us)          fehlende Mics  22 | Rest  4498 ns | alle n=23 ung=0  <1mm  21.7%  P50  2.30  P90  5.34  RMS  3.89  max 10.01
+                                                     |            | KV   n=23 ung=0  <1mm  21.7%  P50  2.37  P90  5.55  RMS  4.00  max 10.41
+Hauptpuls Ende (w>=55us)           fehlende Mics  22 | Rest  4609 ns | alle n=23 ung=0  <1mm  26.1%  P50  2.07  P90  5.72  RMS  5.08  max 19.03
+                                                     |            | KV   n=23 ung=0  <1mm  21.7%  P50  2.31  P90  5.50  RMS  5.22  max 19.25
+== Innere Konsistenz (Rest ns): an eigener Loesung | an Fotoposition | Abstand Loesung-Foto mm
+acc1e961 #11    3208 |   3671 |  1.06
+acc1e961 #7     2503 |   2685 |  0.61
+acc1e961 #6     1776 |   2157 |  0.95
+acc1e961 #5     2033 |   2954 |  1.01
+acc1e961 #8     1660 |   1680 |  0.14
+acc1e961 #12    2464 |   2915 |  0.91
+acc1e961 #4     1806 |   2769 |  0.85
+acc1e961 #9     8390 |   9248 |  2.64
+acc1e961 #1     2046 |   4017 |  2.44
+acc1e961 #3     1172 |   2948 |  2.03
+acc1e961 #2     2673 |   4575 |  2.99
+acc1e961 #10    2993 |   7405 |  2.82
+6d11a607 #11    1426 |   1625 |  0.32
+6d11a607 #5      938 |   1473 |  0.54
+6d11a607 #2     1165 |   1434 |  0.68
+6d11a607 #3     2616 |   4442 |  2.51
+6d11a607 #1     5922 |   6853 |  2.02
+6d11a607 #9     2680 |   4117 |  1.24
+6d11a607 #10    1143 |   3599 |  1.49
+6d11a607 #8     2265 |   8327 |  3.13
+6d11a607 #7     2617 |   4372 |  2.24
+6d11a607 #6    11097 |  12374 |  2.18
+6d11a607 #4     4199 |   8318 |  3.37
+Mittel: an Loesung 3819 ns, an Fotoposition 5330 ns
+== Abstandsterm (Pegel) im Modell, Huber 3000
+mode=1 none+dkg  Rest  4324 | alle n=23 ung=0  <1mm  39.1%  P50  1.69  P90  3.44  RMS  2.17  max  4.85
+                   |            KV   n=23 ung=0  <1mm  39.1%  P50  1.57  P90  3.79  RMS  2.26  max  5.21
+mode=1 none+dk   Rest  4238 | alle n=23 ung=0  <1mm  30.4%  P50  1.86  P90  3.74  RMS  2.33  max  5.37
+                   |            KV   n=23 ung=0  <1mm  17.4%  P50  1.93  P90  3.82  RMS  2.47  max  4.58
+mode=1 sym+dkg   Rest  4130 | alle n=23 ung=0  <1mm  30.4%  P50  1.28  P90  2.82  RMS  1.91  max  4.01
+                   |            KV   n=23 ung=0  <1mm  21.7%  P50  1.40  P90  3.23  RMS  2.11  max  4.26
+mode=1 sym+dk    Rest  3955 | alle n=23 ung=0  <1mm  39.1%  P50  1.13  P90  2.94  RMS  1.90  max  4.06
+                   |            KV   n=23 ung=0  <1mm  17.4%  P50  1.42  P90  3.18  RMS  2.13  max  4.39
+mode=1 free+dkg  Rest  3837 | alle n=23 ung=0  <1mm  30.4%  P50  1.23  P90  2.80  RMS  1.81  max  3.56
+                   |            KV   n=23 ung=0  <1mm  13.0%  P50  2.06  P90  3.61  RMS  2.25  max  4.50
+mode=1 free+dk   Rest  3716 | alle n=23 ung=0  <1mm  39.1%  P50  1.23  P90  2.85  RMS  1.79  max  3.81
+                   |            KV   n=23 ung=0  <1mm  17.4%  P50  1.94  P90  3.09  RMS  2.14  max  4.08
+mode=2 none+dkg  Rest  4329 | alle n=23 ung=0  <1mm  39.1%  P50  1.70  P90  3.39  RMS  2.15  max  4.82
+                   |            KV   n=23 ung=0  <1mm  43.5%  P50  1.57  P90  3.75  RMS  2.25  max  5.22
+mode=2 none+dk   Rest  4271 | alle n=23 ung=0  <1mm  21.7%  P50  1.76  P90  3.66  RMS  2.24  max  4.90
+                   |            KV   n=23 ung=0  <1mm  17.4%  P50  2.19  P90  3.91  RMS  2.40  max  4.10
+mode=2 sym+dkg   Rest  4201 | alle n=23 ung=0  <1mm  21.7%  P50  1.57  P90  2.69  RMS  1.93  max  3.66
+                   |            KV   n=23 ung=0  <1mm  21.7%  P50  1.56  P90  3.41  RMS  2.19  max  4.13
+mode=2 sym+dk    Rest  4053 | alle n=23 ung=0  <1mm  30.4%  P50  1.31  P90  2.84  RMS  1.89  max  3.46
+                   |            KV   n=23 ung=0  <1mm  26.1%  P50  1.43  P90  3.29  RMS  2.10  max  4.06
+mode=2 free+dkg  Rest  4064 | alle n=23 ung=0  <1mm  26.1%  P50  1.55  P90  3.04  RMS  1.98  max  3.29
+                   |            KV   n=23 ung=0  <1mm  17.4%  P50  1.87  P90  3.43  RMS  2.25  max  4.19
+mode=2 free+dk   Rest  3809 | alle n=23 ung=0  <1mm  30.4%  P50  1.39  P90  2.97  RMS  1.83  max  3.45
+                   |            KV   n=23 ung=0  <1mm  17.4%  P50  2.13  P90  3.03  RMS  2.31  max  3.90
+== Lagekorrektur nach Modell (Fotomassstab "Schrauben"), Huber 3000, KV
+sym      none     Training n=23 ung=0  <1mm  34.8%  P50  1.74  P90  2.99  RMS  1.84  max  3.42
+                  KV       n=23 ung=0  <1mm  13.0%  P50  1.73  P90  3.32  RMS  2.14  max  4.01
+sym      shift    Training n=23 ung=0  <1mm  30.4%  P50  1.68  P90  2.99  RMS  1.84  max  3.47
+                  KV       n=23 ung=0  <1mm  26.1%  P50  1.67  P90  3.24  RMS  2.12  max  3.93
+sym      affine   Training n=23 ung=0  <1mm  30.4%  P50  1.51  P90  2.72  RMS  1.77  max  3.30
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.59  P90  3.41  RMS  2.18  max  3.78
+sym      quad     Training n=23 ung=0  <1mm  34.8%  P50  1.30  P90  2.18  RMS  1.51  max  3.08
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.45  P90  3.56  RMS  2.47  max  4.21
+sym      field10  Training n=23 ung=0  <1mm  34.8%  P50  1.25  P90  2.19  RMS  1.43  max  2.68
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.01  P90  2.99  RMS  2.14  max  3.70
+sym      field20  Training n=23 ung=0  <1mm  39.1%  P50  1.25  P90  2.19  RMS  1.42  max  2.68
+                  KV       n=23 ung=0  <1mm  26.1%  P50  1.90  P90  3.39  RMS  2.12  max  3.70
+sym+pr   none     Training n=23 ung=0  <1mm  34.8%  P50  1.57  P90  3.05  RMS  1.83  max  3.36
+                  KV       n=23 ung=0  <1mm  13.0%  P50  1.73  P90  3.28  RMS  2.16  max  4.10
+sym+pr   shift    Training n=23 ung=0  <1mm  26.1%  P50  1.68  P90  3.04  RMS  1.82  max  3.41
+                  KV       n=23 ung=0  <1mm  17.4%  P50  1.73  P90  3.10  RMS  2.14  max  3.98
+sym+pr   affine   Training n=23 ung=0  <1mm  30.4%  P50  1.49  P90  2.74  RMS  1.75  max  3.32
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.60  P90  3.30  RMS  2.20  max  3.84
+sym+pr   quad     Training n=23 ung=0  <1mm  34.8%  P50  1.29  P90  2.18  RMS  1.48  max  3.03
+                  KV       n=23 ung=0  <1mm   8.7%  P50  2.44  P90  3.64  RMS  2.49  max  4.09
+sym+pr   field10  Training n=23 ung=0  <1mm  34.8%  P50  1.17  P90  2.23  RMS  1.42  max  2.68
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.02  P90  2.97  RMS  2.15  max  3.76
+sym+pr   field20  Training n=23 ung=0  <1mm  39.1%  P50  1.19  P90  2.23  RMS  1.40  max  2.68
+                  KV       n=23 ung=0  <1mm  26.1%  P50  1.89  P90  3.27  RMS  2.13  max  3.76
+free     none     Training n=23 ung=0  <1mm  43.5%  P50  1.16  P90  2.80  RMS  1.66  max  3.58
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.23  P90  3.53  RMS  2.35  max  4.24
+free     shift    Training n=23 ung=0  <1mm  39.1%  P50  1.10  P90  2.74  RMS  1.65  max  3.42
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.15  P90  3.56  RMS  2.33  max  4.21
+free     affine   Training n=23 ung=0  <1mm  39.1%  P50  1.11  P90  2.53  RMS  1.62  max  3.41
+                  KV       n=23 ung=0  <1mm   8.7%  P50  2.18  P90  3.45  RMS  2.30  max  4.04
+free     quad     Training n=23 ung=0  <1mm  47.8%  P50  1.04  P90  1.78  RMS  1.26  max  2.85
+                  KV       n=23 ung=0  <1mm  17.4%  P50  2.06  P90  3.66  RMS  2.41  max  4.36
+free     field10  Training n=23 ung=0  <1mm  52.2%  P50  0.93  P90  2.28  RMS  1.31  max  2.58
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.19  P90  3.65  RMS  2.34  max  3.97
+free     field20  Training n=23 ung=0  <1mm  56.5%  P50  0.93  P90  2.28  RMS  1.32  max  2.58
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.13  P90  3.50  RMS  2.24  max  3.97
+free+pr  none     Training n=23 ung=0  <1mm  52.2%  P50  0.99  P90  3.17  RMS  1.68  max  3.88
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.36  P90  3.63  RMS  2.45  max  4.26
+free+pr  shift    Training n=23 ung=0  <1mm  43.5%  P50  1.01  P90  2.95  RMS  1.67  max  3.70
+                  KV       n=23 ung=0  <1mm  17.4%  P50  2.30  P90  3.73  RMS  2.42  max  4.17
+free+pr  affine   Training n=23 ung=0  <1mm  47.8%  P50  1.00  P90  2.59  RMS  1.62  max  3.63
+                  KV       n=23 ung=0  <1mm   4.3%  P50  2.23  P90  3.83  RMS  2.35  max  4.00
+free+pr  quad     Training n=23 ung=0  <1mm  47.8%  P50  1.02  P90  1.81  RMS  1.28  max  3.04
+                  KV       n=23 ung=0  <1mm  13.0%  P50  1.99  P90  3.84  RMS  2.44  max  4.39
+free+pr  field10  Training n=23 ung=0  <1mm  52.2%  P50  0.84  P90  2.21  RMS  1.32  max  3.02
+                  KV       n=23 ung=0  <1mm  21.7%  P50  2.37  P90  3.76  RMS  2.40  max  4.01
+free+pr  field20  Training n=23 ung=0  <1mm  56.5%  P50  0.84  P90  2.21  RMS  1.33  max  3.02
+                  KV       n=23 ung=0  <1mm  17.4%  P50  2.09  P90  3.54  RMS  2.31  max  4.01
+== Lagekorrektur nach Modell (Fotomassstab "Innenkreis 30,5"), Huber 3000, KV
+sym      none     Training n=23 ung=0  <1mm  34.8%  P50  1.72  P90  3.08  RMS  1.86  max  3.46
+                  KV       n=23 ung=0  <1mm  13.0%  P50  1.78  P90  3.29  RMS  2.16  max  4.16
+sym      shift    Training n=23 ung=0  <1mm  26.1%  P50  1.68  P90  3.08  RMS  1.85  max  3.52
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.70  P90  3.13  RMS  2.15  max  4.07
+sym      affine   Training n=23 ung=0  <1mm  30.4%  P50  1.52  P90  2.72  RMS  1.79  max  3.35
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.67  P90  3.37  RMS  2.21  max  3.91
+sym      quad     Training n=23 ung=0  <1mm  34.8%  P50  1.29  P90  2.18  RMS  1.52  max  3.12
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.47  P90  3.67  RMS  2.52  max  4.16
+sym      field10  Training n=23 ung=0  <1mm  34.8%  P50  1.24  P90  2.21  RMS  1.44  max  2.68
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.05  P90  2.99  RMS  2.17  max  3.84
+sym      field20  Training n=23 ung=0  <1mm  39.1%  P50  1.24  P90  2.21  RMS  1.43  max  2.68
+                  KV       n=23 ung=0  <1mm  26.1%  P50  2.06  P90  3.31  RMS  2.18  max  3.84
+sym+pr   none     Training n=23 ung=0  <1mm  34.8%  P50  1.58  P90  3.16  RMS  1.85  max  3.40
+                  KV       n=23 ung=0  <1mm  17.4%  P50  1.86  P90  3.12  RMS  2.16  max  4.36
+sym+pr   shift    Training n=23 ung=0  <1mm  30.4%  P50  1.62  P90  3.15  RMS  1.84  max  3.45
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.67  P90  2.95  RMS  2.14  max  4.24
+sym+pr   affine   Training n=23 ung=0  <1mm  30.4%  P50  1.52  P90  2.75  RMS  1.78  max  3.39
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.67  P90  3.22  RMS  2.21  max  4.04
+sym+pr   quad     Training n=23 ung=0  <1mm  34.8%  P50  1.30  P90  2.23  RMS  1.51  max  3.06
+                  KV       n=23 ung=0  <1mm   8.7%  P50  2.38  P90  3.60  RMS  2.52  max  4.25
+sym+pr   field10  Training n=23 ung=0  <1mm  34.8%  P50  1.23  P90  2.28  RMS  1.43  max  2.66
+                  KV       n=23 ung=0  <1mm  17.4%  P50  2.03  P90  3.04  RMS  2.16  max  3.97
+sym+pr   field20  Training n=23 ung=0  <1mm  39.1%  P50  1.23  P90  2.28  RMS  1.42  max  2.66
+                  KV       n=23 ung=0  <1mm  26.1%  P50  2.03  P90  3.15  RMS  2.17  max  3.97
+free     none     Training n=23 ung=0  <1mm  47.8%  P50  1.07  P90  2.84  RMS  1.68  max  3.61
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.24  P90  3.53  RMS  2.38  max  4.26
+free     shift    Training n=23 ung=0  <1mm  34.8%  P50  1.13  P90  2.85  RMS  1.66  max  3.45
+                  KV       n=23 ung=0  <1mm   8.7%  P50  2.06  P90  3.63  RMS  2.36  max  4.23
+free     affine   Training n=23 ung=0  <1mm  43.5%  P50  1.16  P90  2.60  RMS  1.62  max  3.46
+                  KV       n=23 ung=0  <1mm   8.7%  P50  2.32  P90  3.47  RMS  2.33  max  4.02
+free     quad     Training n=23 ung=0  <1mm  47.8%  P50  1.08  P90  1.80  RMS  1.27  max  2.88
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.14  P90  3.57  RMS  2.45  max  4.34
+free     field10  Training n=23 ung=0  <1mm  56.5%  P50  0.88  P90  2.23  RMS  1.31  max  2.64
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.16  P90  3.67  RMS  2.37  max  3.99
+free     field20  Training n=23 ung=0  <1mm  52.2%  P50  0.98  P90  2.23  RMS  1.33  max  2.64
+                  KV       n=23 ung=0  <1mm  13.0%  P50  2.25  P90  3.41  RMS  2.31  max  3.99
+free+pr  none     Training n=23 ung=0  <1mm  43.5%  P50  1.04  P90  2.28  RMS  1.51  max  3.25
+                  KV       n=23 ung=0  <1mm  17.4%  P50  1.98  P90  3.35  RMS  2.26  max  4.56
+free+pr  shift    Training n=23 ung=0  <1mm  34.8%  P50  1.16  P90  2.32  RMS  1.50  max  3.13
+                  KV       n=23 ung=0  <1mm  26.1%  P50  1.88  P90  3.35  RMS  2.23  max  4.53
+free+pr  affine   Training n=23 ung=0  <1mm  39.1%  P50  1.11  P90  2.23  RMS  1.46  max  3.08
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.98  P90  3.13  RMS  2.22  max  4.34
+free+pr  quad     Training n=23 ung=0  <1mm  52.2%  P50  0.95  P90  1.73  RMS  1.21  max  2.72
+                  KV       n=23 ung=0  <1mm  17.4%  P50  2.11  P90  3.79  RMS  2.43  max  4.60
+free+pr  field10  Training n=23 ung=0  <1mm  56.5%  P50  0.89  P90  1.99  RMS  1.18  max  2.42
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.99  P90  3.30  RMS  2.27  max  4.28
+free+pr  field20  Training n=23 ung=0  <1mm  56.5%  P50  0.92  P90  1.99  RMS  1.20  max  2.42
+                  KV       n=23 ung=0  <1mm  21.7%  P50  1.99  P90  3.30  RMS  2.21  max  4.28
+== Rauschgrenze: Zeitstreuung (Normalverteilung je Mic) -> Lagefehler, Lagen wie Referenzschuesse, 6 Mics
+sigma   250 ns: n=4600 ung=0  <1mm 100.0%  P50  0.07  P90  0.13  RMS  0.09  max  0.29
+sigma   500 ns: n=4600 ung=0  <1mm 100.0%  P50  0.13  P90  0.26  RMS  0.17  max  0.61
+sigma   750 ns: n=4600 ung=0  <1mm 100.0%  P50  0.20  P90  0.39  RMS  0.25  max  0.79
+sigma  1000 ns: n=4600 ung=0  <1mm  99.9%  P50  0.27  P90  0.53  RMS  0.34  max  1.15
+sigma  1500 ns: n=4600 ung=0  <1mm  96.6%  P50  0.40  P90  0.78  RMS  0.50  max  1.60
+sigma  2000 ns: n=4600 ung=0  <1mm  86.6%  P50  0.54  P90  1.08  RMS  0.69  max  2.37
+sigma  3000 ns: n=4600 ung=0  <1mm  64.1%  P50  0.82  P90  1.56  RMS  1.02  max  4.00
+sigma  4000 ns: n=4600 ung=0  <1mm  45.9%  P50  1.06  P90  2.08  RMS  1.35  max  4.67
+sigma  5000 ns: n=4600 ung=0  <1mm  32.7%  P50  1.34  P90  2.60  RMS  1.69  max  5.29
+gemessen (Rest an Fotolage, Modell sym): sigma ~ 6397 ns
+== Robuste Mic-Auswahl (Modell sym an allen, in-sample)
+Schwelle    0 ns ( 0 Schuesse mit 5 Mics): n=23 ung=0  <1mm  21.7%  P50  1.40  P90  3.64  RMS  2.06  max  3.80
+Schwelle 1500 ns (21 Schuesse mit 5 Mics): n=23 ung=0  <1mm  21.7%  P50  1.58  P90  3.44  RMS  2.08  max  3.99
+Schwelle 2500 ns (15 Schuesse mit 5 Mics): n=23 ung=0  <1mm  21.7%  P50  1.58  P90  3.20  RMS  2.00  max  3.99
+Schwelle 4000 ns ( 7 Schuesse mit 5 Mics): n=23 ung=0  <1mm  26.1%  P50  1.23  P90  3.20  RMS  1.89  max  3.67
+== Selbstkalibrierung ohne Foto (Huber 3000), bewertet an den 23 Fotoschuessen
+Nutzer-Kalibrierung        n=23 ung=0  <1mm   4.3%  P50  3.14  P90  5.34  RMS  3.50  max  5.53 | mit Verschiebung n=23 ung=0  <1mm   8.7%  P50  2.03  P90  3.14  RMS  2.46  max  4.76
+302ee29e (42)      none  Rest  1489 | n=23 ung=0  <1mm   0.0%  P50  8.61  P90 10.78  RMS  8.69  max 11.94 | mit Verschiebung n=23 ung=0  <1mm   8.7%  P50  3.02  P90  4.20  RMS  3.05  max  4.77
+302ee29e (42)      sym   Rest  1489 | n=23 ung=0  <1mm   0.0%  P50  7.97  P90 10.43  RMS  7.72  max 10.77 | mit Verschiebung n=23 ung=0  <1mm   8.7%  P50  5.40  P90  8.62  RMS  6.09  max  9.29
+302ee29e (42)      free  Rest  1318 | n=23 ung=0  <1mm   0.0%  P50  2.51  P90  5.72  RMS  3.70  max  8.07 | mit Verschiebung n=23 ung=0  <1mm   0.0%  P50  3.05  P90  5.18  RMS  3.62  max  7.31
+302ee29e+Ref (65)  none  Rest  2695 | n=23 ung=0  <1mm   8.7%  P50  3.93  P90  5.65  RMS  4.15  max  6.90 | mit Verschiebung n=23 ung=0  <1mm   4.3%  P50  2.63  P90  3.82  RMS  2.70  max  4.48
+302ee29e+Ref (65)  sym   Rest  2456 | n=23 ung=0  <1mm   0.0%  P50 16.95  P90 28.17  RMS 18.15  max 29.97 | mit Verschiebung n=23 ung=0  <1mm   4.3%  P50 14.99  P90 27.36  RMS 17.75  max 29.44
+302ee29e+Ref (65)  free  Rest  2241 | n=23 ung=0  <1mm   0.0%  P50 85.07  P90 88.29  RMS 84.93  max 90.15 | mit Verschiebung n=23 ung=0  <1mm   0.0%  P50  2.80  P90  4.93  RMS  3.46  max  7.18
+== Innerer Rest je Serie (Nutzer-Kalibrierung, Huber 0): Median / P90 ns, Lagebereich
+acc1e961 n=12  Rest Median  3037 P90  6848 | Abstand Mitte Median 54.2 mm, max 69.4
+6d11a607 n=11  Rest Median  4178 P90  8334 | Abstand Mitte Median 53.0 mm, max 73.4
+302ee29e n=42  Rest Median  4060 P90  4733 | Abstand Mitte Median  6.9 mm, max 18.1
+== Mic-Anordnung (Standoff 30 mm): M0(-114/-85) M1(114/-85) M2(-114/85) M3(114/85) M4(-114/0) M5(114/0)
+grobe Fehler  0% sigma  500 ns  6 Mics heute  n=20000 ung=0  <1mm 100.0%  P50  0.13  P90  0.26  RMS  0.17  max  0.65
+grobe Fehler  0% sigma  500 ns  4 Mics Ecken  n=20000 ung=0  <1mm 100.0%  P50  0.15  P90  0.28  RMS  0.19  max  0.69
+grobe Fehler  0% sigma  500 ns  4 Mics Raute  n=20000 ung=0  <1mm 100.0%  P50  0.15  P90  0.28  RMS  0.18  max  0.58
+grobe Fehler  0% sigma 1000 ns  6 Mics heute  n=20000 ung=0  <1mm  99.9%  P50  0.27  P90  0.53  RMS  0.34  max  1.22
+grobe Fehler  0% sigma 1000 ns  4 Mics Ecken  n=20000 ung=0  <1mm  99.8%  P50  0.31  P90  0.56  RMS  0.37  max  1.33
+grobe Fehler  0% sigma 1000 ns  4 Mics Raute  n=20000 ung=0  <1mm 100.0%  P50  0.30  P90  0.55  RMS  0.36  max  1.24
+grobe Fehler  0% sigma 1500 ns  6 Mics heute  n=20000 ung=0  <1mm  97.0%  P50  0.40  P90  0.79  RMS  0.51  max  1.92
+grobe Fehler  0% sigma 1500 ns  4 Mics Ecken  n=20000 ung=0  <1mm  95.7%  P50  0.46  P90  0.84  RMS  0.56  max  1.91
+grobe Fehler  0% sigma 1500 ns  4 Mics Raute  n=20000 ung=0  <1mm  96.6%  P50  0.45  P90  0.83  RMS  0.54  max  1.79
+grobe Fehler  0% sigma 2000 ns  6 Mics heute  n=20000 ung=0  <1mm  87.9%  P50  0.54  P90  1.05  RMS  0.68  max  2.44
+grobe Fehler  0% sigma 2000 ns  4 Mics Ecken  n=20000 ung=0  <1mm  83.7%  P50  0.61  P90  1.13  RMS  0.74  max  2.73
+grobe Fehler  0% sigma 2000 ns  4 Mics Raute  n=20000 ung=0  <1mm  84.9%  P50  0.60  P90  1.11  RMS  0.73  max  2.26
+grobe Fehler  0% sigma 3000 ns  6 Mics heute  n=20000 ung=0  <1mm  63.2%  P50  0.82  P90  1.59  RMS  1.03  max  3.63
+grobe Fehler  0% sigma 3000 ns  4 Mics Ecken  n=20000 ung=0  <1mm  55.7%  P50  0.92  P90  1.71  RMS  1.12  max  3.57
+grobe Fehler  0% sigma 3000 ns  4 Mics Raute  n=20000 ung=0  <1mm  57.2%  P50  0.91  P90  1.64  RMS  1.09  max  3.60
+grobe Fehler  3% sigma  500 ns  6 Mics heute  n=20000 ung=0  <1mm  85.4%  P50  0.16  P90  1.61  RMS  0.89  max  8.57
+grobe Fehler  3% sigma  500 ns  4 Mics Ecken  n=20000 ung=0  <1mm  87.9%  P50  0.17  P90  2.27  RMS  1.36  max  7.96
+grobe Fehler  3% sigma  500 ns  4 Mics Raute  n=20000 ung=0  <1mm  88.1%  P50  0.17  P90  2.21  RMS  1.31  max  7.14
+grobe Fehler  3% sigma 1000 ns  6 Mics heute  n=20000 ung=0  <1mm  85.2%  P50  0.31  P90  1.62  RMS  0.96  max  9.27
+grobe Fehler  3% sigma 1000 ns  4 Mics Ecken  n=20000 ung=0  <1mm  88.5%  P50  0.34  P90  2.15  RMS  1.37  max  8.51
+grobe Fehler  3% sigma 1000 ns  4 Mics Raute  n=20000 ung=0  <1mm  88.4%  P50  0.33  P90  2.15  RMS  1.31  max  7.54
+grobe Fehler  3% sigma 1500 ns  6 Mics heute  n=20000 ung=0  <1mm  82.7%  P50  0.48  P90  1.61  RMS  1.03  max  9.38
+grobe Fehler  3% sigma 1500 ns  4 Mics Ecken  n=20000 ung=0  <1mm  85.0%  P50  0.50  P90  2.06  RMS  1.41  max  8.66
+grobe Fehler  3% sigma 1500 ns  4 Mics Raute  n=20000 ung=0  <1mm  85.5%  P50  0.49  P90  2.17  RMS  1.39  max  7.91
+grobe Fehler  3% sigma 2000 ns  6 Mics heute  n=20000 ung=0  <1mm  75.4%  P50  0.62  P90  1.72  RMS  1.15  max  8.80
+grobe Fehler  3% sigma 2000 ns  4 Mics Ecken  n=20000 ung=0  <1mm  74.2%  P50  0.67  P90  2.14  RMS  1.52  max  8.79
+grobe Fehler  3% sigma 2000 ns  4 Mics Raute  n=20000 ung=0  <1mm  75.2%  P50  0.66  P90  2.17  RMS  1.48  max  7.89
+grobe Fehler  3% sigma 3000 ns  6 Mics heute  n=20000 ung=0  <1mm  54.1%  P50  0.93  P90  2.17  RMS  1.43  max  9.02
+grobe Fehler  3% sigma 3000 ns  4 Mics Ecken  n=20000 ung=0  <1mm  50.4%  P50  0.99  P90  2.36  RMS  1.71  max  9.76
+grobe Fehler  3% sigma 3000 ns  4 Mics Raute  n=20000 ung=0  <1mm  50.6%  P50  0.99  P90  2.37  RMS  1.69  max  8.80
+== Pulsbreite vs Abstand Treffer-Mic (w1 = erster Puls, wmax = breitester Puls <=100us danach), us
+Foto (23)     M0 n=22 Abstand  88-204 mm | w1 min   16 med   71 max   95 | w1 =  62.8 -0.014*d (r=-0.02) | wmax -0.075/mm (r=-0.25)
+Foto (23)     M1 n=22 Abstand  90-211 mm | w1 min   15 med   70 max   89 | w1 =  71.4 -0.076*d (r=-0.10) | wmax -0.006/mm (r=-0.02)
+Foto (23)     M2 n=22 Abstand  82-202 mm | w1 min   34 med   63 max  100 | w1 =  68.2 -0.043*d (r=-0.10) | wmax -0.043/mm (r=-0.10)
+Foto (23)     M3 n=22 Abstand  89-204 mm | w1 min   30 med   72 max   86 | w1 =  67.6 -0.006*d (r=-0.01) | wmax -0.005/mm (r=-0.01)
+Foto (23)     M4 n=22 Abstand  65-173 mm | w1 min   34 med   65 max   80 | w1 =  60.0 -0.001*d (r=-0.00) | wmax +0.007/mm (r=+0.02)
+Foto (23)     M5 n=22 Abstand  65-174 mm | w1 min   32 med   69 max   75 | w1 =  54.1 +0.070*d (r=+0.18) | wmax +0.070/mm (r=+0.18)
+Foto (23)     alle n=132: w1 -0.009 us/mm (r=-0.02), wmax +0.030 us/mm (r=+0.08)
+   Abstand  60- 80 mm: n=  5  w1 P10   65 Median   67 P90   70  | Vorpuls (<30us)  0%
+   Abstand  80-100 mm: n= 15  w1 P10   41 Median   68 P90   80  | Vorpuls (<30us)  0%
+   Abstand 100-120 mm: n= 18  w1 P10   21 Median   68 P90   75  | Vorpuls (<30us) 17%
+   Abstand 120-140 mm: n= 26  w1 P10   37 Median   68 P90   82  | Vorpuls (<30us)  4%
+   Abstand 140-160 mm: n= 68  w1 P10   21 Median   68 P90   84  | Vorpuls (<30us) 12%
+302ee29e (42) M0 n=42 Abstand 130-155 mm | w1 min   29 med   68 max   75 | w1 = -174.1 +1.640*d (r=+0.82) | wmax -0.511/mm (r=-0.61)
+302ee29e (42) M1 n=42 Abstand 141-151 mm | w1 min   18 med   68 max   80 | w1 = -194.6 +1.769*d (r=+0.48) | wmax +1.581/mm (r=+0.47)
+302ee29e (42) M2 n=42 Abstand 139-152 mm | w1 min   61 med   64 max   90 | w1 = -82.5 +1.033*d (r=+0.55) | wmax +1.033/mm (r=+0.55)
+302ee29e (42) M3 n=42 Abstand 136-161 mm | w1 min   25 med   69 max  143 | w1 = 350.9 -1.945*d (r=-0.37) | wmax -0.963/mm (r=-0.20)
+302ee29e (42) M4 n=42 Abstand 113-121 mm | w1 min   36 med   65 max   78 | w1 = -135.5 +1.701*d (r=+0.54) | wmax +1.701/mm (r=+0.54)
+302ee29e (42) M5 n=42 Abstand 115-125 mm | w1 min   27 med   66 max   69 | w1 = 249.8 -1.565*d (r=-0.51) | wmax +0.847/mm (r=+0.54)
+302ee29e (42) alle n=252: w1 +0.116 us/mm (r=+0.16), wmax +0.109 us/mm (r=+0.17)
+   Abstand 100-120 mm: n= 71  w1 P10   63 Median   65 P90   68  | Vorpuls (<30us)  0%
+   Abstand 120-140 mm: n= 19  w1 P10   29 Median   66 P90   69  | Vorpuls (<30us) 11%
+   Abstand 140-160 mm: n=162  w1 P10   63 Median   68 P90   72  | Vorpuls (<30us)  1%
+== Papierlagen: je Schuss nach |x| sortiert (Modell sym an Foto)
+6d11a607 #9  x   -0.2 y  -21.5  innen  3587 ns  Foto  1.08 mm  Vorpulse 0  Breitenspanne  69 us
+acc1e961 #6  x   -6.4 y  -51.5  innen   900 ns  Foto  1.06 mm  Vorpulse 0  Breitenspanne  34 us
+6d11a607 #2  x    7.1 y   55.4  innen  2734 ns  Foto  0.86 mm  Vorpulse 0  Breitenspanne  40 us
+acc1e961 #2  x   -7.5 y   50.8  innen  3281 ns  Foto  2.27 mm  Vorpulse 2  Breitenspanne  53 us
+acc1e961 #11 x    8.1 y  -15.9  innen  3623 ns  Foto  0.21 mm  Vorpulse 0  Breitenspanne  12 us
+acc1e961 #9  x  -15.3 y   14.9  innen  8463 ns  Foto  3.80 mm  Vorpulse 0  Breitenspanne  74 us
+acc1e961 #12 x  -17.2 y  -16.8  innen  2025 ns  Foto  1.09 mm  Vorpulse 0  Breitenspanne  47 us
+6d11a607 #7  x   21.1 y   34.3  innen  2135 ns  Foto  2.17 mm  Vorpulse 2  Breitenspanne  56 us
+6d11a607 #10 x  -22.1 y   -4.0  innen  1971 ns  Foto  2.37 mm  Vorpulse 0  Breitenspanne  45 us
+6d11a607 #6  x  -22.3 y   26.8  innen 11355 ns  Foto  3.08 mm  Vorpulse 0  Breitenspanne  29 us
+acc1e961 #10 x   25.2 y   10.5  innen  5078 ns  Foto  2.58 mm  Vorpulse 0  Breitenspanne  48 us
+6d11a607 #8  x   29.6 y    2.5  innen  3318 ns  Foto  2.80 mm  Vorpulse 0  Breitenspanne  50 us
+acc1e961 #5  x   36.8 y  -42.5  innen  1121 ns  Foto  0.65 mm  Vorpulse 0  Breitenspanne  30 us
+acc1e961 #3  x   39.5 y   45.7  innen  4079 ns  Foto  1.40 mm  Vorpulse 1  Breitenspanne  49 us
+6d11a607 #4  x   43.1 y  -38.5  innen  3266 ns  Foto  3.67 mm  Vorpulse 0  Breitenspanne  11 us
+acc1e961 #1  x  -47.4 y   47.0  innen  2770 ns  Foto  1.01 mm  Vorpulse 2  Breitenspanne  55 us
+6d11a607 #1  x  -50.1 y   44.2  innen  5759 ns  Foto  3.64 mm  Vorpulse 1  Breitenspanne  49 us
+acc1e961 #7  x  -50.4 y  -32.4  innen  1505 ns  Foto  1.89 mm  Vorpulse 0  Breitenspanne  25 us
+6d11a607 #3  x   52.2 y   26.1  innen  5586 ns  Foto  1.55 mm  Vorpulse 1  Breitenspanne  59 us
+acc1e961 #4  x   52.4 y    0.1  innen  2639 ns  Foto  1.23 mm  Vorpulse 0  Breitenspanne   0 us
+6d11a607 #5  x  -52.7 y  -11.0  innen  2381 ns  Foto  1.07 mm  Vorpulse 1  Breitenspanne  45 us
+acc1e961 #8  x  -56.8 y    8.2  innen  2317 ns  Foto  0.62 mm  Vorpulse 1  Breitenspanne  59 us
+6d11a607 #11 x   56.8 y   -2.9  innen  4029 ns  Foto  0.77 mm  Vorpulse 1  Breitenspanne  53 us
+Foto 15-35   n= 7  innerer Rest Median  3318 ns | Fotofehler Median  2.58 mm | Vorpulse je Schuss 0.29
+Foto 35-55   n= 9  innerer Rest Median  2770 ns | Fotofehler Median  1.40 mm | Vorpulse je Schuss 0.67
+Foto >55     n= 2  innerer Rest Median  4029 ns | Fotofehler Median  0.77 mm | Vorpulse je Schuss 1.00
+Foto |x|<15  n= 5  innerer Rest Median  3281 ns | Fotofehler Median  1.06 mm | Vorpulse je Schuss 0.40
+Rita |x|<15  n=42  innerer Rest Median  3758 ns | Fotofehler Median   NaN mm | Vorpulse je Schuss 0.10
+Rita (42) Nutzer-Kalibrierung  Rest je Mic Mittel±Streuung ns: M0 +3881±1545  M1 +1985±1598  M2 +2082±2646  M3 +3370±2334  M4 -5851±3268  M5 -5467±2970 | innerer Rest P10 3734 Median 4060 P90 4733
+Rita (42) Modell sym an Foto   Rest je Mic Mittel±Streuung ns: M0 +2032±1533  M1 +3157±1506  M2 +2094±2692  M3 +2871±2384  M4 -4290±3323  M5 -5864±2952 | innerer Rest P10 3405 Median 3758 P90 4412
+Rita: Offsets aus 1. Haelfte selbstkalibriert (Aenderung ns: +0 -175647 +160115 -75278 +85500 -155632) -> 2. Haelfte innerer Rest P10  756 Median 1143 P90 1739 | Lageverschiebung ggue. Modell sym Median 58.44 mm max 58.71
+== Zentrums-Serie: Massstabsgroessen selbstkalibriert (Basis Modell sym an Foto: C 338.8 m/s, MICHALFX 131.4, MICHALFY 93.5, Standoff 28.8)
+                       -> C 338.8 m/s MICHALFX 131.4 MICHALFY 93.5 Standoff 28.8 | 2. Haelfte innerer Rest Median 3829 P90 4481 | Lage ggue. Basis Median 0.00 mm
+C                      -> C 312.3 m/s MICHALFX 131.4 MICHALFY 93.5 Standoff 28.8 | 2. Haelfte innerer Rest Median 1176 P90 1601 | Lage ggue. Basis Median 0.30 mm
+STANDOFF               -> C 338.8 m/s MICHALFX 131.4 MICHALFY 93.5 Standoff -0.0 | 2. Haelfte innerer Rest Median 3078 P90 3692 | Lage ggue. Basis Median 0.06 mm
+MICHALFX               -> C 338.8 m/s MICHALFX 117.9 MICHALFY 93.5 Standoff 28.8 | 2. Haelfte innerer Rest Median 1232 P90 1608 | Lage ggue. Basis Median 0.23 mm
+MICHALFX+MICHALFY      -> C 338.8 m/s MICHALFX 28.9 MICHALFY 60.8 Standoff 28.8 | 2. Haelfte innerer Rest Median 1236 P90 2197 | Lage ggue. Basis Median 1.50 mm
+C+STANDOFF             -> C 322.4 m/s MICHALFX 131.4 MICHALFY 93.5 Standoff -0.2 | 2. Haelfte innerer Rest Median 1441 P90 1739 | Lage ggue. Basis Median 0.25 mm
+C+MICHALFY             -> C 1736.4 m/s MICHALFX 131.4 MICHALFY 266.3 Standoff 28.8 | 2. Haelfte innerer Rest Median 1335 P90 2816 | Lage ggue. Basis Median 11.34 mm
+== Zentrumsmodell (C 311.4 m/s aus Rita) an Fotoschuessen
+Radius <=  20 mm: Modell sym n= 1 ung=0  <1mm 100.0%  P50  0.21  P90  0.21  RMS  0.21  max  0.21
+                  Zentrumsmodell n= 1 ung=0  <1mm   0.0%  P50  1.20  P90  1.20  RMS  1.20  max  1.20
+Radius <=  35 mm: Modell sym n= 8 ung=0  <1mm  12.5%  P50  2.37  P90  3.80  RMS  2.41  max  3.80
+                  Zentrumsmodell n= 8 ung=0  <1mm  25.0%  P50  1.20  P90  2.55  RMS  1.67  max  2.55
+Radius <= 100 mm: Modell sym n=23 ung=0  <1mm  21.7%  P50  1.40  P90  3.64  RMS  2.06  max  3.80
+                  Zentrumsmodell n=23 ung=0  <1mm   8.7%  P50  3.61  P90  6.04  RMS  4.06  max  7.82
+== Zonen nach Papierlagen (Foto-Schuesse; Mitte hat keine Foto-Schuesse)
+Band (2 Lagen)        n=15 innerer Rest Median  3281 | Rest an Fotolage Median  4359 | Vorpulse je Schuss 0.33 | Fehler (Modell alle) n=15 ung=0  <1mm  20.0%  P50  2.17  P90  3.67  RMS  2.22  max  3.80
+                      Rest je Mic an Fotolage (Mittel±Streuung ns): M0  +344±7491  M1 +2859±11045  M2  -675±2864  M3  -604±3249  M4 -1469±4709  M5  -455±4158
+aussen (nur Scheibe)  n= 8 innerer Rest Median  2770 | Rest an Fotolage Median  3694 | Vorpulse je Schuss 0.88 | Fehler (Modell alle) n= 8 ung=0  <1mm  25.0%  P50  1.07  P90  3.64  RMS  1.73  max  3.64
+                      Rest je Mic an Fotolage (Mittel±Streuung ns): M0 +1233±5593  M1  -204±6944  M2  -131±4383  M3  -772±3050  M4  +544±3049  M5  -670±1858
+-- Modell nur an der eigenen Zone angepasst (Leave-one-out) bzw. an der anderen Zone
+Band (2 Lagen)        none eigene Zone LOO n=15 ung=0  <1mm  13.3%  P50  2.68  P90  4.50  RMS  2.77  max  4.57
+                           andere Zone     n=15 ung=0  <1mm   6.7%  P50  2.45  P90  3.86  RMS  2.74  max  5.31
+Band (2 Lagen)        sym  eigene Zone LOO n=15 ung=0  <1mm   6.7%  P50  2.55  P90  4.04  RMS  2.64  max  4.23
+                           andere Zone     n=15 ung=0  <1mm  26.7%  P50  2.30  P90  3.76  RMS  2.44  max  4.43
+aussen (nur Scheibe)  none eigene Zone LOO n= 8 ung=0  <1mm  50.0%  P50  0.83  P90  3.35  RMS  1.67  max  3.35
+                           andere Zone     n= 8 ung=0  <1mm  25.0%  P50  1.32  P90  2.90  RMS  1.74  max  2.90
+aussen (nur Scheibe)  sym  eigene Zone LOO n= 8 ung=0  <1mm  37.5%  P50  1.44  P90  4.10  RMS  2.28  max  4.10
+                           andere Zone     n= 8 ung=0  <1mm  25.0%  P50  1.23  P90  3.79  RMS  1.86  max  3.79
+== Zonen-Kalibrierung Serie 0342fdff (Fotomassstab Schrauben 141,5), Simulator-Loeser
+Nutzer-Kalibrierung   A Loch (nur Band)  n=12 ung=0  <1mm   0.0%  P50  3.78  P90  5.27  RMS  4.06  max  5.33
+Nutzer-Kalibrierung   B neben Band       n=10 ung=0  <1mm   0.0%  P50  2.75  P90  3.36  RMS  2.84  max  3.45
+Nutzer-Kalibrierung   C Band+Vorsatz     n= 7 ung=0  <1mm  57.1%  P50  0.77  P90  1.66  RMS  1.01  max  1.66
+[Schall+Geometrie+Ver] gemeinsam an allen    A Loch (nur Band)  n=12 ung=0  <1mm   0.0%  P50  3.10  P90  3.51  RMS  2.89  max  3.79
+[Schall+Geometrie+Ver] gemeinsam an allen    B neben Band       n=10 ung=0  <1mm  20.0%  P50  1.27  P90  2.24  RMS  1.57  max  2.62
+[Schall+Geometrie+Ver] gemeinsam an allen    C Band+Vorsatz     n= 7 ung=0  <1mm  28.6%  P50  1.52  P90  2.55  RMS  1.49  max  2.55
+[Schall+Geometrie+Ver] gemeinsam: Schall 324.9 MICHALFX 121.1 Standoff 50.4 Offsets [0 485 2734 -644 -770 -7888] Verschiebung 0.94/-2.29
+[Schall+Geometrie+Ver] eigene Zone   A Loch (nur Band)  angepasst n=12 ung=0  <1mm  50.0%  P50  0.94  P90  3.03  RMS  1.77  max  3.73
+[Schall+Geometrie+Ver]                                  LOO       n=12 ung=0  <1mm  50.0%  P50  0.87  P90  1.93  RMS  1.81  max  4.78
+[Schall+Geometrie+Ver]                                  Schall 276.6 MICHALFX 121.3 Standoff 106.8 Offsets [0 485 2734 -644 -770 -7888] Verschiebung 0.72/-6.47
+[Schall+Geometrie+Ver] eigene Zone   B neben Band       angepasst n=10 ung=0  <1mm  80.0%  P50  0.68  P90  1.03  RMS  0.76  max  1.28
+[Schall+Geometrie+Ver]                                  LOO       n=10 ung=0  <1mm  60.0%  P50  0.70  P90  1.44  RMS  0.95  max  1.63
+[Schall+Geometrie+Ver]                                  Schall 322.0 MICHALFX 112.9 Standoff 44.1 Offsets [0 485 2734 -644 -770 -7888] Verschiebung 1.34/-0.81
+[Schall+Geometrie+Ver] eigene Zone   C Band+Vorsatz     angepasst n= 7 ung=0  <1mm 100.0%  P50  0.41  P90  0.63  RMS  0.45  max  0.63
+[Schall+Geometrie+Ver]                                  LOO       n= 7 ung=0  <1mm  85.7%  P50  0.53  P90  1.00  RMS  0.66  max  1.00
+[Schall+Geometrie+Ver]                                  Schall 332.0 MICHALFX 117.5 Standoff 43.6 Offsets [0 485 2734 -644 -770 -7888] Verschiebung 0.88/-0.97
+[ohne Geometrie] gemeinsam an allen    A Loch (nur Band)  n=12 ung=0  <1mm   0.0%  P50  2.04  P90  2.81  RMS  2.18  max  2.96
+[ohne Geometrie] gemeinsam an allen    B neben Band       n=10 ung=0  <1mm  10.0%  P50  1.71  P90  3.12  RMS  2.50  max  4.42
+[ohne Geometrie] gemeinsam an allen    C Band+Vorsatz     n= 7 ung=0  <1mm  28.6%  P50  1.76  P90  2.31  RMS  1.69  max  2.31
+[ohne Geometrie] gemeinsam: Schall 337.5 MICHALFX 114.0 Standoff 30.0 Offsets [0 24128 -2126 1291 -1418 -5671] Verschiebung -1.23/0.34
+[ohne Geometrie] eigene Zone   A Loch (nur Band)  angepasst n=12 ung=0  <1mm  50.0%  P50  0.93  P90  1.74  RMS  1.16  max  1.82
+[ohne Geometrie]                                  LOO       n=12 ung=0  <1mm  25.0%  P50  1.31  P90  1.98  RMS  1.53  max  2.96
+[ohne Geometrie]                                  Schall 325.3 MICHALFX 114.0 Standoff 30.0 Offsets [0 4512 -18829 3161 6724 -7360] Verschiebung -0.36/-3.68
+[ohne Geometrie] eigene Zone   B neben Band       angepasst n=10 ung=0  <1mm 100.0%  P50  0.27  P90  0.57  RMS  0.38  max  0.58
+[ohne Geometrie]                                  LOO       n=10 ung=0  <1mm  90.0%  P50  0.24  P90  0.71  RMS  0.46  max  1.07
+[ohne Geometrie]                                  Schall 333.5 MICHALFX 114.0 Standoff 30.0 Offsets [0 2050 -10380 -3986 -15405 4051] Verschiebung -1.59/1.89
+[ohne Geometrie] eigene Zone   C Band+Vorsatz     angepasst n= 7 ung=0  <1mm  85.7%  P50  0.38  P90  1.04  RMS  0.57  max  1.04
+[ohne Geometrie]                                  LOO       n= 7 ung=0  <1mm  71.4%  P50  0.66  P90  1.60  RMS  0.93  max  1.60
+[ohne Geometrie]                                  Schall 340.9 MICHALFX 114.0 Standoff 30.0 Offsets [0 3162 389 2483 2217 -10540] Verschiebung 0.84/-0.24
+[alle] gemeinsam an allen    A Loch (nur Band)  n=12 ung=0  <1mm   0.0%  P50  3.54  P90  4.58  RMS  3.68  max  5.27
+[alle] gemeinsam an allen    B neben Band       n=10 ung=0  <1mm  30.0%  P50  1.62  P90  1.99  RMS  1.59  max  2.53
+[alle] gemeinsam an allen    C Band+Vorsatz     n= 7 ung=0  <1mm  28.6%  P50  1.16  P90  2.32  RMS  1.34  max  2.32
+[alle] gemeinsam: Schall 339.2 MICHALFX 119.1 Standoff 28.8 Offsets [0 4462 4383 5650 -4900 -1583] Verschiebung -0.30/-2.77
+[alle] eigene Zone   A Loch (nur Band)  angepasst n=12 ung=0  <1mm  66.7%  P50  0.75  P90  1.62  RMS  1.10  max  2.19
+[alle]                                  LOO       n=12 ung=0  <1mm  50.0%  P50  0.94  P90  1.81  RMS  1.40  max  3.20
+[alle]                                  Schall 326.8 MICHALFX 105.0 Standoff 36.1 Offsets [0 6404 -5360 1542 17232 5510] Verschiebung 0.29/-3.94
+[alle] eigene Zone   B neben Band       angepasst n=10 ung=0  <1mm 100.0%  P50  0.12  P90  0.40  RMS  0.22  max  0.44
+[alle]                                  LOO       n=10 ung=0  <1mm 100.0%  P50  0.35  P90  0.72  RMS  0.47  max  0.87
+[alle]                                  Schall 317.1 MICHALFX 111.7 Standoff 47.1 Offsets [0 1176 -26607 -13908 -18049 -1277] Verschiebung -1.79/5.12
+[alle] eigene Zone   C Band+Vorsatz     angepasst n= 7 ung=0  <1mm 100.0%  P50  0.37  P90  0.59  RMS  0.41  max  0.59
+[alle]                                  LOO       n= 7 ung=0  <1mm  57.1%  P50  0.76  P90  1.24  RMS  0.82  max  1.24
+[alle]                                  Schall 344.1 MICHALFX 116.1 Standoff 24.1 Offsets [0 -25 1960 788 2753 -10519] Verschiebung 1.20/-1.02
+== Zonen-Kalibrierung Serie 0342fdff (Fotomassstab Spiegel 59,5), Simulator-Loeser
+Nutzer-Kalibrierung   A Loch (nur Band)  n=12 ung=0  <1mm   0.0%  P50  3.90  P90  5.31  RMS  4.06  max  5.31
+Nutzer-Kalibrierung   B neben Band       n=10 ung=0  <1mm   0.0%  P50  2.29  P90  2.78  RMS  2.21  max  2.80
+Nutzer-Kalibrierung   C Band+Vorsatz     n= 7 ung=0  <1mm  42.9%  P50  1.03  P90  1.95  RMS  1.22  max  1.95
+[Schall+Geometrie+Ver] gemeinsam an allen    A Loch (nur Band)  n=12 ung=0  <1mm   0.0%  P50  3.59  P90  4.11  RMS  3.45  max  4.18
+[Schall+Geometrie+Ver] gemeinsam an allen    B neben Band       n=10 ung=0  <1mm  30.0%  P50  1.18  P90  2.59  RMS  1.80  max  2.75
+[Schall+Geometrie+Ver] gemeinsam an allen    C Band+Vorsatz     n= 7 ung=0  <1mm  57.1%  P50  0.89  P90  2.09  RMS  1.29  max  2.09
+[Schall+Geometrie+Ver] gemeinsam: Schall 340.8 MICHALFX 119.0 Standoff 29.9 Offsets [0 485 2734 -644 -770 -7888] Verschiebung 0.95/-1.90
+[Schall+Geometrie+Ver] eigene Zone   A Loch (nur Band)  angepasst n=12 ung=0  <1mm  66.7%  P50  0.62  P90  1.67  RMS  1.16  max  2.82
+[Schall+Geometrie+Ver]                                  LOO       n=12 ung=0  <1mm  16.7%  P50  1.33  P90  2.52  RMS  1.72  max  3.24
+[Schall+Geometrie+Ver]                                  Schall 266.0 MICHALFX 106.9 Standoff 101.4 Offsets [0 485 2734 -644 -770 -7888] Verschiebung 0.69/-5.73
+[Schall+Geometrie+Ver] eigene Zone   B neben Band       angepasst n=10 ung=0  <1mm  70.0%  P50  0.63  P90  1.18  RMS  0.81  max  1.18
+[Schall+Geometrie+Ver]                                  LOO       n=10 ung=0  <1mm  50.0%  P50  0.99  P90  1.55  RMS  1.09  max  1.57
+[Schall+Geometrie+Ver]                                  Schall 323.1 MICHALFX 113.5 Standoff 47.6 Offsets [0 485 2734 -644 -770 -7888] Verschiebung 1.36/-0.73
+[Schall+Geometrie+Ver] eigene Zone   C Band+Vorsatz     angepasst n= 7 ung=0  <1mm 100.0%  P50  0.37  P90  0.64  RMS  0.46  max  0.64
+[Schall+Geometrie+Ver]                                  LOO       n= 7 ung=0  <1mm 100.0%  P50  0.73  P90  0.97  RMS  0.74  max  0.97
+[Schall+Geometrie+Ver]                                  Schall 317.3 MICHALFX 118.9 Standoff 67.1 Offsets [0 485 2734 -644 -770 -7888] Verschiebung 0.91/-0.91
+[ohne Geometrie] gemeinsam an allen    A Loch (nur Band)  n=12 ung=0  <1mm   0.0%  P50  3.18  P90  4.17  RMS  3.35  max  4.51
+[ohne Geometrie] gemeinsam an allen    B neben Band       n=10 ung=0  <1mm  10.0%  P50  2.08  P90  2.66  RMS  2.14  max  2.69
+[ohne Geometrie] gemeinsam an allen    C Band+Vorsatz     n= 7 ung=0  <1mm  42.9%  P50  2.12  P90  3.07  RMS  2.03  max  3.07
+[ohne Geometrie] gemeinsam: Schall 342.3 MICHALFX 114.0 Standoff 30.0 Offsets [0 2055 295 -788 2003 -6471] Verschiebung 0.84/-1.39
+[ohne Geometrie] eigene Zone   A Loch (nur Band)  angepasst n=12 ung=0  <1mm  50.0%  P50  0.85  P90  1.81  RMS  1.22  max  2.44
+[ohne Geometrie]                                  LOO       n=12 ung=0  <1mm  41.7%  P50  1.02  P90  2.32  RMS  1.35  max  2.53
+[ohne Geometrie]                                  Schall 334.0 MICHALFX 114.0 Standoff 30.0 Offsets [0 3067 -8125 2116 19070 -3362] Verschiebung 1.02/-4.39
+[ohne Geometrie] eigene Zone   B neben Band       angepasst n=10 ung=0  <1mm 100.0%  P50  0.46  P90  0.75  RMS  0.54  max  0.77
+[ohne Geometrie]                                  LOO       n=10 ung=0  <1mm 100.0%  P50  0.30  P90  0.74  RMS  0.44  max  0.74
+[ohne Geometrie]                                  Schall 337.8 MICHALFX 114.0 Standoff 30.0 Offsets [0 3897 -1859 8930 3363 -10892] Verschiebung 0.82/-0.16
+[ohne Geometrie] eigene Zone   C Band+Vorsatz     angepasst n= 7 ung=0  <1mm 100.0%  P50  0.28  P90  0.78  RMS  0.50  max  0.78
+[ohne Geometrie]                                  LOO       n= 7 ung=0  <1mm  85.7%  P50  0.81  P90  1.23  RMS  0.84  max  1.23
+[ohne Geometrie]                                  Schall 350.3 MICHALFX 114.0 Standoff 30.0 Offsets [0 -439 3094 1128 2236 -9910] Verschiebung 1.34/-1.35
+[alle] gemeinsam an allen    A Loch (nur Band)  n=12 ung=0  <1mm   0.0%  P50  3.27  P90  3.92  RMS  3.09  max  4.19
+[alle] gemeinsam an allen    B neben Band       n=10 ung=0  <1mm  40.0%  P50  1.13  P90  1.93  RMS  1.32  max  2.02
+[alle] gemeinsam an allen    C Band+Vorsatz     n= 7 ung=0  <1mm  42.9%  P50  1.15  P90  1.81  RMS  1.21  max  1.81
+[alle] gemeinsam: Schall 322.3 MICHALFX 120.9 Standoff 56.4 Offsets [0 4403 4004 955 -70 -5646] Verschiebung 0.55/-1.95
+[alle] eigene Zone   A Loch (nur Band)  angepasst n=12 ung=0  <1mm  66.7%  P50  0.84  P90  1.67  RMS  1.11  max  2.39
+[alle]                                  LOO       n=12 ung=0  <1mm  41.7%  P50  1.05  P90  1.94  RMS  1.42  max  3.07
+[alle]                                  Schall 330.1 MICHALFX 103.1 Standoff 36.4 Offsets [0 6161 -5571 1506 16086 2663] Verschiebung 0.42/-4.20
+[alle] eigene Zone   B neben Band       angepasst n=10 ung=0  <1mm 100.0%  P50  0.13  P90  0.47  RMS  0.26  max  0.47
+[alle]                                  LOO       n=10 ung=0  <1mm 100.0%  P50  0.33  P90  0.56  RMS  0.39  max  0.64
+[alle]                                  Schall 330.7 MICHALFX 114.5 Standoff 39.2 Offsets [0 4450 -17985 -4713 -13156 1504] Verschiebung -1.84/3.28
+[alle] eigene Zone   C Band+Vorsatz     angepasst n= 7 ung=0  <1mm 100.0%  P50  0.40  P90  0.59  RMS  0.42  max  0.59
+[alle]                                  LOO       n= 7 ung=0  <1mm  71.4%  P50  0.66  P90  1.39  RMS  0.82  max  1.39
+[alle]                                  Schall 345.4 MICHALFX 117.2 Standoff 30.8 Offsets [0 -2345 2059 1831 2344 -9662] Verschiebung 1.17/-1.35
+== Zone A Einzelschuesse (Kalibrierung ohne Geometrie an Zone A): Schall 334.0 MICHALFX 114.0 Standoff 30.0 Offsets [0 3067 -8125 2116 19070 -3362] Verschiebung 1.02/-4.39
+#1  Foto  -6.43/ -2.87  Sim  -6.58/ -1.56  Fehler 1.32 mm | innerer Rest 11216 ns | Breiten 68,68,63,70,63,67
+#2  Foto  -2.68/ 15.94  Sim  -2.85/ 16.07  Fehler 0.21 mm | innerer Rest 12556 ns | Breiten 65,63,64,69,63,63
+#3  Foto  11.98/ 10.46  Sim  11.62/ 10.76  Fehler 0.47 mm | innerer Rest 11746 ns | Breiten 65,65,61,72,64,69
+#4  Foto  22.00/  0.51  Sim  21.17/  0.33  Fehler 0.85 mm | innerer Rest 11458 ns | Breiten 69,66,65,76,65,67
+#5  Foto   4.77/-17.08  Sim   4.36/-16.74  Fehler 0.53 mm | innerer Rest 10060 ns | Breiten 71,70,66,73,67,65
+#6  Foto  16.79/-11.46  Sim  15.71/-11.62  Fehler 1.09 mm | innerer Rest  9656 ns | Breiten 72,68,62,79,62,67
+#7  Foto -18.57/-20.40  Sim -17.83/-22.05  Fehler 1.81 mm | innerer Rest  9529 ns | Breiten 75,74,72,77,69,66
+#8  Foto -18.53/-10.14  Sim -18.48/-10.35  Fehler 0.22 mm | innerer Rest 10710 ns | Breiten 72,72,65,63,64,63
+#9  Foto -18.86/  2.17  Sim -18.65/  3.21  Fehler 1.06 mm | innerer Rest 11674 ns | Breiten 67,67,66,63,63,64
+#10 Foto  -9.03/ 11.73  Sim  -9.81/ 12.05  Fehler 0.85 mm | innerer Rest 11715 ns | Breiten 67,64,62,67,57,65
+#11 Foto  -1.36/ -0.26  Sim   0.24/ -0.24  Fehler 1.60 mm | innerer Rest 11024 ns | Breiten 68,67,69,65,69,59
+#12 Foto   1.06/ -4.27  Sim   2.75/ -6.03  Fehler 2.44 mm | innerer Rest 12488 ns | Breiten 70,64,77,63,78,60
+== Zone A physik. Modell (Offsets+Schall, an Zone angepasst): C 337.5 m/s, Fit-Rest 3135 ns
+#1  Fehler 1.36 mm | Rest an Loesung   271 ns, an Fotolage  1997 ns
+#2  Fehler 1.06 mm | Rest an Loesung  1368 ns, an Fotolage  2192 ns
+#3  Fehler 1.03 mm | Rest an Loesung  1210 ns, an Fotolage  2048 ns
+#4  Fehler 0.77 mm | Rest an Loesung  1895 ns, an Fotolage  2603 ns
+#5  Fehler 0.47 mm | Rest an Loesung   890 ns, an Fotolage  1266 ns
+#6  Fehler 0.94 mm | Rest an Loesung  1252 ns, an Fotolage  2506 ns
+#7  Fehler 2.27 mm | Rest an Loesung  2578 ns, an Fotolage  4333 ns
+#8  Fehler 0.55 mm | Rest an Loesung  1319 ns, an Fotolage  1539 ns
+#9  Fehler 1.32 mm | Rest an Loesung  1126 ns, an Fotolage  2202 ns
+#10 Fehler 1.49 mm | Rest an Loesung   806 ns, an Fotolage  3016 ns
+#11 Fehler 1.62 mm | Rest an Loesung   683 ns, an Fotolage  4126 ns
+#12 Fehler 2.96 mm | Rest an Loesung  3142 ns, an Fotolage  6179 ns
+Zone A in-sample n=12 ung=0  <1mm  33.3%  P50  1.06  P90  2.27  RMS  1.49  max  2.96
+== Zone B physik. Modell (Offsets+Schall, an Zone angepasst): C 337.2 m/s, Fit-Rest 5013 ns
+#13 Fehler 0.75 mm | Rest an Loesung  8189 ns, an Fotolage  8327 ns
+#14 Fehler 0.24 mm | Rest an Loesung  6119 ns, an Fotolage  6145 ns
+#15 Fehler 0.76 mm | Rest an Loesung  3450 ns, an Fotolage  3756 ns
+#16 Fehler 0.85 mm | Rest an Loesung  2829 ns, an Fotolage  3149 ns
+#17 Fehler 1.11 mm | Rest an Loesung  2059 ns, an Fotolage  2725 ns
+#18 Fehler 0.75 mm | Rest an Loesung  6221 ns, an Fotolage  6348 ns
+#19 Fehler 0.93 mm | Rest an Loesung  4782 ns, an Fotolage  4996 ns
+#20 Fehler 1.18 mm | Rest an Loesung  3758 ns, an Fotolage  4202 ns
+#21 Fehler 1.48 mm | Rest an Loesung  3031 ns, an Fotolage  3919 ns
+#22 Fehler 1.46 mm | Rest an Loesung  2998 ns, an Fotolage  3807 ns
+Zone B in-sample n=10 ung=0  <1mm  60.0%  P50  0.85  P90  1.46  RMS  1.02  max  1.48
+== Zone C physik. Modell (Offsets+Schall, an Zone angepasst): C 348.8 m/s, Fit-Rest 1172 ns
+#23 Fehler 0.81 mm | Rest an Loesung   295 ns, an Fotolage  1308 ns
+#24 Fehler 0.07 mm | Rest an Loesung   717 ns, an Fotolage   734 ns
+#25 Fehler 0.56 mm | Rest an Loesung   309 ns, an Fotolage  1341 ns
+#26 Fehler 0.87 mm | Rest an Loesung   615 ns, an Fotolage  1243 ns
+#27 Fehler 0.85 mm | Rest an Loesung   904 ns, an Fotolage  1396 ns
+#28 Fehler 0.83 mm | Rest an Loesung   390 ns, an Fotolage  1037 ns
+#29 Fehler 0.34 mm | Rest an Loesung   692 ns, an Fotolage   998 ns
+Zone C in-sample n= 7 ung=0  <1mm 100.0%  P50  0.81  P90  0.87  RMS  0.68  max  0.87
+Zone A: Schall 334.0 MICHALFX 114.0 Standoff 30.0 Offsets [0 3067 -8125 2116 19070 -3362] Verschiebung 1.02/-4.39 | n=12 ung=0  <1mm  50.0%  P50  0.85  P90  1.81  RMS  1.22  max  2.44
+Zone B: Schall 337.8 MICHALFX 114.0 Standoff 30.0 Offsets [0 3897 -1859 8930 3363 -10892] Verschiebung 0.82/-0.16 | n=10 ung=0  <1mm 100.0%  P50  0.46  P90  0.75  RMS  0.54  max  0.77
+Zone C: Schall 350.3 MICHALFX 114.0 Standoff 30.0 Offsets [0 -439 3094 1128 2236 -9910] Verschiebung 1.34/-1.35 | n= 7 ung=0  <1mm 100.0%  P50  0.28  P90  0.78  RMS  0.50  max  0.78
+== Lautstaerke-Hinweise je Zone (Serie 0342fdff, je Mic und Schuss)
+A Loch (nur Band)  Breite 1. Puls Median   67 us | Flanken in 300us Median  2 | Signaldauer Median  162 us | Laufzeitrest vs Abstand +0.182 us/mm (r=+0.32)
+B neben Band       Breite 1. Puls Median   60 us | Flanken in 300us Median  4 | Signaldauer Median  250 us | Laufzeitrest vs Abstand +0.078 us/mm (r=+0.54)
+C Band+Vorsatz     Breite 1. Puls Median   62 us | Flanken in 300us Median  3 | Signaldauer Median  253 us | Laufzeitrest vs Abstand -0.013 us/mm (r=-0.11)
+== Zone je Schuss aus dem Signal (Median ueber Mics)
+#1  A Loch (nur Band)  Signaldauer  166 us  Flanken  2
+#2  A Loch (nur Band)  Signaldauer  278 us  Flanken  3
+#3  A Loch (nur Band)  Signaldauer  155 us  Flanken  2
+#4  A Loch (nur Band)  Signaldauer  241 us  Flanken  3
+#5  A Loch (nur Band)  Signaldauer  260 us  Flanken  3
+#6  A Loch (nur Band)  Signaldauer  159 us  Flanken  2
+#7  A Loch (nur Band)  Signaldauer  169 us  Flanken  2
+#8  A Loch (nur Band)  Signaldauer  164 us  Flanken  2
+#9  A Loch (nur Band)  Signaldauer  162 us  Flanken  2
+#10 A Loch (nur Band)  Signaldauer  168 us  Flanken  2
+#11 A Loch (nur Band)  Signaldauer  160 us  Flanken  2
+#12 A Loch (nur Band)  Signaldauer  293 us  Flanken  3
+#13 B neben Band       Signaldauer  249 us  Flanken  4
+#14 B neben Band       Signaldauer  237 us  Flanken  4
+#15 B neben Band       Signaldauer  277 us  Flanken  4
+#16 B neben Band       Signaldauer  266 us  Flanken  3
+#17 B neben Band       Signaldauer  232 us  Flanken  3
+#18 B neben Band       Signaldauer  250 us  Flanken  4
+#19 B neben Band       Signaldauer  228 us  Flanken  4
+#20 B neben Band       Signaldauer  257 us  Flanken  4
+#21 B neben Band       Signaldauer  275 us  Flanken  4
+#22 B neben Band       Signaldauer  269 us  Flanken  4
+#23 C Band+Vorsatz     Signaldauer  256 us  Flanken  3
+#24 C Band+Vorsatz     Signaldauer  264 us  Flanken  3
+#25 C Band+Vorsatz     Signaldauer  256 us  Flanken  3
+#26 C Band+Vorsatz     Signaldauer  169 us  Flanken  2
+#27 C Band+Vorsatz     Signaldauer  164 us  Flanken  2
+#28 C Band+Vorsatz     Signaldauer  274 us  Flanken  3
+#29 C Band+Vorsatz     Signaldauer  253 us  Flanken  4
+== Kalibrierung je Gruppe (Leave-one-out, Geometrie fest), Serie 0342fdff
+eine Gruppe    gesamt n=29 ung=0  <1mm   6.9%  P50  2.75  P90  4.48  RMS  3.01  max  5.53 | alle(n=29) <1mm 7% P90 4.48
+Zone           gesamt n=29 ung=0  <1mm  72.4%  P50  0.64  P90  1.64  RMS  1.00  max  2.53 | A(n=12) <1mm 42% P90 2.32; B(n=10) <1mm 100% P90 0.74; C(n=7) <1mm 86% P90 1.23
+Signalklasse   gesamt n=29 ung=0  <1mm  24.1%  P50  1.26  P90  4.75  RMS  2.41  max  5.71 | kurz(n=10) <1mm 40% P90 1.99; lang(n=19) <1mm 16% P90 5.35
+Zone A+Klasse  gesamt n=29 ung=0  <1mm  62.1%  P50  0.81  P90  2.23  RMS  1.25  max  2.70 | A-kurz(n=8) <1mm 25% P90 2.23; A-lang(n=4) <1mm 0% P90 2.70; B(n=10) <1mm 100% P90 0.74; C(n=7) <1mm 86% P90 1.23
+== One-Click Zonen-Kalibrierung (Lochradius 29.75) Laufzeit 997ms
+vorher n=29 <1mm  10% P50 2.47 P90 4.71 RMS 2.98 | nur Basissatz n=29 <1mm   7% P50 2.26 P90 3.77 RMS 2.57 | mit Zonen n=29 <1mm  72% P50 0.58 P90 1.55 RMS 1.01
+Zone A (12 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n=12 <1mm   0% P50 3.93 P90 5.31 RMS 4.06 -> n=12 <1mm  42% P50 1.30 P90 1.86 RMS 1.42
+Zone B (10 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n=10 <1mm   0% P50 2.38 P90 2.80 RMS 2.21 -> n=10 <1mm 100% P50 0.31 P90 0.79 RMS 0.43
+Zone C ( 7 Schuss, Nachkorrektur, Schallgeschwindigkeit): n= 7 <1mm  43% P50 1.03 P90 1.95 RMS 1.22 -> n= 7 <1mm  86% P50 0.47 P90 1.45 RMS 0.72
+Leave-one-out (gesamt): n=29 ung=0  <1mm  34.5%  P50  1.09  P90  1.76  RMS  1.29  max  3.14
+== One-Click Zonen-Kalibrierung (Lochradius 29.75) Laufzeit 447ms
+vorher n=29 <1mm  10% P50 2.47 P90 4.71 RMS 2.98 | nur Basissatz n=29 <1mm   7% P50 2.26 P90 3.77 RMS 2.57 | mit Zonen n=29 <1mm  72% P50 0.58 P90 1.55 RMS 1.01
+Zone A (12 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n=12 <1mm   0% P50 3.93 P90 5.31 RMS 4.06 -> n=12 <1mm  42% P50 1.30 P90 1.86 RMS 1.42
+Zone B (10 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n=10 <1mm   0% P50 2.38 P90 2.80 RMS 2.21 -> n=10 <1mm 100% P50 0.31 P90 0.79 RMS 0.43
+Zone C ( 7 Schuss, Nachkorrektur, Schallgeschwindigkeit): n= 7 <1mm  43% P50 1.03 P90 1.95 RMS 1.22 -> n= 7 <1mm  86% P50 0.47 P90 1.45 RMS 0.72
+Leave-one-out, Offsets ab  6 Schuss: gesamt n=29 ung=0  <1mm  13.8%  P50  2.00  P90  3.75  RMS  2.34  max  4.21
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.29  P90  2.00  RMS  1.59  max  3.14
+      Zone B n=10 ung=0  <1mm   0.0%  P50  2.21  P90  3.01  RMS  2.39  max  3.06
+      Zone C n= 7 ung=0  <1mm  14.3%  P50  3.68  P90  4.21  RMS  3.19  max  4.21
+Leave-one-out, Offsets ab  8 Schuss: gesamt n=29 ung=0  <1mm  20.7%  P50  1.66  P90  3.01  RMS  1.81  max  3.14
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.29  P90  2.00  RMS  1.59  max  3.14
+      Zone B n=10 ung=0  <1mm   0.0%  P50  2.21  P90  3.01  RMS  2.39  max  3.06
+      Zone C n= 7 ung=0  <1mm  42.9%  P50  1.07  P90  1.76  RMS  1.04  max  1.76
+Leave-one-out, Offsets ab 10 Schuss: gesamt n=29 ung=0  <1mm  34.5%  P50  1.09  P90  1.76  RMS  1.29  max  3.14
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.29  P90  2.00  RMS  1.59  max  3.14
+      Zone B n=10 ung=0  <1mm  40.0%  P50  1.07  P90  1.31  RMS  1.02  max  1.53
+      Zone C n= 7 ung=0  <1mm  42.9%  P50  1.07  P90  1.76  RMS  1.04  max  1.76
+Leave-one-out, Offsets ab 99 Schuss: gesamt n=29 ung=0  <1mm  31.0%  P50  1.08  P90  2.27  RMS  1.35  max  2.95
+      Zone A n=12 ung=0  <1mm  16.7%  P50  1.38  P90  2.54  RMS  1.71  max  2.95
+      Zone B n=10 ung=0  <1mm  40.0%  P50  1.07  P90  1.31  RMS  1.02  max  1.53
+      Zone C n= 7 ung=0  <1mm  42.9%  P50  1.07  P90  1.76  RMS  1.04  max  1.76
+== One-Click Zonen-Kalibrierung (Lochradius 29.75) Laufzeit 271ms
+vorher n=29 <1mm  10% P50 2.47 P90 4.71 RMS 2.98 | nur Basissatz n=29 <1mm   7% P50 2.26 P90 3.77 RMS 2.57 | mit Zonen n=29 <1mm  69% P50 0.60 P90 1.87 RMS 1.08
+Zone A (12 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n=12 <1mm   0% P50 3.93 P90 5.31 RMS 4.06 -> n=12 <1mm  25% P50 1.35 P90 2.19 RMS 1.58
+Zone B (10 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n=10 <1mm   0% P50 2.38 P90 2.80 RMS 2.21 -> n=10 <1mm 100% P50 0.34 P90 0.71 RMS 0.39
+Zone C ( 7 Schuss, Nachkorrektur, Schallgeschwindigkeit): n= 7 <1mm  43% P50 1.03 P90 1.95 RMS 1.22 -> n= 7 <1mm 100% P50 0.54 P90 0.93 RMS 0.63
+Leave-one-out, LM=false Offsets ab 10 Schuss: gesamt n=29 ung=0  <1mm  34.5%  P50  1.09  P90  1.76  RMS  1.29  max  3.14
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.29  P90  2.00  RMS  1.59  max  3.14
+      Zone B n=10 ung=0  <1mm  40.0%  P50  1.07  P90  1.31  RMS  1.02  max  1.53
+      Zone C n= 7 ung=0  <1mm  42.9%  P50  1.07  P90  1.76  RMS  1.04  max  1.76
+Leave-one-out, LM=true Offsets ab  6 Schuss: gesamt n=29 ung=0  <1mm  62.1%  P50  0.76  P90  1.66  RMS  1.09  max  2.91
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.21  P90  2.07  RMS  1.50  max  2.91
+      Zone B n=10 ung=0  <1mm 100.0%  P50  0.45  P90  0.70  RMS  0.47  max  0.76
+      Zone C n= 7 ung=0  <1mm  71.4%  P50  0.58  P90  1.66  RMS  0.85  max  1.66
+Leave-one-out, LM=true Offsets ab  8 Schuss: gesamt n=29 ung=0  <1mm  58.6%  P50  0.76  P90  1.82  RMS  1.11  max  2.91
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.21  P90  2.07  RMS  1.49  max  2.91
+      Zone B n=10 ung=0  <1mm 100.0%  P50  0.45  P90  0.70  RMS  0.47  max  0.76
+      Zone C n= 7 ung=0  <1mm  57.1%  P50  0.68  P90  1.82  RMS  1.00  max  1.82
+Leave-one-out, LM=true Offsets ab 10 Schuss: gesamt n=29 ung=0  <1mm  44.8%  P50  1.09  P90  1.82  RMS  1.20  max  2.91
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.21  P90  2.07  RMS  1.49  max  2.91
+      Zone B n=10 ung=0  <1mm  60.0%  P50  0.90  P90  1.26  RMS  0.90  max  1.27
+      Zone C n= 7 ung=0  <1mm  57.1%  P50  0.68  P90  1.82  RMS  1.00  max  1.82
+== One-Click Zonen-Kalibrierung (Lochradius 29.75) Laufzeit 285ms
+vorher n=29 <1mm  10% P50 2.47 P90 4.71 RMS 2.98 | nur Basissatz n=29 <1mm   7% P50 2.26 P90 3.77 RMS 2.57 | mit Zonen n=29 <1mm  69% P50 0.41 P90 1.87 RMS 1.05
+Zone A (12 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n=12 <1mm   0% P50 3.93 P90 5.31 RMS 4.06 -> n=12 <1mm  25% P50 1.35 P90 2.19 RMS 1.58
+Zone B (10 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n=10 <1mm   0% P50 2.38 P90 2.80 RMS 2.21 -> n=10 <1mm 100% P50 0.34 P90 0.71 RMS 0.39
+Zone C ( 7 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): n= 7 <1mm  43% P50 1.03 P90 1.95 RMS 1.22 -> n= 7 <1mm 100% P50 0.16 P90 0.37 RMS 0.21
+Leave-one-out, Ridge     0 ns: gesamt n=29 ung=0  <1mm  62.1%  P50  0.76  P90  1.66  RMS  1.09  max  2.91
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.21  P90  2.07  RMS  1.50  max  2.91
+      Zone B n=10 ung=0  <1mm 100.0%  P50  0.45  P90  0.70  RMS  0.47  max  0.76
+      Zone C n= 7 ung=0  <1mm  71.4%  P50  0.58  P90  1.66  RMS  0.85  max  1.66
+Leave-one-out, Ridge  3000 ns: gesamt n=29 ung=0  <1mm  55.2%  P50  0.95  P90  1.96  RMS  1.14  max  2.32
+      Zone A n=12 ung=0  <1mm  33.3%  P50  1.27  P90  2.08  RMS  1.46  max  2.32
+      Zone B n=10 ung=0  <1mm  70.0%  P50  0.80  P90  1.10  RMS  0.81  max  1.27
+      Zone C n= 7 ung=0  <1mm  71.4%  P50  0.64  P90  1.60  RMS  0.89  max  1.60
+Leave-one-out, Ridge  6000 ns: gesamt n=29 ung=0  <1mm  51.7%  P50  0.98  P90  1.92  RMS  1.15  max  2.31
+      Zone A n=12 ung=0  <1mm  25.0%  P50  1.37  P90  1.94  RMS  1.52  max  2.31
+      Zone B n=10 ung=0  <1mm  70.0%  P50  0.56  P90  1.20  RMS  0.77  max  1.21
+      Zone C n= 7 ung=0  <1mm  71.4%  P50  0.65  P90  1.33  RMS  0.81  max  1.33
+Leave-one-out, Ridge 12000 ns: gesamt n=29 ung=0  <1mm  72.4%  P50  0.65  P90  1.80  RMS  0.95  max  2.10
+      Zone A n=12 ung=0  <1mm  50.0%  P50  0.94  P90  1.99  RMS  1.28  max  2.10
+      Zone B n=10 ung=0  <1mm  90.0%  P50  0.41  P90  0.79  RMS  0.57  max  1.01
+      Zone C n= 7 ung=0  <1mm  85.7%  P50  0.58  P90  1.26  RMS  0.69  max  1.26
+== Kalibrierung ohne Foto, Serie 0342fdff (30 Schuss, Bewertung nach Abzug eines gemeinsamen x/y-Versatzes)
+Nutzer-Kalibrierung HWCapture                | Versatz -0.13/-0.82 | n=29 ung=0  <1mm   6.9%  P50  2.79  P90  3.94  RMS  2.79  max  4.49
+                                             | A <1mm   0% P90 4.49 · B <1mm   0% P90 3.14 · C <1mm  29% P90 2.72
+ZIEL: One-Click mit Foto                     | Versatz -0.02/+0.03 | n=29 ung=0  <1mm  79.3%  P50  0.65  P90  1.59  RMS  0.88  max  2.20
+                                             | A <1mm  67% P90 1.59 · B <1mm  80% P90 1.22 · C <1mm 100% P90 0.77
+CAL START (Offsets, Rest-Fehler)             | Versatz -4.10/+0.92 | n=29 ung=0  <1mm   6.9%  P50  2.31  P90  5.37  RMS  3.06  max  5.51
+                                             | A <1mm   0% P90 5.41 · B <1mm   0% P90 2.40 · C <1mm  29% P90 2.55
+Selbst: Offsets + Schall (0.1s)              | Versatz -2.36/+5.62 | n=29 ung=0  <1mm  24.1%  P50  2.32  P90  4.77  RMS  2.82  max  4.81
+                                             | A <1mm   0% P90 4.79 · B <1mm  50% P90 1.62 · C <1mm  29% P90 3.54
+Selbst: Offsets + Schall je Zone (0.1s)      | Versatz -2.38/+2.58 | n=29 ung=0  <1mm  20.7%  P50  4.79  P90  9.28  RMS  5.98  max 10.37
+                                             | A <1mm  25% P90 4.76 · B <1mm   0% P90 9.30 · C <1mm  43% P90 9.28
+                                             | Schall A/B/C 286.4/303.8/324.3
+Selbst: Schall je Zone (Offsets fest) (0.0s) | Versatz -0.63/-0.14 | n=29 ung=0  <1mm  20.7%  P50  2.87  P90  4.82  RMS  3.07  max  5.15
+                                             | A <1mm   0% P90 4.92 · B <1mm  30% P90 3.00 · C <1mm  43% P90 2.87
+                                             | Schall A/B/C 310.5/332.7/351.7
+Selbst: Offsets + Schall + Zonen-Offsets r6us (0.1s) | Versatz -1.54/+2.09 | n=29 ung=0  <1mm  10.3%  P50  3.64  P90 12.63  RMS  7.47  max 14.50
+                                             | A <1mm   0% P90 4.26 · B <1mm   0% P90 13.38 · C <1mm  43% P90 2.36
+                                             | Schall A/B/C 317.1/289.4/343.8
+Selbst: Offsets + Schall + Zonen-Offsets r3us (0.2s) | Versatz -1.37/+2.68 | n=29 ung=0  <1mm   6.9%  P50  3.76  P90 10.73  RMS  6.35  max 12.05
+                                             | A <1mm   0% P90 4.17 · B <1mm   0% P90 10.90 · C <1mm  29% P90 1.67
+                                             | Schall A/B/C 303.7/296.2/344.0
+Selbst: Schall je Zone + Zonen-Offsets r3us (0.1s) | Versatz -1.06/+0.52 | n=29 ung=0  <1mm   6.9%  P50  4.30  P90 10.37  RMS  6.35  max 11.53
+                                             | A <1mm   0% P90 4.92 · B <1mm   0% P90 10.53 · C <1mm  29% P90 1.60
+                                             | Schall A/B/C 309.0/302.4/344.6
+== Kalibrierung ohne Foto, Serie 0342fdff (30 Schuss, Bewertung nach Abzug eines gemeinsamen x/y-Versatzes)
+Nutzer-Kalibrierung HWCapture                | Versatz -0.13/-0.82 | n=29 ung=0  <1mm   6.9%  P50  2.79  P90  3.94  RMS  2.79  max  4.49
+                                             | A <1mm   0% P90 4.49 · B <1mm   0% P90 3.14 · C <1mm  29% P90 2.72
+ZIEL: One-Click mit Foto                     | Versatz -0.02/+0.03 | n=29 ung=0  <1mm  79.3%  P50  0.65  P90  1.59  RMS  0.88  max  2.20
+                                             | A <1mm  67% P90 1.59 · B <1mm  80% P90 1.22 · C <1mm 100% P90 0.77
+CAL START (Offsets, Rest-Fehler)             | Versatz -4.10/+0.92 | n=29 ung=0  <1mm   6.9%  P50  2.31  P90  5.37  RMS  3.06  max  5.51
+                                             | A <1mm   0% P90 5.41 · B <1mm   0% P90 2.40 · C <1mm  29% P90 2.55
+Selbst: Offsets + Schall (0.1s)              | Versatz -2.36/+5.62 | n=29 ung=0  <1mm  24.1%  P50  2.32  P90  4.77  RMS  2.82  max  4.81
+                                             | A <1mm   0% P90 4.79 · B <1mm  50% P90 1.62 · C <1mm  29% P90 3.54
+Selbst: Offsets + Schall je Zone (0.1s)      | Versatz -2.38/+2.58 | n=29 ung=0  <1mm  20.7%  P50  4.79  P90  9.28  RMS  5.98  max 10.37
+                                             | A <1mm  25% P90 4.76 · B <1mm   0% P90 9.30 · C <1mm  43% P90 9.28
+                                             | Schall A/B/C 286.4/303.8/324.3
+Selbst: Schall je Zone (Offsets fest) (0.0s) | Versatz -0.63/-0.14 | n=29 ung=0  <1mm  20.7%  P50  2.87  P90  4.82  RMS  3.07  max  5.15
+                                             | A <1mm   0% P90 4.92 · B <1mm  30% P90 3.00 · C <1mm  43% P90 2.87
+                                             | Schall A/B/C 310.5/332.7/351.7
+Selbst: Offsets + Schall + Zonen-Offsets r6us (0.1s) | Versatz -1.54/+2.09 | n=29 ung=0  <1mm  10.3%  P50  3.64  P90 12.63  RMS  7.47  max 14.50
+                                             | A <1mm   0% P90 4.26 · B <1mm   0% P90 13.38 · C <1mm  43% P90 2.36
+                                             | Schall A/B/C 317.1/289.4/343.8
+Selbst: Offsets + Schall + Zonen-Offsets r3us (0.3s) | Versatz -1.37/+2.68 | n=29 ung=0  <1mm   6.9%  P50  3.76  P90 10.73  RMS  6.35  max 12.05
+                                             | A <1mm   0% P90 4.17 · B <1mm   0% P90 10.90 · C <1mm  29% P90 1.67
+                                             | Schall A/B/C 303.7/296.2/344.0
+Selbst: Schall je Zone + Zonen-Offsets r3us (0.1s) | Versatz -1.06/+0.52 | n=29 ung=0  <1mm   6.9%  P50  4.30  P90 10.37  RMS  6.35  max 11.53
+                                             | A <1mm   0% P90 4.92 · B <1mm   0% P90 10.53 · C <1mm  29% P90 1.60
+                                             | Schall A/B/C 309.0/302.4/344.6
+Schall fest: Offsets (0.1s)                  | Versatz -2.43/+5.77 | n=29 ung=0  <1mm   0.0%  P50  2.29  P90  5.05  RMS  2.99  max  5.42
+                                             | A <1mm   0% P90 5.13 · B <1mm   0% P90 2.44 · C <1mm   0% P90 3.53
+Schall fest: Offsets + Zonen-Offsets r3us (0.1s) | Versatz -1.41/+2.35 | n=29 ung=0  <1mm   6.9%  P50  3.76  P90  5.98  RMS  3.84  max  6.52
+                                             | A <1mm   0% P90 4.21 · B <1mm   0% P90 6.39 · C <1mm  29% P90 2.08
+                                             | Schall A/B/C 346.0/346.0/346.0
+Schall fest: Offsets + Zonen-Offsets r1.5us (0.1s) | Versatz -1.28/+4.45 | n=29 ung=0  <1mm   6.9%  P50  2.87  P90  5.51  RMS  3.40  max  5.75
+                                             | A <1mm   0% P90 5.69 · B <1mm   0% P90 3.57 · C <1mm  29% P90 2.12
+                                             | Schall A/B/C 346.0/346.0/346.0
+Schall fest: Offsets r3us + Zonen-Offs r1.5us (0.1s) | Versatz -1.55/+3.18 | n=29 ung=0  <1mm   6.9%  P50  3.32  P90  5.54  RMS  3.59  max  5.81
+                                             | A <1mm   0% P90 5.73 · B <1mm   0% P90 4.08 · C <1mm  29% P90 2.15
+                                             | Schall A/B/C 346.0/346.0/346.0
+== Uebertragbarkeit der Zonen-Kalibrierung (nach Abzug x/y-Versatz)
+Kal. LP 12.10. 0342fdff  -> LP 12.10. 0342fdff  | Zonen n=29 ung=0  <1mm  79.3%  P50  0.65  P90  1.59  RMS  0.88  max  2.20 (Versatz -0.02/+0.03) | nur Basissatz <1mm 21% | HWCapture <1mm 7%
+Kal. LP 12.10. 0342fdff  -> LG 11.10. acc1e961  | Zonen n=12 ung=0  <1mm  16.7%  P50  1.46  P90  3.64  RMS  2.66  max  6.54 (Versatz +0.02/-1.43) | nur Basissatz <1mm 25% | HWCapture <1mm 25%
+Kal. LP 12.10. 0342fdff  -> LG 11.10. 6d11a607  | Zonen n=11 ung=0  <1mm   9.1%  P50  1.48  P90  3.66  RMS  2.36  max  3.99 (Versatz +0.63/-1.56) | nur Basissatz <1mm 18% | HWCapture <1mm 0%
+Kal. LG 11.10. acc1e961  -> LP 12.10. 0342fdff  | Zonen n=29 ung=0  <1mm  17.2%  P50  2.59  P90  4.52  RMS  2.95  max  4.88 (Versatz -0.23/-0.43) | nur Basissatz <1mm 10% | HWCapture <1mm 7%
+Kal. LG 11.10. acc1e961  -> LG 11.10. acc1e961  | Zonen n=12 ung=0  <1mm  58.3%  P50  0.93  P90  2.12  RMS  1.56  max  3.64 (Versatz -0.03/-0.10) | nur Basissatz <1mm 33% | HWCapture <1mm 25%
+Kal. LG 11.10. acc1e961  -> LG 11.10. 6d11a607  | Zonen n=11 ung=0  <1mm  27.3%  P50  1.60  P90  4.10  RMS  2.58  max  4.66 (Versatz +0.43/-0.36) | nur Basissatz <1mm 27% | HWCapture <1mm 0%
+Kal. LG 11.10. 6d11a607  -> LP 12.10. 0342fdff  | Zonen n=29 ung=0  <1mm  20.7%  P50  2.04  P90  5.31  RMS  2.98  max  5.40 (Versatz -0.89/+0.15) | nur Basissatz <1mm 17% | HWCapture <1mm 7%
+Kal. LG 11.10. 6d11a607  -> LG 11.10. acc1e961  | Zonen n=12 ung=0  <1mm  41.7%  P50  1.09  P90  2.94  RMS  1.89  max  3.79 (Versatz -1.07/+0.41) | nur Basissatz <1mm 33% | HWCapture <1mm 25%
+Kal. LG 11.10. 6d11a607  -> LG 11.10. 6d11a607  | Zonen n=11 ung=0  <1mm  36.4%  P50  1.73  P90  3.19  RMS  2.11  max  4.06 (Versatz +0.03/-0.16) | nur Basissatz <1mm 27% | HWCapture <1mm 0%
+== Nutzer-One-Click 22:22 an allen Fotoschuessen
+#1  Foto   -6.4/  -2.9 Zone A | mit Zonen   -6.9/  -1.5 Fehler  1.45 | nur Basis Fehler  1.80
+#2  Foto   -2.7/  15.9 Zone A | mit Zonen   -2.3/  16.5 Fehler  0.66 | nur Basis Fehler  1.59
+#3  Foto   12.0/  10.5 Zone A | mit Zonen   12.0/  10.9 Fehler  0.49 | nur Basis Fehler  1.54
+#4  Foto   22.0/   0.5 Zone A | mit Zonen   21.5/   0.5 Fehler  0.51 | nur Basis Fehler  0.73
+#5  Foto    4.8/ -17.1 Zone A | mit Zonen    4.4/ -17.6 Fehler  0.65 | nur Basis Fehler  0.72
+#6  Foto   16.8/ -11.4 Zone A | mit Zonen   15.4/ -12.2 Fehler  1.58 | nur Basis Fehler  0.78
+#7  Foto  -18.6/ -20.4 Zone A | mit Zonen  -17.1/ -21.5 Fehler  1.84 | nur Basis Fehler  1.94
+#8  Foto  -18.5/ -10.1 Zone A | mit Zonen  -18.0/ -10.6 Fehler  0.70 | nur Basis Fehler  0.27
+#9  Foto  -18.9/   2.2 Zone A | mit Zonen  -18.5/   3.4 Fehler  1.26 | nur Basis Fehler  1.83
+#10 Foto   -9.0/  11.7 Zone A | mit Zonen   -9.4/  12.7 Fehler  1.03 | nur Basis Fehler  1.64
+#11 Foto   -1.4/  -0.3 Zone A | mit Zonen    0.5/  -0.4 Fehler  1.84 | nur Basis Fehler  2.55
+#12 Foto    1.1/  -4.3 Zone A | mit Zonen    1.1/  -6.4 Fehler  2.12 | nur Basis Fehler  2.23
+#13 Foto  -58.9/  29.4 Zone B | mit Zonen  -59.9/  30.2 Fehler  1.25 | nur Basis Fehler  3.49
+#14 Foto  -54.9/  17.5 Zone B | mit Zonen  -55.1/  18.1 Fehler  0.69 | nur Basis Fehler  3.51
+#15 Foto  -62.0/   4.9 Zone B | mit Zonen  -61.7/   3.9 Fehler  1.02 | nur Basis Fehler  3.64
+#16 Foto  -60.3/ -14.6 Zone B | mit Zonen  -59.9/ -15.9 Fehler  1.36 | nur Basis Fehler  4.02
+#17 Foto  -60.3/ -28.9 Zone B | mit Zonen  -59.2/ -30.2 Fehler  1.76 | nur Basis Fehler  4.16
+#18 Foto   67.7/  40.1 Zone B | mit Zonen   66.4/  30.6 Fehler  9.54 | nur Basis Fehler  4.48  <<<
+#19 Foto   60.1/  25.3 Zone B | mit Zonen   59.3/  15.6 Fehler  9.69 | nur Basis Fehler  4.75  <<<
+#20 Foto   65.8/  15.2 Zone B | mit Zonen   65.1/   5.6 Fehler  9.59 | nur Basis Fehler  5.18  <<<
+#21 Foto   66.0/   0.3 Zone B | mit Zonen   65.5/  -8.8 Fehler  9.13 | nur Basis Fehler  5.59  <<<
+#22 Foto   64.6/ -11.2 Zone B | mit Zonen   64.8/ -20.2 Fehler  9.03 | nur Basis Fehler  6.44  <<<
+#23 Foto  -20.6/  50.9 Zone C | mit Zonen  -20.3/  45.2 Fehler  5.72 | nur Basis Fehler  5.72  <<<
+#24 Foto    2.3/  53.7 Zone C | mit Zonen    2.2/  48.7 Fehler  4.98 | nur Basis Fehler  4.98  <<<
+#25 Foto   17.7/  49.8 Zone C | mit Zonen   17.6/  44.6 Fehler  5.27 | nur Basis Fehler  5.27  <<<
+#26 Foto  -14.9/ -50.6 Zone C | mit Zonen  -14.0/ -52.8 Fehler  2.33 | nur Basis Fehler  2.33
+#27 Foto    0.0/ -51.9 Zone C | mit Zonen    0.4/ -54.4 Fehler  2.55 | nur Basis Fehler  2.55
+#28 Foto  -11.7/ -65.5 Zone C | mit Zonen  -10.4/ -68.4 Fehler  3.16 | nur Basis Fehler  3.16  <<<
+#29 Foto   -9.6/  65.1 Zone C | mit Zonen   -9.7/  60.0 Fehler  5.14 | nur Basis Fehler  5.14  <<<
+== Kugeldurchmesser-Korrektur / Endposition bei der One-Click-Kalibrierung (Serie 0342fdff)
+HWCapture (BSHIFT 30, CLUSTERCORR, ITER 5) nur Basis <1mm   7% | Zonen <1mm  79% P90 1.58 | LOO n=29 ung=0  <1mm  72.4%  P50  0.72  P90  1.95  RMS  0.99  max  2.19
+BSHIFT 0                                   nur Basis <1mm   0% | Zonen <1mm  72% P90 1.43 | LOO n=29 ung=0  <1mm  69.0%  P50  0.80  P90  2.24  RMS  1.15  max  2.56
+BSHIFT 50                                  nur Basis <1mm   7% | Zonen <1mm  76% P90 1.54 | LOO n=29 ung=0  <1mm  69.0%  P50  0.75  P90  1.75  RMS  1.10  max  3.27
+BSHIFT 100                                 nur Basis <1mm   7% | Zonen <1mm  86% P90 1.51 | LOO n=29 ung=0  <1mm  58.6%  P50  0.89  P90  1.87  RMS  1.35  max  4.29
+ohne CLUSTERCORR/ITER                      nur Basis <1mm   7% | Zonen <1mm  79% P90 1.47 | LOO n=29 ung=0  <1mm  55.2%  P50  0.90  P90  2.75  RMS  1.38  max  3.49
+ohne CLUSTERCORR/ITER, BSHIFT 0            nur Basis <1mm   3% | Zonen <1mm  90% P90 1.25 | LOO n=29 ung=0  <1mm  69.0%  P50  0.77  P90  1.79  RMS  1.70  max  6.09
+LSQ (Lochrand 2,25)                        nur Basis <1mm  24% | Zonen <1mm  52% P90 1.35 | LOO n=29 ung=0  <1mm  58.6%  P50  0.94  P90  2.32  RMS  1.31  max  2.57
+LSQ Lochrand 0 (Mitte)                     nur Basis <1mm  34% | Zonen <1mm  55% P90 1.52 | LOO n=29 ung=0  <1mm  44.8%  P50  1.20  P90  2.61  RMS  1.58  max  3.78
+== Start Standard: 28 Paare (von 20), davon 0 abweichend von der Handzuordnung; Zuordnung 205ms, gesamt 646ms
+   Zone A 11 Schuss: Nachkorrektur, Schallgeschwindigkeit (Kreuzpruefung Ø 1.28 mm)
+   Zone B 10 Schuss: Offsets, Nachkorrektur, Schallgeschwindigkeit (Kreuzpruefung Ø 0.74 mm)
+   Zone C  7 Schuss: nur Nachkorrektur (Kreuzpruefung Ø 0.70 mm)
+   alle 29 Fotoschuesse: n=29 ung=0  <1mm  72.4%  P50  0.73  P90  1.72  RMS  0.99  max  2.64
+== Start HWCapture: 28 Paare (von 20), davon 0 abweichend von der Handzuordnung; Zuordnung 428ms, gesamt 1.069s
+   Zone A 11 Schuss: nur Nachkorrektur (Kreuzpruefung Ø 0.90 mm)
+   Zone B 10 Schuss: Offsets, Nachkorrektur, Schallgeschwindigkeit (Kreuzpruefung Ø 0.43 mm)
+   Zone C  7 Schuss: Offsets, Nachkorrektur, Schallgeschwindigkeit (Kreuzpruefung Ø 0.81 mm)
+   alle 29 Fotoschuesse: n=29 ung=0  <1mm  79.3%  P50  0.63  P90  1.71  RMS  0.88  max  2.22
+== Σ9 (roh / korrigiert, mm) gegen Fotofehler, Serie 0342fdff
+HWCapture                  Σ9 roh Median  16.7 · korr. Median   7.2 · Fotofehler Median 2.42 mm · Korrelation Σ9korr/Fehler r=+0.73
+Foto-Zonen nur Basissatz   Σ9 roh Median  15.2 · korr. Median   5.8 · Fotofehler Median 2.62 mm · Korrelation Σ9korr/Fehler r=+0.59
+Foto-Zonen mit Zonen       Σ9 roh Median  18.5 · korr. Median   8.2 · Fotofehler Median 0.63 mm · Korrelation Σ9korr/Fehler r=+0.17
+#1  Loch   -6.4/  -2.9 Sim   -6.5/   1.2 d=4.1 ok
+#2  Loch   -2.7/  15.9 Sim   -3.0/  19.5 d=3.6 ok
+#3  Loch   12.0/  10.5 Sim   12.2/  14.4 d=3.9 ok
+#4  Loch   22.0/   0.5 Sim   22.2/   3.6 d=3.1 ok
+#5  Loch    4.8/ -17.1 Sim    4.9/ -15.1 d=2.0 ok
+#6  Loch   16.8/ -11.4 Sim   16.7/  -9.4 d=2.1 ok
+#7  Loch  -18.6/ -20.4 Sim  -17.9/ -20.4 d=0.7 ok
+#8  Loch  -18.5/ -10.1 Sim  -18.7/  -8.3 d=1.9 ok
+#9  Loch  -18.9/   2.2 Sim  -19.1/   5.8 d=3.7 ok
+#10 Loch   -9.0/  11.7 Sim  -10.0/  15.6 d=4.0 ok
+#11 Loch   -1.4/  -0.3 Sim    0.6/   2.4 d=3.3 ok
+#12 Loch    1.1/  -4.3 Sim    3.0/  -3.7 d=2.1 ok
+#13 Loch  -58.9/  29.4 Sim  -61.2/  29.6 d=2.3 ok
+#14 Loch  -54.9/  17.5 Sim  -56.8/  17.3 d=1.9 ok
+#15 Loch  -62.0/   4.9 Sim  -63.2/   3.5 d=1.9 ok
+#16 Loch  -60.3/ -14.6 Sim  -61.9/ -16.7 d=2.7 ok
+#17 Loch  -60.3/ -28.9 Sim  -61.8/ -31.4 d=2.9 ok
+#18 Loch   67.7/  40.1 Sim   69.1/  39.3 d=1.6 ok
+#19 Loch   60.1/  25.3 Sim   61.0/  23.8 d=1.8 ok
+#20 Loch   65.8/  15.2 Sim   66.9/  12.6 d=2.7 ok
+#21 Loch   66.0/   0.3 Sim   66.8/  -2.2 d=2.6 ok
+#22 Loch   64.6/ -11.2 Sim   65.9/ -13.9 d=2.9 ok
+#23 Loch  -20.6/  50.9 Sim  -20.9/  47.7 d=3.2 ok
+#24 Loch    2.3/  53.7 Sim    1.9/  51.3 d=2.4 ok
+#25 Loch   17.7/  49.8 Sim   17.7/  47.3 d=2.6 ok
+#26 Loch  -14.9/ -50.6 Sim  -14.7/ -52.0 d=1.4 ok
+#27 Loch    0.0/ -51.9 Sim    0.3/ -53.6 d=1.7 ok
+#28 Loch  -11.7/ -65.5 Sim  -11.3/ -67.7 d=2.3 ok
+#29 Loch   -9.6/  65.1 Sim  -10.0/  63.5 d=1.7 ok
+#30 ohne Loch
+== Zuordnung Serie 13.10. (ca5817a6): Zonen-Kal. 12.10. optimal vs. Server ab HWCapture
+#1  Loch 17  -16.2/  12.4  Abstand 0.50  zweitnaechstes 8.4  | gleich
+#2  Loch 18    0.9/  23.1  Abstand 0.68  zweitnaechstes 16.0  | gleich
+#3  Loch 20   12.1/  12.5  Abstand 3.34  zweitnaechstes 9.1  | gleich
+#4  Loch 28   16.6/ -10.6  Abstand 0.36  zweitnaechstes 9.1  | gleich
+#5  Loch 26   -8.6/ -15.7  Abstand 1.33  zweitnaechstes 8.9  | gleich
+#6  Loch 25  -20.2/  -9.6  Abstand 4.21  zweitnaechstes 9.1  | gleich
+#7  Loch 16  -25.9/   5.0  Abstand 5.90  zweitnaechstes 16.6  | gleich
+#8  Loch 22  -13.0/   5.2  Abstand 2.80  zweitnaechstes 8.6  | gleich
+#9  Loch 23   -6.9/  -1.7  Abstand 1.76  zweitnaechstes 1.7  | gleich
+#10 Loch 24   -3.9/  -0.1  Abstand 3.10  zweitnaechstes 6.1  | gleich
+#11 Loch 19   16.8/  17.9  Abstand 3.40  zweitnaechstes 6.9  | gleich
+#12 Loch 21   16.8/  -1.4  Abstand 0.85  zweitnaechstes 10.1  | gleich
+#13 Loch  4  -52.1/  36.2  Abstand 1.74  zweitnaechstes 14.7  | gleich
+#14 Loch  7  -51.2/  22.1  Abstand 2.11  zweitnaechstes 13.2  | gleich
+#15 Loch  9  -63.1/  10.0  Abstand 0.66  zweitnaechstes 16.7  | gleich
+#16 Loch 12  -53.7/ -21.4  Abstand 0.67  zweitnaechstes 32.3  | gleich
+#17 Loch  6   54.9/  33.2  Abstand 1.10  zweitnaechstes 18.2  | gleich
+#18 Loch  8   57.1/  15.6  Abstand 1.32  zweitnaechstes 16.8  | gleich
+#19 Loch 10   50.1/  -6.4  Abstand 1.46  zweitnaechstes 12.0  | gleich
+#20 Loch 11   50.8/ -17.1  Abstand 0.57  zweitnaechstes 10.4  | gleich
+#21 Loch  3  -21.6/  39.1  Abstand 1.98  zweitnaechstes 26.7  | gleich
+#22 Loch  2    4.2/  44.3  Abstand 0.48  zweitnaechstes 17.1  | gleich
+#23 Loch  1   15.8/  56.3  Abstand 2.38  zweitnaechstes 16.9  | gleich
+#24 Loch  0   -9.0/  60.8  Abstand 0.95  zweitnaechstes 20.8  | gleich
+#25 Loch  5   22.4/  36.1  Abstand 2.43  zweitnaechstes 20.4  | gleich
+#26 Loch 27  -12.2/ -24.6  Abstand 1.99  zweitnaechstes 11.6  | gleich
+#27 Loch 13    2.2/ -34.7  Abstand 1.30  zweitnaechstes 13.2  | gleich
+#28 Loch 29   13.7/ -29.4  Abstand 3.59  zweitnaechstes 15.9  | gleich
+#29 Loch 14  -14.8/ -46.1  Abstand 1.57  zweitnaechstes 18.6  | gleich
+#30 Loch 15    3.4/ -47.2  Abstand 1.77  zweitnaechstes 10.8  | gleich
+== VERGLEICH an Serie 13.10. (29 Fotoschuesse, Schuss 9 mehrdeutig/abgewaehlt), Fehler absolut
+-- 1. gespeicherte Kalibrierungen Stand 1 (unveraendert angewendet)
+24.09.26_19:00                                                 n=29 ung=0  <1mm   0.0%  P50  3.11  P90  4.92  RMS  3.50  max  5.91 | A   0%/P90 4.57 · B   0%/P90 4.38 · C   0%/P90 5.91
+Freigabe Stand 1 26.09.2026 17:39:36 – Fotokalibrierung 26.09. n=29 ung=0  <1mm  27.6%  P50  2.10  P90  5.97  RMS  3.29  max  6.26 | A   0%/P90 6.16 · B  62%/P90 2.10 · C  33%/P90 2.79
+20260926_Neuer_Alg_und_Foto                                    n=29 ung=0  <1mm   6.9%  P50  2.93  P90  5.59  RMS  3.38  max  6.26 | A   0%/P90 5.59 · B  25%/P90 1.98 · C   0%/P90 6.26
+20260926_Neuer_Alg_und_Foto_v2                                 n=29 ung=0  <1mm  27.6%  P50  1.74  P90  5.96  RMS  3.25  max  6.94 | A  17%/P90 6.13 · B  38%/P90 1.82 · C  33%/P90 4.36
+Freigabe Stand 1 11.10.2026 19:50:13 – Kalibrierung1-HWCapture n=29 ung=0  <1mm   6.9%  P50  2.75  P90  5.09  RMS  3.26  max  5.48 | A   0%/P90 5.15 · B   0%/P90 3.30 · C  22%/P90 4.13
+Zone A Loch Vorsatzscheibe 12.10.2026 (Studie)                 n=29 ung=0  <1mm   6.9%  P50  3.75  P90  8.87  RMS  5.12  max 11.60 | A  17%/P90 4.55 · B   0%/P90 8.92 · C   0%/P90 11.60
+Zone B neben Schussband 12.10.2026 (Studie)                    n=29 ung=0  <1mm  20.7%  P50  3.92  P90  7.46  RMS  4.49  max  7.66 | A   0%/P90 7.64 · B  50%/P90 2.85 · C  22%/P90 6.78
+Zone C Schussband+Vorsatz 12.10.2026 (Studie)                  n=29 ung=0  <1mm   6.9%  P50  3.06  P90  5.53  RMS  3.68  max  6.59 | A   0%/P90 6.07 · B   0%/P90 4.48 · C  22%/P90 4.76
+Foto-Zonen 12.10.2026, 22:42 – Stand 1 (28 Schuss)             n=29 ung=0  <1mm  31.0%  P50  1.57  P90  3.59  RMS  2.28  max  5.90 | A  33%/P90 4.21 · B  38%/P90 2.11 · C  22%/P90 3.59
+Foto-Zonen 12.10.2026, 23:30 – Stand 1 (26 Schuss)             n=29 ung=0  <1mm  17.2%  P50  2.12  P90  4.33  RMS  2.57  max  5.28 | A  33%/P90 4.26 · B   0%/P90 2.80 · C  11%/P90 4.43
+-- 2. One-Click (aktueller Code) an Serie 12.10. kalibriert, auf 13.10. angewendet
+12.10. -> 13.10. mit Zonen                                     n=29 ung=0  <1mm  34.5%  P50  1.46  P90  5.30  RMS  2.66  max  6.21 | A  17%/P90 5.31 · B  62%/P90 2.95 · C  33%/P90 3.80
+12.10. -> 13.10. nur Basissatz                                 n=29 ung=0  <1mm   6.9%  P50  2.29  P90  4.52  RMS  2.84  max  5.09 | A   8%/P90 4.45 · B   0%/P90 2.73 · C  11%/P90 5.03
+Gegenprobe 13.10. -> 12.10. mit Zonen                          n=29 ung=0  <1mm  27.6%  P50  1.32  P90  2.50  RMS  1.61  max  3.62 | A  17%/P90 2.50 · B  20%/P90 1.46 · C  57%/P90 3.62
+   13.10. Zone A (12 Schuss, nur Nachkorrektur): Schall 338.0 OFS [0 14430 -19465 -7134 -16002 -4344] Versatz -3012/1311
+   13.10. Zone B ( 8 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): Schall 333.0 OFS [0 8447 -19795 -7422 -19058 -371] Versatz -2141/3673
+   13.10. Zone C ( 9 Schuss, Nachkorrektur, Schallgeschwindigkeit): Schall 353.6 OFS [0 14430 -19465 -7134 -16002 -4344] Versatz -2398/5637
+   12.10. Zone A (12 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): Schall 335.8 OFS [0 14259 -17296 -6058 -2492 -15501] Versatz -581/-463
+   12.10. Zone B (10 Schuss, Offsets, Nachkorrektur, Schallgeschwindigkeit): Schall 338.4 OFS [0 10411 -8176 -12641 -10587 -9943] Versatz 171/3270
+   12.10. Zone C ( 7 Schuss, Nachkorrektur, Schallgeschwindigkeit): Schall 346.4 OFS [0 11523 -12097 -8967 -10770 -10649] Versatz -692/4337
+-- 3. Verfahren an Serie 13.10. kalibriert, Leave-one-out (jeder Schuss am Rest kalibriert)
+One-Click Zonen (HWCapture-Start)                    n=29 ung=0  <1mm  27.6%  P50  1.51  P90  5.25  RMS  2.69  max  6.22 | A   8%/P90 4.58 · B  62%/P90 1.86 · C  22%/P90 5.33 (19s)
+One-Click Zonen + Daten 12.10.                       n=29 ung=0  <1mm  20.7%  P50  1.76  P90  4.65  RMS  2.53  max  5.81 | A   8%/P90 4.95 · B  38%/P90 2.31 · C  22%/P90 4.65 (35s)
+One-Click Zonen, Basis mit Geometrie                 n=29 ung=0  <1mm  31.0%  P50  1.55  P90  3.86  RMS  2.19  max  5.16 | A  17%/P90 4.82 · B  50%/P90 2.51 · C  33%/P90 2.32 (26s)
+One-Click Zonen, BSHIFT 0                            n=29 ung=0  <1mm  31.0%  P50  1.51  P90  4.92  RMS  2.54  max  5.37 | A   8%/P90 4.92 · B  62%/P90 2.51 · C  33%/P90 4.95 (20s)
+One-Click Zonen, BSHIFT 50                           n=29 ung=0  <1mm  24.1%  P50  1.70  P90  3.49  RMS  2.11  max  5.47 | A   8%/P90 3.55 · B  75%/P90 1.20 · C   0%/P90 3.49 (22s)
+One-Click Zonen, LSQ                                 n=29 ung=0  <1mm  24.1%  P50  1.73  P90  4.05  RMS  2.41  max  6.59 | A  17%/P90 4.05 · B  38%/P90 3.39 · C  22%/P90 4.17 (30s)
+One-Click Zonen, WALKK 0.5                           n=29 ung=0  <1mm   6.9%  P50  2.95  P90 12.72  RMS  5.38  max 13.45 | A   8%/P90 5.64 · B  12%/P90 3.47 · C   0%/P90 13.45 (18s)
+Foto-Kalibrierung ohne Zonen (Offsets+Versatz+Schall) n=29 ung=0  <1mm  20.7%  P50  2.24  P90  4.72  RMS  2.91  max  5.80 | A   8%/P90 4.58 · B  50%/P90 2.24 · C  11%/P90 5.80 (10s)
+Foto-Kalibrierung ohne Zonen, mit Geometrie          n=29 ung=0  <1mm  24.1%  P50  1.92  P90  4.74  RMS  2.73  max  4.95 | A  25%/P90 4.95 · B  12%/P90 3.94 · C  33%/P90 4.39 (14s)
+-- 4. One-Click an beiden Serien gemeinsam, Leave-one-out je Serie
+Schuss aus 12.10. weggelassen                        n=29 ung=0  <1mm  37.9%  P50  1.34  P90  3.94  RMS  2.15  max  4.37 | A   8%/P90 4.33 · B  60%/P90 1.90 · C  57%/P90 3.94
+0342fdff: innerer Rest Median 4167 ns P90 7685 · Vorpulse je Schuss 0.41 · kurze Signale 10/29 · One-Click in-sample <1mm 79% P90 1.58
+ca5817a6: innerer Rest Median 4054 ns P90 9706 · Vorpulse je Schuss 0.79 · kurze Signale 9/29 · One-Click in-sample <1mm 48% P90 3.29
+== One-Click-Zeit Serie 14.10. (48 Schuesse, 52 Loecher): Zuordnung 48 Paare in 583ms
+   Kalibrierung 1.64s (gesamt 2.223s) -> <1mm 62% P90 2.51
+   Zone A 10 Schuss: Nachkorrektur, Schallgeschwindigkeit
+   Zone B 18 Schuss: Nachkorrektur, Schallgeschwindigkeit
+   Zone C 20 Schuss: Nachkorrektur, Schallgeschwindigkeit

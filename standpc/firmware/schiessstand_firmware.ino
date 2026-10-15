@@ -1,6 +1,185 @@
 /*
  * ============================================================================
  *  Elektronischer Schießstand – ESP32 Firmware
+ *  Rev 4.17.0 – NEU Zonen-Kalibrierung (nur ALGO=CLASSIC, Default aus):
+ *              Der Knall ist je nach getroffenen Papierlagen unterschiedlich
+ *              laut - die Komparatoren loesen dadurch lageabhaengig spaeter
+ *              aus. Mit EINEM Parametersatz bleiben je Bereich systematische
+ *              Abweichungen von 2-4 mm (Foto-Studie 12.10.2026). Je Zone
+ *              ein eigener Satz aus Schallgeschwindigkeit, OFS0-5 und
+ *              OFFSETX/Y (Geometrie gemeinsam):
+ *                A  im Loch der Vorsatzscheibe (nur Schussband)  r < ZHOLE
+ *                B  neben dem Schussband (nur Vorsatzscheibe)     |x| > ZBAND
+ *                C  Schussband + Vorsatzscheibe                   sonst
+ *              Ablauf je Schuss: Lage mit den Basiswerten, daraus Zonen-
+ *              Gewichte (lineare Ueberblendung +-ZBLEND um jede Grenze),
+ *              mit den Saetzen der beteiligten Zonen neu rechnen, Lage
+ *              gewichtet mitteln (hoechstens 3 Durchgaenge) - identisch zum
+ *              Server-Simulator (sim_zones.go). Siehe zoneSolve().
+ *              - NEU SET ZONES=0|1, SET ZHOLE=<um>, SET ZBAND=<um>,
+ *                SET ZBLEND=<um>, SET ZCAL=<A|B|C>,<mps>,<ofs0>,..,<ofs5>,
+ *                <offx>,<offy> bzw. SET ZCAL=<A|B|C>,OFF
+ *              - NEU SHOWZONES -> Telegramm "zones" (alle Zonenwerte)
+ *              - "config" traegt zones/z_hole_um, "shot" bei aktiven Zonen
+ *                "zone" (Zone mit dem groessten Anteil)
+ *              - CAL RESET verwirft auch die Zonen-Saetze (sie gehoeren zu
+ *                den alten Offsets), Grenzen und ZONES bleiben.
+ *              - Werks-Defaults (nur leeres NVS): SET RADIUS 4000 statt 200
+ *                (beim Wechsel mm -> 0.001mm verstellt; mit 0,2 mm liegen
+ *                fast alle Schnittpunkte ausserhalb, cluster_hits wird
+ *                bedeutungslos) und SET BSHIFTPCT 30 statt 40 (bester Wert
+ *                der Foto-Studie 12.10.2026).
+ * ============================================================================
+ *
+ *  Rev 4.16.1 – Bugfix abgeschnittene Telegramme (SHOW und shot):
+ *              - "config" (Antwort auf SHOW) war in einem 900-Byte-Puffer
+ *                gebaut, ist mit allen Feldern aber schon mit typischen
+ *                Werten ~1000 Zeichen lang (Worst-Fall ~1230) und wurde
+ *                beim Stand-PC abgeschnitten (kaputtes JSON, ab paper_*
+ *                fehlend). Jetzt static 1536 Byte; Korrelations-Hilfspuffer
+ *                in emitLine() entsprechend 1600 Byte.
+ *              - "shot" (CLASSIC und RIM) von 900 auf 1024 Byte (static,
+ *                nicht mehr auf dem Loop-Stack).
+ *              - Offline-Ringpuffer: Zeilenlaenge TXBUF_LINE um das
+ *                Signatur-Praefix erweitert (1024 + 18), damit auch ein
+ *                maximal langer, signierter shot vollstaendig gepuffert wird.
+ *              Telegramm-Inhalte und Felder unveraendert.
+ * ============================================================================
+ *
+ *  Rev 4.16.0 – Vollstaendige Rohdaten fuer den Server-Simulator:
+ *              - NEU SET RAWLOG=0|1 (Default 0): zu jedem GUELTIGEN Schuss
+ *                direkt nach "shot" ein "raw"-Telegramm (gleiche seq) mit
+ *                allen steigenden UND fallenden Flanken aus den Ring-
+ *                puffern in einem Fenster um den Schuss - unkorrigiert,
+ *                ohne die Fenster-/Anzahl-Grenzen der Auswertung - plus
+ *                aktive Parameter (sound_act_mps, walk_k, walk_max_us,
+ *                ofs_ns, mic_en, capture, Fenster). Abgelehnte Schuesse
+ *                bleiben unveraendert (kein raw). Siehe emitRawTelegram().
+ *              - "shot"-Telegramme tragen jetzt sound_act_mps (aktive
+ *                Schallgeschwindigkeit, bei SET DHT=1 veraenderlich) und
+ *                raw_follows (1 = raw folgt als naechste Zeile auf demselben
+ *                Weg, der Host kann mit der Anzeige darauf warten; 0 bei
+ *                RAWLOG=0 oder wenn der shot mangels TCP-Verbindung im
+ *                Offline-Puffer landet, siehe rawWillFollow()).
+ *              - Bugfix Offline-Ringpuffer: 32 x 1024 statt 64 x 360 Byte.
+ *                shot-Zeilen erreichten mit air_w_ns ~340 Zeichen (+17 Byte
+ *                Signatur) und wurden bei fehlender TCP-Verbindung
+ *                abgeschnitten (kaputtes JSON, ungueltige Signatur).
+ *                emitf()/emitReject() behalten 360 Byte (EMIT_LINE).
+ * ============================================================================
+ *
+ *  Rev 4.15.0 – NEU (optional, SET DHT=0|1, Default 0): Schallgeschwindigkeit
+ *              aus Temperatur und Luftfeuchte eines DHT22 an GPIO15 (Anregung:
+ *              freETarget speed_of_sound.c). 1 K Temperaturfehler = 0,18 %
+ *              Massstabsfehler, der mit dem Abstand vom Zentrum waechst.
+ *              - Formel: 331,3*sqrt(1+T/273,15)*(1+0,16*x_w), x_w = Wasser-
+ *                dampf-Stoffmengenanteil (Magnus, 1013,25 hPa), siehe
+ *                speedOfSoundMps().
+ *              - Eigene Ausleseroutine OHNE Interrupt-Sperre (DHT-Biblio-
+ *                theken sperren ~5 ms alle Interrupts -> Mic-Flanken
+ *                gingen verloren), nur in Ruhephasen, alle 30 s, Median aus
+ *                3, Plausibilitaets- und Sprungpruefung - siehe serviceDht().
+ *              - SET DHT=0 oder keine gueltige Messung seit 5 min: fester
+ *                Wert SET SOUNDSPEED - jetzt mit Nachkommastelle, neuer
+ *                Default 342.5 m/s (greift nur bei leerem NVS bzw. nach
+ *                CAL RESET; ein gespeicherter ganzzahliger Wert wird
+ *                uebernommen, neuer NVS-Key "sound_f"). CAL IMPORT nimmt
+ *                SOUNDSPEED ebenfalls mit Nachkommastelle an.
+ *              - STATUS: sound_act_mps, sound_src ("dht"|"fixed"), bei DHT=1
+ *                temp_c, rh_pct, dht_age_s, dht_err (eigener 600-Byte-
+ *                Puffer statt emitf()). SHOW/cal-done: sound_mps bleibt
+ *                ganzzahlig (Kompatibilitaet), neu sound_set_mps (genau),
+ *                dht bzw. sound_act_mps.
+ * ============================================================================
+ *
+ *  Rev 4.14.0 – NEU (optional, SET WALKK, Default 0 = aus): Korrektur der
+ *              amplitudenabhaengigen Komparator-Verzoegerung OHNE Zusatz-
+ *              hardware (schusserkennung-rev5.md Abschnitt 4, Punkt 4).
+ *              Ein leises Signal (fernes Mic) ueberschreitet die LM339-
+ *              Schwelle spaeter als ein lautes - positionsabhaengig, daher
+ *              nicht per SET OFS kalibrierbar. freETarget misst dafuer mit
+ *              einer zweiten Schwelle je Kanal; hier dient stattdessen die
+ *              Pulsbreite (Zeit ueber der Schwelle) als Amplitudenmass:
+ *              - Bei aktivem MCPWM-Capture (SET CAPTURE=MCPWM) erfassen die
+ *                Capture-Kanaele jetzt auch die FALLENDE Flanke (eigener
+ *                Ringpuffer fallCC/fallUs, Preller < 2us zusammengefasst).
+ *              - Pulsbreite = letzte fallende Flanke vor der naechsten
+ *                gespeicherten steigenden (max. SET WALKMAX), siehe
+ *                edgeWidthNs().
+ *              - Korrektur je Mic: t += WALKK * (Breite - Mittel der Breiten
+ *                dieses Schusses), siehe walkDeltas()/rimBuildEdges(). Der
+ *                Bezug auf das Schuss-Mittel haelt t0 (Piezo-Gate bei RIM)
+ *                unveraendert. WALKK=0.5 entspricht der Pulsmitte (fuer
+ *                eine symmetrische Halbwelle amplitudenunabhaengig).
+ *              - SET WALKCAL=1: CAL START bestimmt WALKK zusammen mit den
+ *                Mic-Offsets (zusaetzliche Koordinate im Abstiegsverfahren).
+ *              - shot-Telegramme tragen bei aktivem MCPWM ein neues Feld
+ *                air_w_ns (Pulsbreite der ersten Flanke je Mic) fuer die
+ *                Offline-Analyse; "cal"/"done" meldet walk_k/walk_fitted.
+ *              Ohne MCPWM, bei TESTSHOOT oder WALKK=0 bleibt alles exakt wie
+ *              bisher. Die Ringpuffer-Kopie in processShotAnchored() liegt
+ *              jetzt in einer static-Struktur (edgeSnap) statt auf dem
+ *              Loop-Stack.
+ * ============================================================================
+ *
+ *  Rev 4.13.0 – NEU (optional, SET CAPTURE=ISR|MCPWM, Default ISR =
+ *              bisheriges Verhalten): Hardware-Zeitstempel der 6 Luft-Mics
+ *              per MCPWM-Capture (schusserkennung-rev5.md Abschnitt 4,
+ *              Punkt 3; Anregung u.a. durch freETarget, das grundsaetzlich
+ *              keine ISR-Zeitstempel verwendet).
+ *              Problem bisher: airISR() liest den Zykluszaehler erst beim
+ *              Eintritt in die Interrupt-Routine - dazwischen liegt die
+ *              Interrupt-Latenz samt Jitter (WLAN-Interrupts, gemeinsamer
+ *              GPIO-Dispatcher, ~1-3us = 0,3-1mm Laufweg im Luftschall).
+ *              MCPWM-Capture friert den Zaehlerstand in HARDWARE zum
+ *              Flankenzeitpunkt ein (APB 80 MHz = 12,5ns Aufloesung). Der
+ *              ESP32 hat 2 MCPWM-Gruppen x 3 Capture-Kanaele = genau 6 Mics
+ *              (AIR0-2 -> Gruppe 0, AIR3-5 -> Gruppe 1, Pins unveraendert).
+ *              - Beide Gruppen-Timer werden beim Boot EINMAL ueber einen
+ *                gemeinsamen GPIO-Sync-Impuls auf MCPWM_SYNC_PIN (GPIO23,
+ *                muss unbeschaltet bleiben!) gleichzeitig genullt.
+ *              - Gemeinsame Zeitbasis bleibt der CPU-Zykluszaehler: der
+ *                Capture-Callback rechnet den Hardware-Stempel exakt in
+ *                Zyklen um (cc = Anker + (cap - capAnker) * 3, beide Takte
+ *                aus derselben PLL, modulo 2^32 dauerhaft exakt). Dadurch
+ *                laufen Ringpuffer, beide Auswertepfade (ALGO=CLASSIC/RIM),
+ *                CAL START, TESTSHOOT und das Piezo (bleibt normaler
+ *                GPIO-Interrupt, dient nur als Gate) UNVERAENDERT weiter.
+ *              - Der Anker wird beim Boot per Soft-Catch gesetzt (Latenz
+ *                ~us, wirkt nur als konstanter Versatz Mics<->Piezo, NICHT
+ *                zwischen den Mics) und in loop() alle 10s gegengeprueft
+ *                (STATUS: cap_check_ns/cap_reanchor), siehe
+ *                serviceCaptureCheck().
+ *              - Da zwei Gruppen = zwei Interrupts eine fruehere Flanke
+ *                NACH einer spaeteren melden koennen, setzt der klassische
+ *                Pfad firstAirCC jetzt ggf. auf die fruehere Flanke zurueck
+ *                (im ISR-Betrieb tritt das nie auf - unveraendert).
+ *              Schlaegt die MCPWM-Initialisierung fehl, faellt die Firmware
+ *              automatisch auf ISR zurueck (STATUS "capture":"isr",
+ *              serielle Meldung). Wirkt erst nach REBOOT. Nach dem
+ *              Umschalten CAL RESET + neue CAL START-Serie, da die
+ *              bisherigen SET OFS-Werte die ISR-Latenzen mit einkalibriert
+ *              haben.
+ * ============================================================================
+ *
+ *  Rev 4.12.1 – Robusterer Verbindungsaufbau zum Stand-PC (maintainNetwork()):
+ *              - WLAN-Watchdog: ist das WLAN laenger als 30s getrennt, wird
+ *                selbst neu verbunden (WiFi.disconnect()/begin()). Der Core-
+ *                Autoreconnect gibt bei manchen Trennungsgruenden (AUTH_FAIL,
+ *                NO_AP_FOUND-Varianten 210-212) nach dem ersten Fehlschlag
+ *                auf - dann blieb der ESP32 dauerhaft offline, wenn der
+ *                Access Point beim Boot noch nicht bereit war.
+ *              - Beendet der Stand-PC die TCP-Verbindung sauber (FIN), wird
+ *                das jetzt erkannt und sofort neu verbunden -
+ *                NetworkClient::connected() meldet in diesem Fall weiter
+ *                "verbunden".
+ *              - TCP-Keepalive (5s/2s/3x): ein abgeschalteter Stand-PC wird
+ *                nach ca. 11s erkannt.
+ *              - Wartezeit zwischen TCP-Versuchen max. 8s (vorher 16s),
+ *                Fehlversuche und WLAN-Zustandswechsel werden seriell
+ *                gemeldet.
+ * ============================================================================
+ *
  *  Rev 4.12.0 – solveAirPosition(), Stufe 2 (Endposition): neues, im Server-
  *              Simulator erprobtes Verfahren (server/sim_posalgo.go), dort
  *              gegen Σ9-Schnittpunkt-Cluster UND Foto-Kalibrierung (reale
@@ -823,7 +1002,7 @@
  *  die besten 2, damit einzelne weit abweichende Ausreisser-Kombinationen
  *  (z.B. durch Echos) den Wert nicht dominieren. cluster_hits zählt ALLE
  *  Kandidatenpositionen (nicht nur die besten 2) innerhalb von SET RADIUS
- *  (Default 200 = 0.2mm) um die finale Referenz. Bei genau 3 Treffern gibt
+ *  (Default 4000 = 4.0mm, bis Rev 4.16 200 = 0.2mm) um die finale Referenz. Bei genau 3 Treffern gibt
  *  es nur eine Kombination -> precision_um immer 0, cluster_hits immer 1,
  *  Stufe 2 aendert dann nichts. pos_res_um bleibt IMMER der Stufe-1-Wert
  *  (Konsistenz der urspruenglichen Loesung, nicht des gemittelten Punkts).
@@ -900,6 +1079,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <lwip/sockets.h>          // recv()/TCP-Keepalive, siehe maintainNetwork()
 #include <Preferences.h>
 #include <math.h>                 // sqrtf/fabsf/lroundf (Positionsberechnung)
 #include "esp_cpu.h"
@@ -913,12 +1093,15 @@
 #include "shot_locator.h"          // SET ALGO=RIM (siehe Rev-4.11.0-Hinweis oben) -
                                     // portabler Loeser, identisch auf ESP32 und PC
                                     // (test/sim/host_sim.cpp), kein Arduino-Include
+#include "driver/mcpwm_cap.h"      // SET CAPTURE=MCPWM (Rev 4.13.0) - Hardware-
+#include "driver/mcpwm_sync.h"     // Zeitstempel der Luft-Mics, siehe
+#include "driver/gpio.h"           // airCaptureInit()
 
 // ---------------------------------------------------------------------------
 // Konstanten & Werks-Defaults (greifen nur bei leerem NVS)
 // ---------------------------------------------------------------------------
 
-#define FW_VERSION   "4.12.0"
+#define FW_VERSION   "4.17.0"
 #define SERIAL_BAUD  115200
 #define NVS_NS       "schiessstd"     // NVS-Namespace
 
@@ -978,6 +1161,13 @@ static const uint8_t AIR_PINS[NUM_AIR] = {25, 26, 27, 14, 4, 13};
 // GPIO34 hat KEINEN internen Pull-Up/Down (ESP32 GPIO 34-39) - das
 // Piezo-Modul muss push-pull treiben (uebliche LM393-Komparator-Module tun das).
 #define PIEZO_PIN  34
+
+// SET CAPTURE=MCPWM (Rev 4.13.0, siehe airCaptureInit()): Hilfspin, ueber den
+// beim Boot EIN Sync-Impuls beide MCPWM-Capture-Timer (Gruppe 0: AIR0-2,
+// Gruppe 1: AIR3-5) gleichzeitig nullt. Wird als Ausgang getrieben und per
+// GPIO-Matrix intern in beide Gruppen zurueckgelesen - MUSS UNBESCHALTET
+// bleiben. GPIO23: kein Strapping-Pin, sonst in dieser Firmware ungenutzt.
+#define MCPWM_SYNC_PIN  23
 
 // Papiervorschub (NEMA17-Schrittmotor, 1,8 Grad/Schritt = 200 Vollschritte/
 // Umdrehung, ueber TMC2209-Treiberboard, per MS1/MS2 im Werkszustand auf
@@ -1082,6 +1272,17 @@ static const uint8_t AIR_PINS[NUM_AIR] = {25, 26, 27, 14, 4, 13};
 // in solveAirPosition() als auch die Telegrammgroesse. Laufzeitkonfigurierbar
 // per SET TDOA (Default 750 us, siehe cfg.airMaxTdoaUs).
 
+// Zonen-Kalibrierung (Rev 4.17.0, siehe zoneSolve()): Satz einer Zone.
+// valid=0 -> die Zone nutzt die Basiswerte (SET SOUNDSPEED/OFS<i>/OFFSETX/Y).
+#define ZONE_COUNT 3   // 0=A Loch Vorsatzscheibe, 1=B neben Band, 2=C Band+Vorsatz
+struct ZoneCal {
+    uint8_t valid;
+    float   soundMps;               // wirkt als Differenz zu SET SOUNDSPEED
+                                    // (eine DHT-Messung bleibt so erhalten)
+    int32_t micOffsetNs[NUM_AIR];
+    int32_t offsetXUm, offsetYUm;
+};
+
 struct DeviceConfig {
     String   ssid;          // "" = WLAN deaktiviert
     String   pass;
@@ -1137,7 +1338,7 @@ struct DeviceConfig {
                             // signierten Rest-Fehlers der Stufe-1-Loesung
                             // gegen die daran nicht beteiligten Mikrofone,
                             // als Verschiebung Richtung/weg vom jeweiligen
-                            // Mikrofon (SET BSHIFTPCT, Default 40, 0=aus) -
+                            // Mikrofon (SET BSHIFTPCT, Default 30, 0=aus) -
                             // fliesst seit Rev 4.11.4 auch in CAL START mit
                             // ein, siehe calCostClassic()
     float    bulletShiftCapMm; // Kappung der Kugeldurchmesser-Korrektur je
@@ -1163,6 +1364,16 @@ struct DeviceConfig {
                             // Kovarianzmatrix darf diesen Wert nicht
                             // ueberschreiten - Gegenstueck zu MAXPRECISION/
                             // RADIUS/MINCLUSTER bei ALGO=CLASSIC
+    bool     airMcpwm;      // Luft-Mic-Zeitstempel per MCPWM-Hardware-Capture
+                            // statt GPIO-ISR (SET CAPTURE=MCPWM|ISR, Default
+                            // ISR, wirkt nach Reboot) - siehe airCaptureInit()
+    float    walkK;         // Amplituden-Korrektur ueber die Pulsbreite:
+                            // t += walkK * (Breite - Schuss-Mittel) (SET WALKK
+                            // 0.0-1.0, Default 0 = aus, 0.5 = Pulsmitte), nur
+                            // mit aktivem MCPWM-Capture - siehe walkDeltas()
+    bool     walkCal;       // CAL START bestimmt walkK mit (SET WALKCAL, Default 0)
+    uint32_t walkMaxUs;     // Groesste plausible Pulsbreite in us (SET WALKMAX,
+                            // Default 150) - siehe edgeWidthNs()
     bool     usePiezo;      // Piezo (Stahlplatte, PIEZO_PIN) als Trigger-
                             // Bestaetigung nutzen? (SET PIEZO, Default 1/an)
     bool     piezoRequired; // Bei SET PIEZO=1: Schuss ohne gueltige Piezo-
@@ -1183,8 +1394,24 @@ struct DeviceConfig {
                             // gitter-Verschiebung (SET OFFSETX/OFFSETY,
                             // Default 0) - wird erst NACH der Trilateration
                             // addiert, siehe processShot()
-    uint16_t soundSpeedMps; // Angenommene Schallgeschwindigkeit in m/s
-                            // (SET SOUNDSPEED, Default 343, rein manueller
+    bool     zonesOn;       // Zonen-Kalibrierung aktiv (SET ZONES, Default 0,
+                            // Rev 4.17.0) - siehe zoneSolve()
+    uint32_t zHoleUm;       // Radius Loch der Vorsatzscheibe in 0.001mm
+                            // (SET ZHOLE, Default 0 = Zonen wirkungslos;
+                            // LG 15250, LP 29750)
+    uint32_t zBandUm;       // halbe Breite des Schussbands (SET ZBAND,
+                            // Default 45000)
+    uint32_t zBlendUm;      // Ueberblendung +- um jede Zonengrenze (SET
+                            // ZBLEND, Default 2250 = Diabolo-Radius)
+    ZoneCal  zone[ZONE_COUNT]; // Saetze A/B/C (SET ZCAL)
+    bool     rawLog;        // Zu jedem gueltigen Schuss ein "raw"-Telegramm mit
+                            // allen unkorrigierten Flanken (SET RAWLOG, Default
+                            // 0, Rev 4.16.0) - siehe emitRawTelegram()
+    bool     useDht;        // Schallgeschwindigkeit aus DHT22-Messung (SET DHT,
+                            // Default 0, Rev 4.15.0) - siehe serviceDht()
+    float    soundSpeedMps; // Schallgeschwindigkeit in m/s bei SET DHT=0 bzw.
+                            // ohne gueltige Messung (SET SOUNDSPEED, Default
+                            // 342.5, seit Rev 4.15.0 mit Nachkommastelle, rein manueller
                             // Parameter, NICHT von CAL START mitkalibriert)
                             // - siehe applySoundSpeed()
     float    paperFeedMm;  // Papiervorschub je Schuss in mm (SET PAPERFEED,
@@ -1248,7 +1475,7 @@ static void loadConfig()
     cfg.windowMs   = prefs.getUInt("window", 1);
     cfg.debug      = prefs.getUChar("debug", 0);
     cfg.airOutlierUm = prefs.getUInt("outlier", 5000);   // Default 5.0 mm
-    cfg.clusterRadiusUm = prefs.getUInt("cluster_r", 200); // Default 0.2 mm
+    cfg.clusterRadiusUm = prefs.getUInt("cluster_r", 4000); // Default 4.0 mm (seit Rev 4.17.0, vorher 0.2 mm)
     cfg.minClusterHits = prefs.getUChar("min_clust", 2);
     cfg.maxPrecisionUm = prefs.getUInt("max_prec", 2000);  // Default 2.0 mm
     cfg.minMics    = prefs.getUChar("min_mics", 5);
@@ -1266,12 +1493,12 @@ static void loadConfig()
     // File definiert (siehe dortigen Kommentar zu STANDOFFPAPER, wo
     // derselbe Reihenfolge-Fallstrick schon einmal aufgetreten ist).
     cfg.micHalfXMm = prefs.getFloat("mic_half_x", 115.0f);
-    // Default 40 (statt bisher 50): seit calCostClassic() die Kugeldurchmesser-
-    // Korrektur mit einbezieht (siehe dortigen Kommentar), hat sich in
-    // Simulator-Tests 40% als bester Wert erwiesen. Gilt nur als Fallback fuer
-    // ein frisch geflashtes/nie konfiguriertes Geraet - ein bereits per SET
-    // BSHIFTPCT konfiguriertes Geraet behaelt seinen eingestellten Wert.
-    cfg.bulletShiftPct = prefs.getUChar("bshift_pct", 40);
+    // Default 30 (Rev 4.17.0, vorher 40, urspruenglich 50): bester Wert der
+    // Foto-Studie vom 12.10.2026 (server/calib_study_test.go
+    // TestStudyBulletShift). Gilt nur als Fallback fuer ein frisch
+    // geflashtes/nie konfiguriertes Geraet - ein bereits per SET BSHIFTPCT
+    // konfiguriertes Geraet behaelt seinen eingestellten Wert.
+    cfg.bulletShiftPct = prefs.getUChar("bshift_pct", 30);
     cfg.bulletShiftCapMm = prefs.getFloat("bshift_cap", 3.0f);
     cfg.clusterCorr  = prefs.getBool("clu_corr", true);
     cfg.clusterIter  = prefs.getUChar("clu_iter", 5);
@@ -1280,6 +1507,10 @@ static void loadConfig()
     cfg.algoMode   = prefs.getUChar("algo", ALGO_CLASSIC);
     cfg.pelletRadiusMm = prefs.getFloat("pellet_r", 2.25f);
     cfg.maxSigmaMm = prefs.getFloat("max_sigma", 2.0f);
+    cfg.airMcpwm   = prefs.getBool("air_mcpwm", false);
+    cfg.walkK      = prefs.getFloat("walk_k", 0.0f);
+    cfg.walkCal    = prefs.getBool("walk_cal", false);
+    cfg.walkMaxUs  = prefs.getUInt("walk_max", 150);
     cfg.usePiezo   = prefs.getBool("use_piezo", true);
     cfg.piezoRequired = prefs.getBool("piezo_req", true);
     cfg.piezoMinUs = prefs.getUInt("piezo_min", 100);
@@ -1287,7 +1518,26 @@ static void loadConfig()
     cfg.testCooldownMs = prefs.getUInt("test_cd_ms", 3000);
     cfg.offsetXUm = prefs.getInt("ofs_x_um", 0);
     cfg.offsetYUm = prefs.getInt("ofs_y_um", 0);
-    cfg.soundSpeedMps = prefs.getUShort("sound_mps", 343);
+    // Rev 4.15.0: Wert jetzt float unter neuem Key "sound_f". Ein bereits
+    // gespeicherter ganzzahliger Wert (alter Key "sound_mps") wird
+    // uebernommen - der neue Default 342.5 greift nur bei leerem NVS.
+    if (prefs.isKey("sound_f"))        cfg.soundSpeedMps = prefs.getFloat("sound_f", 342.5f);
+    else if (prefs.isKey("sound_mps")) cfg.soundSpeedMps = (float)prefs.getUShort("sound_mps", 343);
+    else                               cfg.soundSpeedMps = 342.5f;
+    cfg.useDht = prefs.getBool("dht_en", false);
+    cfg.rawLog = prefs.getBool("raw_log", false);
+    cfg.zonesOn  = prefs.getBool("z_on", false);
+    cfg.zHoleUm  = prefs.getUInt("z_hole", 0);
+    cfg.zBandUm  = prefs.getUInt("z_band", 45000);
+    cfg.zBlendUm = prefs.getUInt("z_blend", 2250);
+    for (int z = 0; z < ZONE_COUNT; z++) {
+        char key[8];
+        snprintf(key, sizeof(key), "z_set%d", z);
+        memset(&cfg.zone[z], 0, sizeof(ZoneCal));
+        if (prefs.getBytesLength(key) == sizeof(ZoneCal)) {
+            prefs.getBytes(key, &cfg.zone[z], sizeof(ZoneCal));
+        }
+    }
     cfg.paperFeedMm   = prefs.getFloat("paper_mm", 50.0f);
     cfg.paperSpeedMmS = prefs.getFloat("paper_mmps", 5.0f);
     cfg.paperAuto     = prefs.getBool("paper_auto", true);
@@ -1322,6 +1572,16 @@ template <> void saveVal<int32_t>(const char *key, int32_t v)
 { prefs.begin(NVS_NS, false); prefs.putInt(key, v); prefs.end(); }
 template <> void saveVal<float>(const char *key, float v)
 { prefs.begin(NVS_NS, false); prefs.putFloat(key, v); prefs.end(); }
+
+// Zonen-Satz z (Rev 4.17.0) als Block persistieren
+static void saveZoneSet(int z)
+{
+    char key[8];
+    snprintf(key, sizeof(key), "z_set%d", z);
+    prefs.begin(NVS_NS, false);
+    prefs.putBytes(key, &cfg.zone[z], sizeof(ZoneCal));
+    prefs.end();
+}
 
 // ---------------------------------------------------------------------------
 // TCP-Authentifizierung (HMAC-SHA256, siehe AUTH_PSK_DEFAULT_HEX oben) -
@@ -1482,6 +1742,18 @@ static bool syntheticShotPending = false;
 
 static uint32_t cpuMHz      = 240;   // wird in setup() ermittelt
 
+// DHT22-Messung und aktive Schallgeschwindigkeit (Rev 4.15.0, siehe
+// serviceDht()/applySoundSpeed()).
+static bool     dhtValid     = false;   // gefilterter Messwert verfuegbar
+static float    dhtTempC     = 0.0f;    // Median der letzten 3 gueltigen Messungen
+static float    dhtRhPct     = 0.0f;
+static uint32_t dhtLastOkMs  = 0;
+static uint32_t dhtErrors    = 0;       // Pruefsumme/Timeout/unplausibel seit Boot
+static float    dhtHistT[3], dhtHistH[3];
+static uint8_t  dhtHistN = 0, dhtHistPos = 0;
+static float    soundMpsActive = 342.5f; // tatsaechlich verwendeter Wert in m/s
+static bool     soundFromDht   = false;  // true: aus DHT22, false: SET SOUNDSPEED
+
 // Timing-Offset-Kalibrierung (siehe CAL START / runCalibration() weiter
 // unten): sammelt die naechsten cfg.calShotCount gueltigen Schuesse mit
 // ihren ROHEN (unkorrigierten) Erst-Flankenzeiten, danach wird daraus per
@@ -1500,6 +1772,12 @@ static bool    calSeenBuf[MAX_CAL_SHOTS][NUM_AIR];
 static uint8_t calEdgeCountRim[MAX_CAL_SHOTS][NUM_AIR];
 static float   calEdgeNsRim[MAX_CAL_SHOTS][NUM_AIR][shotloc::MAX_EDGES];
 static bool    calEnabledRim[MAX_CAL_SHOTS][NUM_AIR];
+
+// Pulsbreiten (ns, -1 = keine) zu den Kalibrier-Flanken (Rev 4.14.0), damit
+// runCalibration() SET WALKK mitbestimmen kann (SET WALKCAL=1): CLASSIC je
+// Mic die erste Flanke, RIM je Kandidatenflanke.
+static int32_t calWNs[MAX_CAL_SHOTS][NUM_AIR];
+static int32_t calEdgeWRim[MAX_CAL_SHOTS][NUM_AIR][shotloc::MAX_EDGES];
 
 // Multi-Edge-Capture der Luftkanaele
 static volatile uint32_t airCC[NUM_AIR][AIR_MAX_EDGES];
@@ -1528,6 +1806,17 @@ static volatile bool     freezeActive = false;   // ab dem Piezo-Anker bis
                                             // processShotAnchored() gelesen
                                             // hat: nichts mehr ueberschreiben
 static volatile uint32_t freezeCC     = 0;
+
+// Fallende Flanken je Mic (Rev 4.14.0, nur bei aktivem MCPWM-Capture
+// befuellt, siehe airFall()): Gegenstueck zu ringCC/ringUs fuer die Puls-
+// breite = Zeit, die das Signal ueber der Komparatorschwelle bleibt. Sie
+// waechst mit der Amplitude und dient als Mass fuer die amplitudenabhaengige
+// Ausloeseverzoegerung (leises Signal ueberschreitet die Schwelle spaeter),
+// siehe edgeWidthNs()/walkDeltas(). fallUs = 0: Slot nie beschrieben.
+#define FALL_RING 32
+static volatile uint32_t fallCC[NUM_AIR][FALL_RING];
+static volatile uint32_t fallUs[NUM_AIR][FALL_RING];
+static volatile uint8_t  fallHead[NUM_AIR] = {0};
 
 // Piezo-Anker (SET ALGO=RIM, siehe piezoISR()): bewusst eigene Variablen statt
 // piezoCC/piezoSeen (klassischer Pfad, unveraendert) - beide Pfade duerfen
@@ -1586,14 +1875,18 @@ static inline void IRAM_ATTR testModeHit(uint8_t sensorIdx, uint64_t nowUs)
     testFired[sensorIdx]      = true;
 }
 
-void IRAM_ATTR airISR(void *arg)
+// Zeitpunkt (esp_timer, us, auf 32 Bit gekuerzt) der letzten Luft-Mic-Flanke -
+// serviceCaptureCheck() prueft die MCPWM-Zeitbasis nur in ruhigen Momenten.
+static volatile uint32_t lastAirEdgeUs = 0;
+
+// Gemeinsame Verarbeitung EINER Luft-Mic-Flanke (Rev 4.13.0 aus airISR()
+// herausgeloest): cc ist der Flankenzeitpunkt in CPU-Zyklen - bei SET
+// CAPTURE=ISR der beim ISR-Eintritt gelesene Zykluszaehler, bei SET
+// CAPTURE=MCPWM der in Zyklen umgerechnete Hardware-Capture-Stempel (siehe
+// airCapCallback()). Ab hier ist beides identisch.
+static void IRAM_ATTR airEdge(uint32_t idx, uint32_t cc, uint64_t nowUs)
 {
-    // Rev 4.11.0: Zykluszaehler jetzt als ALLERERSTE Anweisung (vorher nach
-    // esp_timer_get_time(), das selbst Jitter kostet) - siehe Header-Hinweis
-    // Abschnitt 4 in schusserkennung-rev5.md. Wirkt auf BEIDE Auswertepfade.
-    const uint32_t cc  = esp_cpu_get_cycle_count();
-    const uint32_t idx = (uint32_t)arg;
-    const uint64_t nowUs = (uint64_t)esp_timer_get_time();
+    lastAirEdgeUs = (uint32_t)nowUs;
     if (testMode) { testModeHit((uint8_t)idx, nowUs); return; }
 
     // --- Ringpuffer (SET ALGO=RIM, siehe Deklaration oben) ----------------
@@ -1621,6 +1914,14 @@ void IRAM_ATTR airISR(void *arg)
         shotInProgress = true;
         firstAirCC     = cc;
         firstHitTimeUs = nowUs;
+    } else if ((int32_t)(cc - firstAirCC) < 0) {
+        // Nur bei SET CAPTURE=MCPWM moeglich: AIR0-2 und AIR3-5 melden sich
+        // ueber ZWEI verschiedene Interrupts (je MCPWM-Gruppe einen), eine
+        // fruehere Flanke kann daher NACH einer spaeteren hier ankommen. Der
+        // Nullpunkt muss die frueheste Flanke sein - processShot() rechnet
+        // (airCC - firstAirCC) vorzeichenlos. Im ISR-Betrieb ist cc immer
+        // monoton steigend, dieser Zweig greift dort nie.
+        firstAirCC = cc;
     }
 
     // Geometrie-Plausibilitaet: > cfg.airMaxTdoaUs nach dem schnellsten Mic
@@ -1640,6 +1941,313 @@ void IRAM_ATTR airISR(void *arg)
     airCC[idx][n]   = cc;
     airLastCC[idx]  = cc;
     airCount[idx]   = n + 1;
+}
+
+// Fallende Flanke eines Luft-Mics (nur MCPWM, siehe airCapCallback()). Prellt
+// der Komparator an der Schwelle (mehrere Flanken binnen 2us), wird nur die
+// jeweils letzte behalten, damit der Ring nicht mit Prellern volllaeuft.
+static void IRAM_ATTR airFall(uint32_t idx, uint32_t cc, uint32_t nowUs32)
+{
+    if (testMode) return;
+    if (freezeActive && (int32_t)(cc - freezeCC) > 0) return;   // siehe airEdge()
+    const uint8_t h    = fallHead[idx];
+    const uint8_t prev = (h + FALL_RING - 1) % FALL_RING;
+    if (nowUs32 == 0) nowUs32 = 1;                    // 0 = "nie beschrieben"
+    if (fallUs[idx][prev] != 0 && (uint32_t)(cc - fallCC[idx][prev]) < 2U * cpuMHz) {
+        fallCC[idx][prev] = cc;
+        fallUs[idx][prev] = nowUs32;
+        return;
+    }
+    fallCC[idx][h] = cc;
+    fallUs[idx][h] = nowUs32;
+    fallHead[idx]  = (h + 1) % FALL_RING;
+}
+
+// SET CAPTURE=ISR (Default): GPIO-Interrupt je Luft-Mic.
+void IRAM_ATTR airISR(void *arg)
+{
+    // Rev 4.11.0: Zykluszaehler jetzt als ALLERERSTE Anweisung (vorher nach
+    // esp_timer_get_time(), das selbst Jitter kostet) - siehe Header-Hinweis
+    // Abschnitt 4 in schusserkennung-rev5.md. Wirkt auf BEIDE Auswertepfade.
+    const uint32_t cc = esp_cpu_get_cycle_count();
+    airEdge((uint32_t)arg, cc, (uint64_t)esp_timer_get_time());
+}
+
+// ---------------------------------------------------------------------------
+// SET CAPTURE=MCPWM (Rev 4.13.0): Hardware-Capture der Luft-Mics
+// ---------------------------------------------------------------------------
+// Je Mic ein MCPWM-Capture-Kanal (AIR0-2 an Gruppe 0, AIR3-5 an Gruppe 1).
+// Die Hardware friert bei der steigenden Flanke den Stand des Capture-Timers
+// (APB-Takt, 80 MHz) ein - unabhaengig davon, wann der Callback dann laeuft.
+//
+// Umrechnung in die gemeinsame Zeitbasis (CPU-Zykluszaehler): CPU- und
+// APB-Takt kommen aus derselben PLL, das Verhaeltnis ist ganzzahlig (240/80
+// = 3). Damit gilt fuer die (unendlich weiterlaufend gedachten) Zaehler
+// CC = 3*CAP + C. Modulo 2^32 bleibt das exakt, auch ueber beliebig viele
+// Ueberlaeufe beider Zaehler hinweg (Multiplikation mit ganzer Zahl ist mit
+// der Restklassenbildung vertraeglich) - EIN Anker (capAnchorCap/
+// capAnchorCC) beim Boot reicht dauerhaft. Fehler im Anker (Latenz des
+// Soft-Catch-Callbacks, ~us) verschieben ALLE Mics gleich und damit nur
+// das Verhaeltnis Mics<->Piezo (Gate mit >=100us Spielraum), nicht die
+// fuer die Position allein relevanten Mic-Differenzen.
+//
+// Alle Callbacks laufen auf dem Core, auf dem setup() die Kanaele anlegt -
+// derselbe Core wie piezoISR()/loop(), also derselbe Zykluszaehler.
+static bool                       capActive   = false;  // MCPWM liefert Mic-Flanken
+static const char                *capErr      = "";     // Grund fuer ISR-Fallback
+static mcpwm_cap_timer_handle_t   capTimer[2] = {nullptr, nullptr};
+static mcpwm_sync_handle_t        capSync[2]  = {nullptr, nullptr};
+static mcpwm_cap_channel_handle_t capChan[NUM_AIR] = {nullptr};
+static uint32_t                   capRatio    = 3;      // CPU-Zyklen je Capture-Tick
+
+static volatile uint32_t capAnchorCap = 0;   // Capture-Stand ...
+static volatile uint32_t capAnchorCC  = 0;   // ... und zugehoeriger Zykluszaehler
+
+// Soft-Catch (Anker setzen/pruefen, siehe capSoftCatch()): der naechste
+// Callback auf Kanal capSoftIdx ist KEINE Mic-Flanke.
+static volatile bool     capSoftPending = false;
+static volatile bool     capSoftDone    = false;
+static volatile uint8_t  capSoftIdx     = 0;
+static volatile uint32_t capSoftCap     = 0;
+static volatile uint32_t capSoftCC      = 0;
+
+// Diagnose (STATUS): Gruppen-Sync-Pruefung beim Boot und letzte
+// Gegenpruefung der Zeitbasis in ns, Anzahl der Neu-Verankerungen.
+static int32_t  capSyncCheckNs = 0;
+static int32_t  capCheckNs     = 0;
+static uint32_t capReanchors   = 0;
+
+static bool IRAM_ATTR airCapCallback(mcpwm_cap_channel_handle_t chan,
+                                     const mcpwm_capture_event_data_t *edata,
+                                     void *user_ctx)
+{
+    (void)chan;
+    const uint32_t ccNow = esp_cpu_get_cycle_count();
+    const uint32_t idx   = (uint32_t)user_ctx;
+    const uint32_t cap   = edata->cap_value;
+
+    if (capSoftPending && idx == capSoftIdx) {
+        capSoftCap     = cap;
+        capSoftCC      = ccNow;
+        capSoftPending = false;
+        capSoftDone    = true;
+        return false;
+    }
+    if (!capActive) return false;   // Init laeuft noch bzw. ISR-Fallback
+
+    const uint32_t cc = capAnchorCC + (cap - capAnchorCap) * capRatio;   // mod 2^32 exakt
+    if (edata->cap_edge == MCPWM_CAP_EDGE_NEG) {      // Pulsende (Rev 4.14.0)
+        airFall(idx, cc, (uint32_t)esp_timer_get_time());
+        return false;
+    }
+    airEdge(idx, cc, (uint64_t)esp_timer_get_time());
+    return false;
+}
+
+// Loest auf Kanal idx einen Software-Capture aus und liefert den dabei
+// eingefrorenen Capture-Stand samt Zykluszaehler im Callback. Kurzes
+// Busy-Wait (typ. wenige us, max. 2ms).
+static bool capSoftCatch(uint8_t idx, uint32_t *outCap, uint32_t *outCC)
+{
+    capSoftIdx     = idx;
+    capSoftDone    = false;
+    capSoftPending = true;
+    if (mcpwm_capture_channel_trigger_soft_catch(capChan[idx]) != ESP_OK) {
+        capSoftPending = false;
+        return false;
+    }
+    const uint32_t t0 = micros();
+    while (!capSoftDone) {
+        if (micros() - t0 > 2000) { capSoftPending = false; return false; }
+    }
+    *outCap = capSoftCap;
+    *outCC  = capSoftCC;
+    return true;
+}
+
+// Erwarteter Zykluszaehler zu einem Capture-Stand laut aktuellem Anker
+static inline uint32_t capToCC(uint32_t cap)
+{
+    return capAnchorCC + (cap - capAnchorCap) * capRatio;
+}
+
+// Richtet die 6 Capture-Kanaele ein. Bei false steht in capErr der Grund,
+// setup() faellt dann auf die GPIO-ISRs zurueck.
+static bool airCaptureInit()
+{
+#if !SOC_MCPWM_SUPPORTED
+    capErr = "MCPWM nicht vorhanden";
+    return false;
+#else
+    const int chPerTimer = SOC_MCPWM_CAPTURE_CHANNELS_PER_TIMER;   // ESP32: 3
+    if ((NUM_AIR + chPerTimer - 1) / chPerTimer > 2) {
+        capErr = "zu viele Mics fuer 2 MCPWM-Gruppen";
+        return false;
+    }
+
+    // 1) Je Gruppe ein Capture-Timer, beide auf denselben Sync-GPIO gelegt
+    for (int g = 0; g < 2; g++) {
+        mcpwm_capture_timer_config_t tcfg = {};
+        tcfg.group_id = g;
+        tcfg.clk_src  = MCPWM_CAPTURE_CLK_SRC_DEFAULT;   // APB
+        if (mcpwm_new_capture_timer(&tcfg, &capTimer[g]) != ESP_OK) {
+            capErr = "mcpwm_new_capture_timer"; return false;
+        }
+        mcpwm_gpio_sync_src_config_t scfg = {};
+        scfg.group_id = g;
+        scfg.gpio_num = MCPWM_SYNC_PIN;
+        if (mcpwm_new_gpio_sync_src(&scfg, &capSync[g]) != ESP_OK) {
+            capErr = "mcpwm_new_gpio_sync_src"; return false;
+        }
+        mcpwm_capture_timer_sync_phase_config_t pcfg = {};
+        pcfg.sync_src    = capSync[g];
+        pcfg.count_value = 0;
+        pcfg.direction   = MCPWM_TIMER_DIRECTION_UP;
+        if (mcpwm_capture_timer_set_phase_on_sync(capTimer[g], &pcfg) != ESP_OK) {
+            capErr = "mcpwm_capture_timer_set_phase_on_sync"; return false;
+        }
+    }
+
+    // 2) Ein Capture-Kanal je Mic. Steigende Flanke = Ausloesung (wie bisher
+    //    RISING), seit Rev 4.14.0 zusaetzlich die fallende fuer die
+    //    Pulsbreite (siehe airFall()/edgeWidthNs()).
+    for (int i = 0; i < NUM_AIR; i++) {
+        const bool noPullup = AIR_PINS[i] >= 34 && AIR_PINS[i] <= 39;
+        mcpwm_capture_channel_config_t ccfg = {};
+        ccfg.gpio_num       = AIR_PINS[i];
+        ccfg.prescale       = 1;
+        ccfg.flags.pos_edge = true;
+        ccfg.flags.neg_edge = true;
+        ccfg.flags.pull_up  = noPullup ? 0 : 1;
+        if (mcpwm_new_capture_channel(capTimer[i / chPerTimer], &ccfg,
+                                      &capChan[i]) != ESP_OK) {
+            capErr = "mcpwm_new_capture_channel"; return false;
+        }
+        mcpwm_capture_event_callbacks_t cbs = {};
+        cbs.on_cap = airCapCallback;
+        if (mcpwm_capture_channel_register_event_callbacks(capChan[i], &cbs,
+                                                           (void *)i) != ESP_OK) {
+            capErr = "mcpwm_capture_channel_register_event_callbacks"; return false;
+        }
+        if (mcpwm_capture_channel_enable(capChan[i]) != ESP_OK) {
+            capErr = "mcpwm_capture_channel_enable"; return false;
+        }
+    }
+
+    // Gruppe 1 startet absichtlich 200us spaeter: ohne wirksamen Sync (Schritt
+    // 4) bliebe dieser Versatz stehen und die Pruefung in Schritt 5 schlaegt
+    // sicher an - ein Start direkt hintereinander ergaebe nur einen kleinen,
+    // unentdeckbaren Versatz, der die Mic-Differenzen zwischen den Gruppen
+    // je nach Boot unterschiedlich verfaelschen wuerde.
+    for (int g = 0; g < 2; g++) {
+        if (g > 0) delayMicroseconds(200);
+        if (mcpwm_capture_timer_enable(capTimer[g]) != ESP_OK
+            || mcpwm_capture_timer_start(capTimer[g]) != ESP_OK) {
+            capErr = "mcpwm_capture_timer_start"; return false;
+        }
+    }
+
+    // 3) Taktverhaeltnis CPU/Capture muss ganzzahlig sein (siehe oben)
+    uint32_t capHz = 0;
+    if (mcpwm_capture_timer_get_resolution(capTimer[0], &capHz) != ESP_OK
+        || capHz == 0) {
+        capErr = "Capture-Aufloesung unbekannt"; return false;
+    }
+    const uint64_t cpuHz = (uint64_t)cpuMHz * 1000000ULL;
+    if (cpuHz % capHz != 0) {
+        capErr = "CPU-/Capture-Takt nicht ganzzahlig"; return false;
+    }
+    capRatio = (uint32_t)(cpuHz / capHz);
+
+    // 4) Beide Gruppen-Timer gleichzeitig nullen: der Pin wird erst JETZT
+    //    als Ausgang geschaltet (die Sync-Eingaenge beider Gruppen haengen
+    //    bereits ueber die GPIO-Matrix daran) und einmal gepulst.
+    gpio_set_level((gpio_num_t)MCPWM_SYNC_PIN, 0);
+    gpio_set_direction((gpio_num_t)MCPWM_SYNC_PIN, GPIO_MODE_INPUT_OUTPUT);
+    delayMicroseconds(5);
+    gpio_set_level((gpio_num_t)MCPWM_SYNC_PIN, 1);
+    delayMicroseconds(5);
+    gpio_set_level((gpio_num_t)MCPWM_SYNC_PIN, 0);
+
+    // 5) Anker setzen (Gruppe 0) und Gruppe 1 gegenpruefen: ohne wirksamen
+    //    Sync laufen die Timer um die absichtlichen 200us auseinander (siehe
+    //    Start oben). Schwelle 20us, da die Soft-Catch-Latenz selbst um
+    //    einige us streuen kann.
+    uint32_t cap0, cc0, cap1, cc1;
+    if (!capSoftCatch(0, &cap0, &cc0)) { capErr = "Soft-Catch Gruppe 0"; return false; }
+    capAnchorCap = cap0;
+    capAnchorCC  = cc0;
+    if (!capSoftCatch((uint8_t)chPerTimer, &cap1, &cc1)) {
+        capErr = "Soft-Catch Gruppe 1"; return false;
+    }
+    const int32_t devCC = (int32_t)(cc1 - capToCC(cap1));
+    capSyncCheckNs = (int32_t)((int64_t)devCC * 1000 / (int64_t)cpuMHz);
+    if (capSyncCheckNs > 20000 || capSyncCheckNs < -20000) {
+        capErr = "Gruppen-Sync fehlgeschlagen (Pin MCPWM_SYNC_PIN beschaltet?)";
+        return false;
+    }
+
+    capActive = true;
+    return true;
+#endif
+}
+
+// Gibt die Capture-Kanaele wieder frei (ISR-Fallback): die Mic-Pins sollen
+// danach ausschliesslich ueber attachInterruptArg() laufen.
+static void airCaptureRelease()
+{
+    capActive = false;
+    for (int i = 0; i < NUM_AIR; i++) {
+        if (!capChan[i]) continue;
+        mcpwm_capture_channel_disable(capChan[i]);
+        mcpwm_del_capture_channel(capChan[i]);
+        capChan[i] = nullptr;
+    }
+    for (int g = 0; g < 2; g++) {
+        if (capTimer[g]) {
+            mcpwm_capture_timer_stop(capTimer[g]);
+            mcpwm_capture_timer_disable(capTimer[g]);
+            mcpwm_del_capture_timer(capTimer[g]);
+            capTimer[g] = nullptr;
+        }
+        if (capSync[g]) { mcpwm_del_sync_src(capSync[g]); capSync[g] = nullptr; }
+    }
+}
+
+// Gegenpruefung der Zeitbasis (aus loop(), alle CAP_CHECK_MS): Soft-Catch
+// auf AIR0 und Vergleich mit der Vorhersage des Ankers. Da der Anker selbst
+// per Soft-Catch entstand, ist der Wert die DIFFERENZ zweier Callback-
+// Latenzen - erwartet wird etwas nahe 0 (|x| typ. < 2us). Groessere Abweichung
+// bedeutet, dass ein Zaehler gestanden oder gesprungen ist (z.B. geaenderter
+// CPU-Takt) - dann wird neu verankert und capReanchors erhoeht. Nur in
+// ruhigen Momenten (kein Schuss in Arbeit, letzte Mic-Flanke >= 200ms her),
+// damit nie die Flanken EINES Schusses mit zwei verschiedenen Ankern
+// umgerechnet werden. Restrisiko: eine echte AIR0-Flanke exakt in den
+// wenigen us des Soft-Catch wuerde als Pruefwert verbraucht.
+#define CAP_CHECK_MS       10000UL
+#define CAP_REANCHOR_NS    50000L
+static void serviceCaptureCheck()
+{
+    static uint32_t lastCheckMs = 0;
+    if (!capActive) return;
+    if (millis() - lastCheckMs < CAP_CHECK_MS) return;
+    if (shotInProgress || piezoPending) return;
+    if ((uint32_t)esp_timer_get_time() - lastAirEdgeUs < 200000UL) return;
+    lastCheckMs = millis();
+
+    uint32_t cap, cc;
+    if (!capSoftCatch(0, &cap, &cc)) return;
+    const int32_t devCC = (int32_t)(cc - capToCC(cap));
+    capCheckNs = (int32_t)((int64_t)devCC * 1000 / (int64_t)cpuMHz);
+    if (capCheckNs > CAP_REANCHOR_NS || capCheckNs < -CAP_REANCHOR_NS) {
+        noInterrupts();
+        capAnchorCap = cap;
+        capAnchorCC  = cc;
+        interrupts();
+        capReanchors++;
+        Serial.printf("# Capture: Zeitbasis neu verankert (Abweichung %ld ns)\n",
+                      (long)capCheckNs);
+    }
 }
 
 // Piezo (Koerperschall auf der Stahlplatte, siehe PIEZO_PIN) - nur EINE
@@ -1711,6 +2319,21 @@ static bool       wifiEnabled = false;
 static uint32_t   nextConnectAttemptMs = 0;
 static uint32_t   connectBackoffMs = 1000;
 
+// WLAN-Watchdog (Rev 4.12.1, siehe maintainNetwork()): der Core-Autoreconnect
+// gibt bei manchen Trennungsgruenden (z.B. AUTH_FAIL, NO_AP_FOUND_*-Varianten
+// 210-212) nach dem ersten Fehlschlag endgueltig auf - typisch, wenn der
+// Access Point beim ESP32-Boot noch nicht bereit ist. Ist das WLAN laenger
+// als WIFI_RETRY_MS getrennt, wird deshalb selbst neu verbunden.
+#define WIFI_RETRY_MS      30000UL
+static bool       wifiDown = true;
+static uint32_t   wifiDownSinceMs = 0;
+
+// TCP-Keepalive (Rev 4.12.1): erkennt einen abgeschalteten/abgestuerzten
+// Stand-PC (kein FIN/RST) nach IDLE + INTVL*CNT = ca. 11s.
+#define TCP_KA_IDLE_S      5
+#define TCP_KA_INTVL_S     2
+#define TCP_KA_CNT         3
+
 // Zustandsautomat der Standbeleuchtung, siehe serviceLight() weiter unten:
 // LP_WAIT_CONN = an, wartet auf TCP-Verbindung (Boot oder nach Verbindungs-
 //                verlust erneut durchlaufen);
@@ -1729,11 +2352,17 @@ static bool       lightWasConnected = false;
 enum LightOverride : uint8_t { LIGHT_AUTO, LIGHT_FORCE_ON, LIGHT_FORCE_OFF };
 static LightOverride lightOverride = LIGHT_AUTO;
 
-#define TXBUF_SLOTS 64
-#define TXBUF_LINE  360   // 320 + Reserve fuer das Auth-Signatur-Praefix (siehe emitLine) -
-                          // gilt nur noch als Kapazitaet des Offline-Ringpuffers (txBufPush)
-                          // und des emitf()-Formatpuffers, NICHT mehr als Laengengrenze fuers
-                          // Signieren selbst (siehe Bugfix-Kommentar in emitLine())
+// Offline-Ringpuffer fuer shot/reject (txBufPush). Rev 4.16.0: 32 x 1024 statt
+// 64 x 360 Byte - shot-Zeilen erreichten mit air_w_ns/sound_act_mps bereits
+// ~340-380 Zeichen (+17 Byte Signatur-Praefix) und wurden beim Puffern
+// abgeschnitten (kaputtes JSON, ungueltige Signatur). 32 KB statt 23 KB RAM.
+#define TXBUF_SLOTS 32
+// Rev 4.16.1: + Signatur-Praefix ("<16 hex> "), damit ein shot mit voller
+// Laenge (line[1024], siehe processShot()) auch signiert vollstaendig passt.
+#define TXBUF_LINE  (1024 + AUTH_TAG_HEX_LEN + 2)
+// Formatpuffer von emitf()/emitReject() (auf dem Loop-Stack, daher bewusst
+// klein gehalten) - laengere Telegramme bauen ihren eigenen Puffer.
+#define EMIT_LINE   360
 static char    txBuf[TXBUF_SLOTS][TXBUF_LINE];
 static uint8_t txHead = 0, txTail = 0;
 
@@ -1776,9 +2405,11 @@ static void emitLine(const char *line)
     // ok/error/cal-Zeilen) - die Antwort auf SHOW (config, bis ~900 Byte,
     // siehe sendShowConfig()) kam dadurch OHNE corr beim Stand-PC an und
     // lief dort in den Timeout. Jetzt static (nicht auf dem Loop-Stack) und
-    // gross genug fuer die laengsten Telegramme (line[900]) plus corr-Feld;
+    // gross genug fuer die laengsten Telegramme (line[1536], siehe sendShowConfig()) plus corr-Feld;
     // emitLine() wird nur aus loop() aufgerufen, ist also nicht reentrant.
-    static char corrBuf[1024];
+    // Rev 4.16.1: 1600 Byte - "config" ist bis ~1230 Zeichen lang (siehe
+    // sendShowConfig(), line[1536]).
+    static char corrBuf[1600];
     if (pendingCorrId >= 0 && len > 0 && line[len - 1] == '}'
         && len < sizeof(corrBuf) - 24) {
         int n = snprintf(corrBuf, sizeof(corrBuf), "%.*s,\"corr\":%ld}",
@@ -1828,7 +2459,7 @@ static void emitLine(const char *line)
     }
     if (strstr(line, "\"type\":\"shot\"") || strstr(line, "\"type\":\"reject\"")) {
         if (signOutgoing) {
-            char signedBuf[TXBUF_LINE];
+            static char signedBuf[TXBUF_LINE];   // static: 1 KB nicht auf den Loop-Stack
             snprintf(signedBuf, sizeof(signedBuf), "%s %s", authTag, line);
             txBufPush(signedBuf);
         } else {
@@ -1839,7 +2470,7 @@ static void emitLine(const char *line)
 
 static void emitf(const char *fmt, ...)
 {
-    char line[TXBUF_LINE];
+    char line[EMIT_LINE];
     va_list args;
     va_start(args, fmt);
     vsnprintf(line, sizeof(line), fmt, args);
@@ -1857,13 +2488,13 @@ static void emitf(const char *fmt, ...)
 //                    Luecke im seq-Zaehler finden.
 static void emitReject(const char *fmt, ...)
 {
-    char body[TXBUF_LINE - 40];
+    char body[EMIT_LINE - 40];
     va_list args;
     va_start(args, fmt);
     vsnprintf(body, sizeof(body), fmt, args);
     va_end(args);
 
-    char line[TXBUF_LINE];
+    char line[EMIT_LINE];
     if (cfg.sendRejects) {
         shotCounter++;
         sequenceNo++;
@@ -1889,15 +2520,50 @@ static void sendStatus()
     // wifi/tcp-Verbindungsstatus sind seit Rev 4.7.4 Teil von SHOWNET
     // (sendShowNetConfig(), Felder wifi_ip/tcp_connected) statt hier -
     // gehoeren inhaltlich zur Netzwerkseite, nicht zum Auswertungs-Status.
-    emitf("{\"type\":\"status\",\"version\":\"%s\",\"mac\":\"%s\",\"lane\":%u,"
-          "\"uptime_s\":%llu,\"shots\":%u,\"window_ms\":%u,"
-          "\"debounce_ms\":%u,\"mics\":%d,"
-          "\"buffered\":%u,\"test_mode\":%d}\n",
-          FW_VERSION, deviceMac, cfg.lane,
-          (unsigned long long)(esp_timer_get_time() / 1000000ULL),
-          shotCounter, cfg.windowMs, cfg.debounceMs, NUM_AIR,
-          (unsigned)((txHead - txTail + TXBUF_SLOTS) % TXBUF_SLOTS),
-          testMode ? 1 : 0);
+    // capture (Rev 4.13.0): TATSAECHLICH aktive Erfassung der Luft-Mics -
+    // kann bei SET CAPTURE=MCPWM nach einem Init-Fehler "isr" sein. Die
+    // cap_*-Diagnosefelder nur bei aktivem MCPWM (siehe serviceCaptureCheck()).
+    char capBuf[96];
+    if (capActive) {
+        snprintf(capBuf, sizeof(capBuf),
+                 ",\"capture\":\"mcpwm\",\"cap_sync_ns\":%ld,\"cap_check_ns\":%ld,"
+                 "\"cap_reanchor\":%lu",
+                 (long)capSyncCheckNs, (long)capCheckNs, (unsigned long)capReanchors);
+    } else {
+        snprintf(capBuf, sizeof(capBuf), ",\"capture\":\"isr\"");
+    }
+    // Schallgeschwindigkeit (Rev 4.15.0): aktiver Wert und Quelle, bei SET
+    // DHT=1 zusaetzlich die gefilterten Messwerte (null = noch keine gueltige
+    // Messung), Alter der letzten gueltigen Messung und Fehlerzaehler.
+    char sndBuf[160];
+    int  sn = snprintf(sndBuf, sizeof(sndBuf), ",\"sound_act_mps\":%.2f,\"sound_src\":\"%s\"",
+                       soundMpsActive, soundFromDht ? "dht" : "fixed");
+    if (cfg.useDht) {
+        if (dhtValid) {
+            snprintf(sndBuf + sn, sizeof(sndBuf) - sn,
+                     ",\"temp_c\":%.1f,\"rh_pct\":%.1f,\"dht_age_s\":%lu,\"dht_err\":%lu",
+                     dhtTempC, dhtRhPct, (unsigned long)((millis() - dhtLastOkMs) / 1000UL),
+                     (unsigned long)dhtErrors);
+        } else {
+            snprintf(sndBuf + sn, sizeof(sndBuf) - sn,
+                     ",\"temp_c\":null,\"rh_pct\":null,\"dht_err\":%lu",
+                     (unsigned long)dhtErrors);
+        }
+    }
+    // Eigener Puffer statt emitf() (EMIT_LINE=360): mit capture- und
+    // Schallgeschwindigkeits-Feldern wird die Zeile laenger.
+    char line[600];
+    snprintf(line, sizeof(line),
+             "{\"type\":\"status\",\"version\":\"%s\",\"mac\":\"%s\",\"lane\":%u,"
+             "\"uptime_s\":%llu,\"shots\":%u,\"window_ms\":%u,"
+             "\"debounce_ms\":%u,\"mics\":%d,"
+             "\"buffered\":%u,\"test_mode\":%d%s%s}\n",
+             FW_VERSION, deviceMac, cfg.lane,
+             (unsigned long long)(esp_timer_get_time() / 1000000ULL),
+             shotCounter, cfg.windowMs, cfg.debounceMs, NUM_AIR,
+             (unsigned)((txHead - txTail + TXBUF_SLOTS) % TXBUF_SLOTS),
+             testMode ? 1 : 0, capBuf, sndBuf);
+    emitLine(line);
 }
 
 static void sendShowConfig()
@@ -1919,8 +2585,12 @@ static void sendShowConfig()
     // mic_half_x_mm/bullet_shift_* wieder an die Grenze) - 700 Byte deckte den
     // Worst-Fall aller Felder bei Maximalwerten (~592 Byte) mit Marge ab.
     // Rev (Papiervorschub) kam mit den paper_*-Feldern wieder naeher an die
-    // Grenze (~660 Byte Worst-Fall) - auf 900 Byte angehoben.
-    char line[900];
+    // Grenze (~660 Byte Worst-Fall) - auf 900 Byte angehoben. Seit den
+    // Feldern aus Rev 4.13-4.16 (capture, walk_*, sound_set_mps, dht,
+    // raw_log, cluster_corr/iter, lsq*) typisch ~1000, im Worst-Fall ~1230
+    // Zeichen - 900 Byte schnitten die Zeile ab (Rev 4.16.1: 1536 Byte,
+    // static statt auf dem Loop-Stack; nur aus loop() aufgerufen).
+    static char line[1536];
     int  n = snprintf(line, sizeof(line),
           "{\"type\":\"config\",\"mac\":\"%s\",\"lane\":%u,"
           "\"debounce_ms\":%u,\"reject_lockout_ms\":%u,\"send_reject\":%d,"
@@ -1933,9 +2603,11 @@ static void sendShowConfig()
           "\"bullet_shift_pct\":%d,\"bullet_shift_cap_mm\":%.2f,"
           "\"cluster_corr\":%d,\"cluster_iter\":%u,\"lsq\":%d,\"lsq_pellet_r_mm\":%.2f,"
           "\"algo\":\"%s\",\"pellet_r_mm\":%.2f,\"max_sigma_um\":%ld,"
+          "\"capture\":\"%s\",\"walk_k\":%.3f,\"walk_cal\":%d,\"walk_max_us\":%u,"
           "\"use_piezo\":%d,\"piezo_req\":%d,\"piezo_min_us\":%u,\"piezo_max_us\":%u,"
           "\"test_cooldown_ms\":%u,\"offset_x_um\":%ld,\"offset_y_um\":%ld,"
-          "\"sound_mps\":%u,"
+          "\"sound_mps\":%u,\"sound_set_mps\":%.1f,\"dht\":%d,\"raw_log\":%d,"
+          "\"zones\":%d,\"z_hole_um\":%lu,"
           "\"paper_feed_mm\":%.2f,\"paper_speed_mmps\":%.2f,\"paper_auto\":%d,"
           "\"paper_trigger\":\"%s\",\"paper_dir_invert\":%d,"
           "\"paper_jog_speed_mmps\":%.2f}\n",
@@ -1951,10 +2623,17 @@ static void sendShowConfig()
           cfg.clusterCorr ? 1 : 0, cfg.clusterIter, cfg.lsq ? 1 : 0, cfg.lsqPelletRMm,
           cfg.algoMode == ALGO_RIM ? "rim" : "classic",
           cfg.pelletRadiusMm, lroundf(cfg.maxSigmaMm * 1000.0f),
+          cfg.airMcpwm ? "mcpwm" : "isr",
+          cfg.walkK, cfg.walkCal ? 1 : 0, (unsigned)cfg.walkMaxUs,
           cfg.usePiezo ? 1 : 0, cfg.piezoRequired ? 1 : 0,
           cfg.piezoMinUs, cfg.piezoMaxUs,
           cfg.testCooldownMs, (long)cfg.offsetXUm, (long)cfg.offsetYUm,
-          cfg.soundSpeedMps,
+          // sound_mps: ganzzahlig gerundet wie bis Rev 4.14 (Kompatibilitaet
+          // mit Stand-PCs, die eine Ganzzahl erwarten) - genauer Wert in
+          // sound_set_mps, aktiver Wert in STATUS sound_act_mps.
+          (unsigned)lroundf(cfg.soundSpeedMps), cfg.soundSpeedMps, cfg.useDht ? 1 : 0,
+          cfg.rawLog ? 1 : 0,
+          cfg.zonesOn ? 1 : 0, (unsigned long)cfg.zHoleUm,
           cfg.paperFeedMm, cfg.paperSpeedMmS, cfg.paperAuto ? 1 : 0,
           cfg.paperTrigger == PAPER_TRIG_ANY ? "any"
               : (cfg.paperTrigger == PAPER_TRIG_CLEAN ? "clean" : "piezo"),
@@ -2277,8 +2956,9 @@ static void servicePaperStepper()
 #define MIC_HALF_Y_PAPER     85.0f  // mm
 #define MIC_STANDOFF_PAPER   28.0f  // mm
 
-// Schallgeschwindigkeit ist zur Laufzeit konfigurierbar (SET SOUNDSPEED,
-// cfg.soundSpeedMps, Default 343 m/s, klassischer Wert bei 20C) - siehe
+// Schallgeschwindigkeit: bei SET DHT=1 aus Temperatur/Luftfeuchte des DHT22
+// (Rev 4.15.0, siehe serviceDht()), sonst bzw. ohne gueltige Messung der
+// feste Wert SET SOUNDSPEED (cfg.soundSpeedMps, Default 342.5 m/s) - siehe
 // applySoundSpeed(). Ein radial mit dem
 // Abstand vom Zentrum WACHSENDER Fehler (Treffer am Rand werden zu nah am
 // Zentrum berechnet) ist ein typisches Anzeichen fuer eine zu NIEDRIG
@@ -2287,15 +2967,162 @@ static void servicePaperStepper()
 // runCalibration() weiter unten.
 #define SOUND_SPEED_MIN_MPS  300
 #define SOUND_SPEED_MAX_MPS  400
-static float soundMmPerNs = 0.000343f;
+static float soundMmPerNs = 0.0003425f;
 
-// Setzt soundMmPerNs passend zum per SET SOUNDSPEED gewaehlten Wert. Wird
-// beim Booten (nach loadConfig()) und bei jeder Aenderung von SET SOUNDSPEED
-// aufgerufen - wirkt sofort, kein Reboot noetig.
+// ---------------------------------------------------------------------------
+// Temperatur/Luftfeuchte per DHT22 (Rev 4.15.0, SET DHT=1)
+// ---------------------------------------------------------------------------
+// Die Schallgeschwindigkeit aendert sich um ca. 0,6 m/s (0,18 %) je Kelvin.
+// Der Fehler wirkt wie ein Massstabsfehler, der mit dem Abstand vom
+// Scheibenzentrum waechst - z.B. 10 K Unterschied zur Kalibrier-Temperatur
+// ergeben bei 30 mm Ablage grob 0,5 mm. Deshalb wird sie bei SET DHT=1 aus
+// der gemessenen Temperatur und Luftfeuchte berechnet (Anregung: freETarget,
+// speed_of_sound.c).
+//
+// Auslesen OHNE Interrupt-Sperre (eigene Routine statt DHT-Bibliothek): die
+// ueblichen Bibliotheken sperren fuer die ~5 ms des Protokolls alle
+// Interrupts - Mic-Flanken in dieser Zeit wuerden verschluckt bzw. bekaemen
+// (ISR-Betrieb) falsche Zeitstempel. Hier misst loop() die Pulse per
+// Zykluszaehler; verlaengert ein Interrupt einen Puls, faellt das ueber die
+// Pruefsumme auf und die Messung wird einige Sekunden spaeter wiederholt.
+// Gemessen wird zudem nur in Ruhephasen (kein Schuss in Arbeit, letzte
+// Mic-Flanke >= 200 ms her). GPIO15 ist ein Strapping-Pin (Bootlog-Ausgabe),
+// unkritisch: der DHT22 haelt die Leitung im Ruhezustand ueber seinen
+// Pull-up auf HIGH, dem Normalzustand beim Booten.
+#define DHT_PIN          15
+#define DHT_INTERVAL_MS  30000UL    // Messabstand (DHT22: min. 2 s)
+#define DHT_RETRY_MS     5000UL     // nach fehlgeschlagener Messung
+#define DHT_FIRST_MS     2500UL     // nach Boot/Einschalten (Sensor-Anlaufzeit)
+#define DHT_MAX_AGE_MS   300000UL   // aelter -> Ersatzwert SET SOUNDSPEED
+// Zustandsvariablen (dhtValid/dhtTempC/... , soundMpsActive) stehen weiter
+// oben bei cpuMHz, da sendStatus() sie schon vorher braucht.
+
+// Schallgeschwindigkeit in feuchter Luft (m/s). Trockene Luft:
+// 331,3 * sqrt(T_K / 273,15). Wasserdampf (leichter als Luft) erhoeht sie um
+// ca. 16 % seines Stoffmengenanteils x_w; Saettigungsdampfdruck nach Magnus,
+// Luftdruck fest 1013,25 hPa (950 hPa statt 1013 aendern das Ergebnis nur um
+// ~0,05 m/s). Kontrolle: 20 C/50 % -> 343,8 m/s, 20 C trocken -> 343,2 m/s.
+static float speedOfSoundMps(float tempC, float rhPct)
+{
+    const float pSatPa = 611.2f * expf(17.62f * tempC / (243.12f + tempC));
+    const float xw     = (rhPct / 100.0f) * pSatPa / 101325.0f;
+    return 331.3f * sqrtf(1.0f + tempC / 273.15f) * (1.0f + 0.16f * xw);
+}
+
+// Setzt soundMmPerNs auf den aktuell gueltigen Wert (DHT-Messung oder SET
+// SOUNDSPEED). Wird beim Booten, bei SET SOUNDSPEED/DHT und nach jeder neuen
+// DHT-Messung aufgerufen - nur aus loop(), also nie mitten in einer
+// Schussauswertung.
 static void applySoundSpeed()
 {
-    soundMmPerNs = (float)cfg.soundSpeedMps * 1.0e-6f;   // (m/s) -> mm/ns
-    updatePostWaitUs();   // haengt von soundMmPerNs ab, siehe dort (SET ALGO=RIM)
+    soundFromDht   = cfg.useDht && dhtValid;
+    soundMpsActive = soundFromDht ? speedOfSoundMps(dhtTempC, dhtRhPct)
+                                  : cfg.soundSpeedMps;
+    soundMmPerNs = soundMpsActive * 1.0e-6f;   // (m/s) -> mm/ns
+    updatePostWaitUs();   // haengt von der Schallgeschwindigkeit ab (SET ALGO=RIM)
+}
+
+// Dauer in us, die DHT_PIN auf 'level' bleibt; -1 bei Timeout.
+static int32_t dhtPulseUs(int level, uint32_t timeoutUs)
+{
+    const uint32_t start = esp_cpu_get_cycle_count();
+    const uint32_t maxCC = timeoutUs * cpuMHz;
+    while (gpio_get_level((gpio_num_t)DHT_PIN) == level) {
+        if (esp_cpu_get_cycle_count() - start > maxCC) return -1;
+    }
+    return (int32_t)((esp_cpu_get_cycle_count() - start) / cpuMHz);
+}
+
+// Eine Messung nach DHT22/AM2302-Protokoll, blockiert loop() ca. 5 ms.
+static bool dhtRead(float *tempC, float *rhPct)
+{
+    uint8_t b[5] = {0, 0, 0, 0, 0};
+    pinMode(DHT_PIN, OUTPUT);
+    digitalWrite(DHT_PIN, LOW);
+    delayMicroseconds(1200);           // Startsignal (>= 1 ms)
+    pinMode(DHT_PIN, INPUT_PULLUP);    // freigeben
+    // Antwort: Pull-up HIGH (20-40 us), Sensor 80 us LOW, 80 us HIGH
+    if (dhtPulseUs(1, 200) < 0 || dhtPulseUs(0, 200) < 0 || dhtPulseUs(1, 200) < 0) {
+        return false;
+    }
+    // 40 Bit: je 50 us LOW, dann 26-28 us HIGH ('0') oder 70 us HIGH ('1')
+    for (int i = 0; i < 40; i++) {
+        const int32_t lo = dhtPulseUs(0, 200);
+        const int32_t hi = dhtPulseUs(1, 200);
+        if (lo < 0 || hi < 0) return false;
+        b[i / 8] = (uint8_t)(b[i / 8] << 1);
+        if (hi > lo) b[i / 8] |= 1;
+    }
+    if ((uint8_t)(b[0] + b[1] + b[2] + b[3]) != b[4]) return false;
+    if ((b[0] | b[1] | b[2] | b[3]) == 0) return false;   // Leitung tot
+    *rhPct = (float)(((uint16_t)b[0] << 8) | b[1]) * 0.1f;
+    float t = (float)((((uint16_t)b[2] & 0x7F) << 8) | b[3]) * 0.1f;
+    *tempC = (b[2] & 0x80) ? -t : t;
+    return true;
+}
+
+static float median3(const float v[3], uint8_t n)
+{
+    if (n == 1) return v[0];
+    if (n == 2) return 0.5f * (v[0] + v[1]);
+    const float a = v[0], b = v[1], c = v[2];
+    return fmaxf(fminf(a, b), fminf(fmaxf(a, b), c));
+}
+
+// Aus loop(): misst alle DHT_INTERVAL_MS in Ruhephasen, filtert (Median aus
+// 3, Plausibilitaet, Sprungsperre) und uebernimmt den Wert per
+// applySoundSpeed(). Faellt die Messung laenger als DHT_MAX_AGE_MS aus oder
+// wird SET DHT=0 gesetzt, gilt wieder SET SOUNDSPEED.
+static void serviceDht()
+{
+    static bool     wasOn  = false;
+    static uint32_t nextMs = 0;
+    const uint32_t  now    = millis();
+
+    if (!cfg.useDht) {
+        if (wasOn) {
+            wasOn = false; dhtValid = false; dhtHistN = 0; dhtHistPos = 0;
+            applySoundSpeed();
+        }
+        return;
+    }
+    if (!wasOn) {
+        wasOn  = true;
+        pinMode(DHT_PIN, INPUT_PULLUP);
+        nextMs = now + DHT_FIRST_MS;
+    }
+    if (dhtValid && now - dhtLastOkMs > DHT_MAX_AGE_MS) {
+        dhtValid = false; dhtHistN = 0; dhtHistPos = 0;
+        applySoundSpeed();
+        Serial.println("# DHT22: keine gueltige Messung seit 5 min - Ersatzwert SET SOUNDSPEED");
+    }
+    if ((int32_t)(now - nextMs) < 0) return;
+    if (shotInProgress || piezoPending) return;
+    if ((uint32_t)esp_timer_get_time() - lastAirEdgeUs < 200000UL) return;
+
+    float t, h;
+    if (!dhtRead(&t, &h) || t < -20.0f || t > 60.0f || h < 0.0f || h > 100.0f) {
+        dhtErrors++;
+        nextMs = now + DHT_RETRY_MS;
+        return;
+    }
+    nextMs = now + DHT_INTERVAL_MS;
+    // Sprungsperre: mehr als 5 K gegenueber dem gefilterten Wert binnen
+    // weniger Minuten ist physikalisch unplausibel (Lesefehler, der die
+    // Pruefsumme zufaellig bestanden hat).
+    if (dhtValid && fabsf(t - dhtTempC) > 5.0f) {
+        dhtErrors++;
+        return;
+    }
+    dhtHistT[dhtHistPos] = t;
+    dhtHistH[dhtHistPos] = h;
+    dhtHistPos = (dhtHistPos + 1) % 3;
+    if (dhtHistN < 3) dhtHistN++;
+    dhtTempC    = median3(dhtHistT, dhtHistN);
+    dhtRhPct    = median3(dhtHistH, dhtHistN);
+    dhtValid    = true;
+    dhtLastOkMs = now;
+    applySoundSpeed();
 }
 
 // Schwelle fuer "Mikrofon-Ausreisser" ist zur Laufzeit konfigurierbar:
@@ -2387,7 +3214,7 @@ static void updateRimMaxDist()
 // von SET SOUNDSPEED/PIEZOMIN bzw. der Geometrie neu berechnet.
 static void updatePostWaitUs()
 {
-    int32_t us = (int32_t)(rimMaxDistMm / ((float)cfg.soundSpeedMps * 1.0e-3f))
+    int32_t us = (int32_t)(rimMaxDistMm / (soundMpsActive * 1.0e-3f))
                - (int32_t)cfg.piezoMinUs + 150;
     postWaitUs = (us < 200) ? 200 : (uint32_t)us;
 }
@@ -2727,7 +3554,7 @@ static bool solveAirPosition(const int64_t tNs[NUM_AIR], const bool seen[NUM_AIR
     // FRUEHER empfangen als es die Punktquelle bestX/bestY vorhersagt -> die
     // tatsaechliche Quelle lag naeher an diesem Mikrofon. bestX/bestY wird
     // deshalb je verbleibendem Mikrofon in dessen Richtung verschoben,
-    // gewichtet mit SET BSHIFTPCT (Default 40%) und je Mikrofon gedeckelt
+    // gewichtet mit SET BSHIFTPCT (Default 30%) und je Mikrofon gedeckelt
     // auf SET BSHIFTCAP (Default 3.0mm) - bewusst NUR auf die Stufe-1-
     // Loesung angewendet (wirkt dadurch automatisch auch als neue Referenz
     // fuer den Verifizierungsschritt/Stufe 2 unten), 0% schaltet ab.
@@ -2921,20 +3748,288 @@ static bool solveAirPosition(const int64_t tNs[NUM_AIR], const bool seen[NUM_AIR
 // (zuletzt 363 m/s bei nur 5 Kalibrier-Schuessen) und bleibt daher ein rein
 // manueller Parameter.
 
+// ---------------------------------------------------------------------------
+// Amplituden-Korrektur ueber die Pulsbreite (Rev 4.14.0, SET WALKK)
+// ---------------------------------------------------------------------------
+// Der LM339 schaltet, sobald das Mic-Signal die Schwelle ueberschreitet. Ein
+// leises Signal (fernes Mic, schraeger Einfall) braucht dafuer laenger als
+// ein lautes - die Ausloesung kommt amplitudenabhaengig SPAETER, positions-
+// abhaengig und deshalb nicht per SET OFS wegkalibrierbar
+// (schusserkennung-rev5.md Abschnitt 4, Punkt 4). freETarget loest das mit
+// einer zweiten Schwelle je Kanal; ohne Zusatzhardware dient hier die
+// Pulsbreite w (Zeit ueber der Schwelle) als Amplitudenmass:
+//   lautes Signal -> frueh ueber, spaet unter die Schwelle -> breiter Puls
+// Fuer eine symmetrische Halbwelle liegt die Pulsmitte (t + w/2) unabhaengig
+// von der Amplitude immer auf dem Scheitel - daher walkK = 0.5 als
+// physikalisch begruendeter Startwert. Reale Signale sind nicht exakt
+// symmetrisch, deshalb ist walkK einstellbar bzw. per CAL START (SET
+// WALKCAL=1) bestimmbar.
+//
+// Korrektur je Mic: t += walkK * (w - w_mittel), w_mittel = Mittel aller
+// gueltigen Breiten DIESES Schusses. Ein fuer alle Mics gleicher Anteil
+// faellt bei TDOA ohnehin heraus; durch den Bezug auf den Mittelwert
+// verschiebt sich aber auch t0 nicht (wichtig fuer das Piezo-Gate bei
+// ALGO=RIM). Mics ohne gueltige Breite (ISR-Betrieb, TESTSHOOT, fehlende/
+// unplausible fallende Flanke) bleiben unkorrigiert - bei walkK=0 oder ohne
+// MCPWM verhaelt sich alles exakt wie bisher.
+
+#define WALK_MIN_NS  300   // kuerzere "Pulse" sind Komparator-Preller
+
+// Momentaufnahme der Flanken-Ringe fuer die Auswertung. static statt auf dem
+// Loop-Stack (3 KB), da nur aus loop() benutzt (processShot()/
+// processShotAnchored(), nicht reentrant).
+struct EdgeSnapshot {
+    uint32_t riseCC[NUM_AIR][EDGE_RING];
+    uint32_t riseUs[NUM_AIR][EDGE_RING];
+    uint32_t fallCC[NUM_AIR][FALL_RING];
+    uint32_t fallUs[NUM_AIR][FALL_RING];
+    uint32_t nowUs;
+};
+static EdgeSnapshot edgeSnap;
+
+// Muss unter noInterrupts() aufgerufen werden.
+static void takeEdgeSnapshot()
+{
+    memcpy((void *)edgeSnap.riseCC, (const void *)ringCC, sizeof(edgeSnap.riseCC));
+    memcpy((void *)edgeSnap.riseUs, (const void *)ringUs, sizeof(edgeSnap.riseUs));
+    memcpy((void *)edgeSnap.fallCC, (const void *)fallCC, sizeof(edgeSnap.fallCC));
+    memcpy((void *)edgeSnap.fallUs, (const void *)fallUs, sizeof(edgeSnap.fallUs));
+    edgeSnap.nowUs = (uint32_t)esp_timer_get_time();
+}
+
+// Pulsbreite in ns zur steigenden Flanke rise (CPU-Zyklen) auf Mic i, -1 wenn
+// keine plausible fallende Flanke vorliegt. Gesucht wird die LETZTE fallende
+// Flanke vor der naechsten gespeicherten steigenden Flanke desselben Mics
+// (hoechstens SET WALKMAX spaeter) - Preller an der Schwelle (steigende
+// Flanken innerhalb der 20us-Totzeit landen nicht im Ring) verlaengern den
+// Puls dadurch nicht kuenstlich und verkuerzen ihn auch nicht.
+// Altersgrenze 100ms gegen Mehrdeutigkeit durch den Zyklus-Ueberlauf (17,9s).
+static int32_t edgeWidthNs(int i, uint32_t rise)
+{
+    uint32_t limit = cfg.walkMaxUs * cpuMHz;
+    for (int k = 0; k < EDGE_RING; k++) {
+        if (edgeSnap.riseUs[i][k] == 0) continue;
+        if (edgeSnap.nowUs - edgeSnap.riseUs[i][k] > 100000UL) continue;
+        const int32_t d = (int32_t)(edgeSnap.riseCC[i][k] - rise);
+        if (d > 0 && (uint32_t)d < limit) limit = (uint32_t)d;
+    }
+    int32_t best = -1;
+    for (int k = 0; k < FALL_RING; k++) {
+        if (edgeSnap.fallUs[i][k] == 0) continue;
+        if (edgeSnap.nowUs - edgeSnap.fallUs[i][k] > 100000UL) continue;
+        const int32_t d = (int32_t)(edgeSnap.fallCC[i][k] - rise);
+        if (d > 0 && (uint32_t)d < limit && d > best) best = d;
+    }
+    if (best < (int32_t)((uint32_t)WALK_MIN_NS * cpuMHz / 1000U)) return -1;
+    return (int32_t)((int64_t)best * 1000 / (int64_t)cpuMHz);
+}
+
+// Korrektur je Mic in ns (siehe Blockkommentar oben). use[i]=false bzw.
+// wNs[i]<0: keine Korrektur fuer dieses Mic, geht auch nicht ins Mittel ein.
+static void walkDeltas(const int32_t wNs[NUM_AIR], const bool use[NUM_AIR],
+                       float k, float outNs[NUM_AIR])
+{
+    float sum = 0.0f;
+    int   n   = 0;
+    for (int i = 0; i < NUM_AIR; i++) {
+        if (use[i] && wNs[i] >= 0) { sum += (float)wNs[i]; n++; }
+    }
+    const float mean = n > 0 ? sum / (float)n : 0.0f;
+    for (int i = 0; i < NUM_AIR; i++) {
+        outNs[i] = (k != 0.0f && use[i] && wNs[i] >= 0)
+                 ? k * ((float)wNs[i] - mean) : 0.0f;
+    }
+}
+
+// Kandidatenflanken eines Mics aufsteigend sortieren, Breiten mitfuehren
+// (n klein, <= EDGE_RING) - shot_locator.h nimmt die ersten 2 je Mic.
+static void sortEdgesWithWidth(float t[], int32_t w[], int n)
+{
+    for (int a = 1; a < n; a++) {
+        const float vt = t[a]; const int32_t vw = w[a]; int b = a - 1;
+        while (b >= 0 && t[b] > vt) { t[b + 1] = t[b]; w[b + 1] = w[b]; b--; }
+        t[b + 1] = vt; w[b + 1] = vw;
+    }
+}
+
+// ALGO=RIM: aus rohen Kandidatenflanken (ns relativ zum Piezo, OHNE Offset)
+// die Eingabe fuer shotloc::locate() bauen - gemeinsam fuer
+// processShotAnchored() und calCostRim(). Offsets abziehen, Pulsbreiten-
+// Korrektur anwenden (Bezug: Mittel der Breiten der jeweils FRUEHESTEN
+// Flanke je Mic - Stellvertreter des Direktschalls, Echos/Nachschwinger
+// sollen das Mittel nicht verziehen), aufsteigend sortieren und auf
+// MAX_EDGES kuerzen. t/w sind Arbeitskopien des Aufrufers und werden
+// ueberschrieben; danach gehoert w[i][k] zu ed->t[i][k].
+static void rimBuildEdges(float t[NUM_AIR][EDGE_RING], int32_t w[NUM_AIR][EDGE_RING],
+                          const int n[NUM_AIR], const bool enabled[NUM_AIR],
+                          const float ofsNs[NUM_AIR], float k, shotloc::Edges *ed)
+{
+    float sum = 0.0f;
+    int   cnt = 0;
+    for (int i = 0; i < NUM_AIR; i++) {
+        int first = -1;
+        for (int j = 0; j < n[i]; j++) {
+            t[i][j] -= ofsNs[i];
+            if (first < 0 || t[i][j] < t[i][first]) first = j;
+        }
+        if (enabled[i] && first >= 0 && w[i][first] >= 0) {
+            sum += (float)w[i][first];
+            cnt++;
+        }
+    }
+    const float mean = cnt > 0 ? sum / (float)cnt : 0.0f;
+    for (int i = 0; i < NUM_AIR; i++) {
+        ed->enabled[i] = enabled[i];
+        ed->n[i] = 0;
+        if (!enabled[i]) continue;
+        if (k != 0.0f && cnt > 0) {
+            for (int j = 0; j < n[i]; j++) {
+                if (w[i][j] >= 0) t[i][j] += k * ((float)w[i][j] - mean);
+            }
+        }
+        sortEdgesWithWidth(t[i], w[i], n[i]);
+        for (int j = 0; j < n[i] && ed->n[i] < shotloc::MAX_EDGES; j++) {
+            ed->t[i][ed->n[i]++] = t[i][j];
+        }
+    }
+}
+
+// Haengt ,"air_w_ns":[...] (Pulsbreite der ersten bzw. bei ALGO=RIM der
+// fruehesten Kandidatenflanke je Mic, null = keine) an ein shot-Telegramm an
+// - nur bei aktivem MCPWM-Capture, im ISR-Betrieb bleibt das Telegramm
+// unveraendert. Liefert die Zahl geschriebener Zeichen, nie mehr als Platz da ist.
+static int appendAirWidths(char *buf, size_t size, const int32_t wNs[NUM_AIR])
+{
+    if (!capActive || size < 64) return 0;
+    int n = snprintf(buf, size, ",\"air_w_ns\":[");
+    for (int i = 0; i < NUM_AIR && n < (int)size - 16; i++) {
+        if (wNs[i] >= 0) n += snprintf(buf + n, size - n, "%s%ld", i > 0 ? "," : "", (long)wNs[i]);
+        else             n += snprintf(buf + n, size - n, "%snull", i > 0 ? "," : "");
+    }
+    if (n < (int)size - 2) n += snprintf(buf + n, size - n, "]");
+    return n < (int)size ? n : (int)size - 1;
+}
+
+// ---------------------------------------------------------------------------
+// Rohdaten-Telegramm fuer den Server-Simulator (Rev 4.16.0, SET RAWLOG=1)
+// ---------------------------------------------------------------------------
+// Zu jedem GUELTIGEN Schuss (direkt nach dem "shot"-Telegramm, gleiche seq)
+// eine Zeile mit allen steigenden und fallenden Flanken aus den Ringpuffern
+// in einem Fenster um den Schuss - UNKORRIGIERT (kein Offset, keine Puls-
+// breiten-Korrektur) und ohne die Fenster-/Anzahl-Grenzen der Auswertung,
+// dazu die zum Schusszeitpunkt aktiven Parameter. Damit kann der Simulator
+// beide Auswertepfade mit beliebigen Parametern nachrechnen. Fallende
+// Flanken statt fertiger Pulsbreiten, damit auch eine andere Breiten-Regel
+// bzw. ein anderes WALKMAX exakt nachgerechnet werden kann (Regel der
+// Firmware siehe edgeWidthNs()).
+// Abgelehnte Schuesse bekommen bewusst KEIN raw-Telegramm (Reject-Verhalten
+// unveraendert). Das Telegramm wird nicht im Offline-Ringpuffer gehalten
+// (der nimmt nur shot/reject, siehe emitLine()).
+#define RAW_EXTRA_NS     500000.0f  // Flanken bis 500us nach dem Fenster (Pulsende/
+                                    // naechste Flanke fuer die Breiten-Regel)
+#define RAW_MAX_PER_MIC  16         // je Mic und Flankenart, Rest -> "truncated":1
+
+// Flanken eines Ringpuffers im Fenster [ref-preNs, ref+postNs] in ns relativ
+// zu refCC, aufsteigend. out muss RAW_MAX_PER_MIC Werte fassen (Zeiger statt
+// Array-Groesse in der Signatur: die automatisch erzeugten Arduino-Prototypen
+// stehen vor dem #define). Liefert die Anzahl; *cut = true, wenn gekappt.
+static int rawCollect(const uint32_t *cc, const uint32_t *us, int ringLen,
+                      uint32_t refCC, float preNs, float postNs,
+                      int32_t *out, bool *cut)
+{
+    float   t[EDGE_RING > FALL_RING ? EDGE_RING : FALL_RING];
+    int32_t dummy[EDGE_RING > FALL_RING ? EDGE_RING : FALL_RING];
+    int n = 0;
+    for (int k = 0; k < ringLen; k++) {
+        if (us[k] == 0) continue;                                  // nie beschrieben
+        if (edgeSnap.nowUs - us[k] > 100000UL) continue;           // veraltet (Zyklus-Wrap)
+        const float tNs = (float)(int32_t)(cc[k] - refCC) * 1000.0f / (float)cpuMHz;
+        if (tNs < -preNs || tNs > postNs) continue;
+        t[n] = tNs; dummy[n] = 0; n++;
+    }
+    sortEdgesWithWidth(t, dummy, n);
+    if (n > RAW_MAX_PER_MIC) { n = RAW_MAX_PER_MIC; *cut = true; }
+    for (int k = 0; k < n; k++) out[k] = (int32_t)lroundf(t[k]);
+    return n;
+}
+
+// Wert fuer das Feld "raw_follows" im shot-Telegramm: 1, wenn direkt als
+// naechste Zeile ein raw-Telegramm auf DEMSELBEN Weg folgt - der Host kann
+// dann mit der Anzeige darauf warten. Bei aktivem WLAN ohne TCP-Verbindung
+// wird der shot im Offline-Puffer gehalten und spaeter nachgeliefert, das
+// raw-Telegramm aber nicht (nur Serial) - dann 0, sonst wartete der Host
+// beim Nachliefern vergeblich. Ohne WLAN gehen beide nur ueber Serial: 1.
+static bool rawWillFollow()
+{
+    return cfg.rawLog && (!wifiEnabled || tcp.connected());
+}
+
+// refCC: Zeitnullpunkt (CLASSIC: erste Flanke wie air_ns, RIM: Piezo).
+// winPreNs/winPostNs: Auswertefenster relativ zu refCC (Flanken werden bis
+// winPostNs + RAW_EXTRA_NS mitgeschickt). Liest edgeSnap - muss nach
+// takeEdgeSnapshot() des laufenden Schusses aufgerufen werden.
+static void emitRawTelegram(const char *algo, uint32_t refCC, float winPreNs, float winPostNs,
+                            bool piezoSeen, int64_t piezoNs, uint64_t tsUs,
+                            const char *synSuffix)
+{
+    static char line[2600];   // static: nur aus loop(), nicht reentrant
+    const size_t sz = sizeof(line);
+    bool cut = false;
+    int  n = snprintf(line, sz,
+                      "{\"type\":\"raw\",\"seq\":%u,\"algo\":\"%s\",\"ref\":\"%s\","
+                      "\"capture\":\"%s\",\"sound_act_mps\":%.2f,\"walk_k\":%.3f,"
+                      "\"walk_max_us\":%u,\"win_pre_ns\":%ld,\"win_post_ns\":%ld,",
+                      sequenceNo, algo, strcmp(algo, "rim") == 0 ? "piezo" : "first",
+                      capActive ? "mcpwm" : "isr", soundMpsActive, cfg.walkK,
+                      (unsigned)cfg.walkMaxUs, lroundf(winPreNs), lroundf(winPostNs));
+    n += snprintf(line + n, sz - n, "\"ofs_ns\":[");
+    for (int i = 0; i < NUM_AIR; i++)
+        n += snprintf(line + n, sz - n, "%s%ld", i ? "," : "", (long)cfg.micOffsetNs[i]);
+    n += snprintf(line + n, sz - n, "],\"mic_en\":[");
+    for (int i = 0; i < NUM_AIR; i++)
+        n += snprintf(line + n, sz - n, "%s%d", i ? "," : "", cfg.micEnabled[i] ? 1 : 0);
+    if (piezoSeen) n += snprintf(line + n, sz - n, "],\"piezo_ns\":%lld", (long long)piezoNs);
+    else           n += snprintf(line + n, sz - n, "],\"piezo_ns\":null");
+
+    // Groesse: 6 Mics x 2 Flankenarten x max. 16 Werte x max. ~9 Zeichen
+    // = ~1730 Zeichen + Kopf ~300 - passt sicher in line[2600].
+    const float postNs = winPostNs + RAW_EXTRA_NS;
+    for (int kind = 0; kind < 2; kind++) {
+        n += snprintf(line + n, sz - n, kind == 0 ? ",\"rise_ns\":[" : "],\"fall_ns\":[");
+        for (int i = 0; i < NUM_AIR; i++) {
+            int32_t v[RAW_MAX_PER_MIC];
+            const int cnt = (kind == 0)
+                ? rawCollect(edgeSnap.riseCC[i], edgeSnap.riseUs[i], EDGE_RING,
+                             refCC, winPreNs, postNs, v, &cut)
+                : rawCollect(edgeSnap.fallCC[i], edgeSnap.fallUs[i], FALL_RING,
+                             refCC, winPreNs, postNs, v, &cut);
+            n += snprintf(line + n, sz - n, "%s[", i ? "," : "");
+            for (int k = 0; k < cnt; k++)
+                n += snprintf(line + n, sz - n, "%s%ld", k ? "," : "", (long)v[k]);
+            n += snprintf(line + n, sz - n, "]");
+        }
+    }
+    snprintf(line + n, sz - n, "],\"truncated\":%d,\"ts\":%llu%s}\n",
+             cut ? 1 : 0, (unsigned long long)(tsUs / 1000ULL), synSuffix);
+    emitLine(line);
+}
+
 // Kosten der aktuell angenommenen Offsets ueber alle gesammelten Kalibrier-
 // Schuesse (Summe der Rest-Fehler NACH Kugeldurchmesser-Korrektur, siehe
 // solveAirPosition()/outResidualCorrMm - unveraendert durch den
 // Verifizierungsschritt). Schuesse, die damit keine Loesung mehr ergeben
 // (geometrisch entartet), werden mit einem Strafwert belegt statt ignoriert
 // zu werden.
-static float calCostClassic(const float offsets[NUM_AIR])
+static float calCostClassic(const float offsets[NUM_AIR], float walkK)
 {
     float total = 0.0f;
     for (int k = 0; k < calCollected; k++) {
+        float walk[NUM_AIR];
+        walkDeltas(calWNs[k], calSeenBuf[k], walkK, walk);
         int64_t corrected[NUM_AIR];
         for (int i = 0; i < NUM_AIR; i++) {
             corrected[i] = calSeenBuf[k][i]
-                         ? calRawNs[k][i] - (int64_t)lroundf(offsets[i])
+                         ? calRawNs[k][i] - (int64_t)lroundf(offsets[i] - walk[i])
                          : 0;
         }
         float x, y, res, prec, resCorr;
@@ -2958,8 +4053,13 @@ static float calCostClassic(const float offsets[NUM_AIR])
 // Fit abgezogen (siehe schusserkennung-rev5.md Abschnitt 3.4). minMics=3
 // (nicht cfg.minMics) - reine Kosten-Bewertung waehrend der Suche, analog zu
 // calCostClassic()/solveAirPosition() (die ebenfalls nur 3 Mics verlangen).
-static float calCostRim(const float offsets[NUM_AIR])
+static float calCostRim(const float offsets[NUM_AIR], float walkK)
 {
+    // Arbeitskopien fuer rimBuildEdges() - static (Loop-Stack), eigene Puffer,
+    // da runCalibration() aus processShotAnchored() heraus laeuft, das seine
+    // eigenen Puffer danach noch braucht.
+    static float   wt[NUM_AIR][EDGE_RING];
+    static int32_t ww[NUM_AIR][EDGE_RING];
     shotloc::Geometry g;
     for (int i = 0; i < NUM_AIR; i++) { g.micX[i] = MIC_X[i]; g.micY[i] = MIC_Y[i]; }
     g.standoffMm     = micStandoffMm;
@@ -2977,13 +4077,15 @@ static float calCostRim(const float offsets[NUM_AIR])
     float total = 0.0f;
     for (int k = 0; k < calCollected; k++) {
         shotloc::Edges e{};
+        int cnt[NUM_AIR];
         for (int i = 0; i < NUM_AIR; i++) {
-            e.enabled[i] = calEnabledRim[k][i];
-            e.n[i] = calEdgeCountRim[k][i];
-            for (int j = 0; j < e.n[i]; j++) {
-                e.t[i][j] = calEdgeNsRim[k][i][j] - offsets[i];
+            cnt[i] = calEdgeCountRim[k][i];
+            for (int j = 0; j < cnt[i]; j++) {
+                wt[i][j] = calEdgeNsRim[k][i][j];
+                ww[i][j] = calEdgeWRim[k][i][j];
             }
         }
+        rimBuildEdges(wt, ww, cnt, calEnabledRim[k], offsets, walkK, &e);
         shotloc::Result r;
         if (shotloc::locate(g, e, gate, params, &r) && r.valid) {
             total += r.rmsNs * r.rmsNs;
@@ -2997,15 +4099,25 @@ static float calCostRim(const float offsets[NUM_AIR])
 // Dispatcher: runCalibration() (unten) ruft ausschliesslich calCost() auf
 // und bleibt dadurch fuer beide Auswertepfade unveraendert - kalibriert wird
 // jeweils der Pfad, der gerade per SET ALGO aktiv ist.
-static float calCost(const float offsets[NUM_AIR])
+static float calCost(const float offsets[NUM_AIR], float walkK)
 {
-    return (cfg.algoMode == ALGO_RIM) ? calCostRim(offsets) : calCostClassic(offsets);
+    return (cfg.algoMode == ALGO_RIM) ? calCostRim(offsets, walkK)
+                                      : calCostClassic(offsets, walkK);
 }
 
 static void runCalibration()
 {
     float offsets[NUM_AIR];
     for (int i = 0; i < NUM_AIR; i++) offsets[i] = 0.0f;   // Neukalibrierung
+
+    // SET WALKCAL=1 (Rev 4.14.0): walkK als zusaetzliche Koordinate im
+    // selben Abstiegsverfahren, Start beim aktuellen SET WALKK, Bereich 0-1.
+    // Trennbar von den Offsets, weil diese je Mic konstant sind, die Puls-
+    // breiten-Korrektur aber von Schuss zu Schuss variiert. Ohne MCPWM gibt
+    // es keine Pulsbreiten - dann bleibt walkK unveraendert.
+    const bool fitWalk = cfg.walkCal && capActive;
+    float      walkK   = cfg.walkK;
+    float      stepK   = 0.25f;
 
     const int   refMic = 0;      // Eichfreiheitsgrad: fix auf Offset 0
     // Startschrittweite/Rundenzahl bewusst so gewaehlt, dass die Summe aller
@@ -3023,13 +4135,13 @@ static void runCalibration()
         for (int i = 0; i < NUM_AIR; i++) {
             if (i == refMic) continue;
             const float base     = offsets[i];
-            const float baseCost = calCost(offsets);
+            const float baseCost = calCost(offsets, walkK);
 
             offsets[i] = constrain(base + stepNs, (float)-MIC_OFS_MAX_NS, (float)MIC_OFS_MAX_NS);
-            const float costPlus = calCost(offsets);
+            const float costPlus = calCost(offsets, walkK);
 
             offsets[i] = constrain(base - stepNs, (float)-MIC_OFS_MAX_NS, (float)MIC_OFS_MAX_NS);
-            const float costMinus = calCost(offsets);
+            const float costMinus = calCost(offsets, walkK);
 
             if (baseCost <= costPlus && baseCost <= costMinus) {
                 offsets[i] = base;
@@ -3039,7 +4151,21 @@ static void runCalibration()
                 offsets[i] = constrain(base - stepNs, (float)-MIC_OFS_MAX_NS, (float)MIC_OFS_MAX_NS);
             }
         }
+        if (fitWalk) {
+            const float baseCost  = calCost(offsets, walkK);
+            const float kPlus     = constrain(walkK + stepK, 0.0f, 1.0f);
+            const float kMinus    = constrain(walkK - stepK, 0.0f, 1.0f);
+            const float costPlus  = calCost(offsets, kPlus);
+            const float costMinus = calCost(offsets, kMinus);
+            if (costPlus < baseCost && costPlus <= costMinus)  walkK = kPlus;
+            else if (costMinus < baseCost)                     walkK = kMinus;
+            stepK *= 0.5f;
+        }
         stepNs *= 0.5f;
+    }
+    if (fitWalk) {
+        cfg.walkK = walkK;
+        saveVal<float>("walk_k", cfg.walkK);
     }
 
     char line[300];
@@ -3054,10 +4180,142 @@ static void runCalibration()
         n += snprintf(line + n, sizeof(line) - n, "%s%ld",
                       i > 0 ? "," : "", (long)cfg.micOffsetNs[i]);
     }
-    n += snprintf(line + n, sizeof(line) - n, "],\"sound_mps\":%u,\"shots\":%d}\n",
-                  cfg.soundSpeedMps, calCollected);
+    // sound_mps ganzzahlig wie bisher (siehe sendShowConfig()), dazu der
+    // genaue Ersatzwert und die waehrend der Kalibrierung aktive
+    // Schallgeschwindigkeit (bei SET DHT=1 aus der Messung).
+    n += snprintf(line + n, sizeof(line) - n, "],\"sound_mps\":%u,\"sound_set_mps\":%.1f,"
+                  "\"sound_act_mps\":%.2f,\"walk_k\":%.3f,\"walk_fitted\":%d,\"shots\":%d}\n",
+                  (unsigned)lroundf(cfg.soundSpeedMps), cfg.soundSpeedMps, soundMpsActive,
+                  cfg.walkK, fitWalk ? 1 : 0, calCollected);
     emitLine(line);
     sendShowConfig();   // komplette Konfiguration direkt im Anschluss zeigen
+}
+
+// ---------------------------------------------------------------------------
+// Zonen-Kalibrierung (Rev 4.17.0) - identisch zum Server-Simulator
+// (server/sim_zones.go), damit Simulation und Geraet dasselbe rechnen.
+// ---------------------------------------------------------------------------
+static const char ZONE_NAMES[ZONE_COUNT] = { 'A', 'B', 'C' };
+
+static inline bool zonesActive()
+{
+    return cfg.zonesOn && cfg.zHoleUm > 0 && cfg.algoMode == ALGO_CLASSIC;
+}
+
+// 1 fuer v <= edge-w, 0 fuer v >= edge+w, linear dazwischen
+static float zoneRamp(float v, float edge, float w)
+{
+    if (w <= 0.0f) return v < edge ? 1.0f : 0.0f;
+    float t = (edge + w - v) / (2.0f * w);
+    return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+}
+
+// Anteile der Zonen A/B/C an der Lage x/y (Scheibenkoordinaten in mm, inkl.
+// Nachkorrektur), Summe 1.
+static void zoneWeights(float x, float y, float w[ZONE_COUNT])
+{
+    const float blend = (cfg.zBlendUm > 0 && cfg.zBlendUm <= 10000) ? cfg.zBlendUm / 1000.0f : 2.25f;
+    const float band  = cfg.zBandUm > 0 ? cfg.zBandUm / 1000.0f : 45.0f;
+    const float wA = zoneRamp(sqrtf(x * x + y * y), cfg.zHoleUm / 1000.0f, blend);
+    const float wB = 1.0f - zoneRamp(fabsf(x), band, blend);
+    w[0] = wA;
+    w[1] = (1.0f - wA) * wB;
+    w[2] = (1.0f - wA) * (1.0f - wB);
+}
+
+// Zweite Stufe der Positionsbestimmung mit Zonen-Saetzen. Eingang: rohe
+// Erstflanken (airT0NsRaw), Pulsbreiten-Korrektur (walk) und die Lage der
+// Basis-Rechnung in Scheibenkoordinaten (*xMm/*yMm inkl. OFFSETX/Y).
+// Ausgang: gewichtet gemittelte Lage (inkl. der Nachkorrektur der Zonen) und
+// Rest-Fehler/Praezision/cluster_hits der Zone mit dem groessten Anteil.
+// Liefert den Index dieser Zone, -1 = keine Zonen-Rechnung moeglich (die
+// Basiswerte bleiben dann unveraendert).
+static int zoneSolve(const int64_t airT0NsRaw[NUM_AIR], const bool seen[NUM_AIR],
+                     const float walk[NUM_AIR], float *xMm, float *yMm,
+                     float *resMm, float *precMm, int *clusterN)
+{
+    const float baseSoundMmPerNs = soundMmPerNs;
+    float x = *xMm, y = *yMm;
+    float w[ZONE_COUNT], lastW[ZONE_COUNT] = { -1.0f, -1.0f, -1.0f };
+    int   dom = -1;
+    for (int iter = 0; iter < 3; iter++) {
+        zoneWeights(x, y, w);
+        if (iter > 0 && w[0] == lastW[0] && w[1] == lastW[1] && w[2] == lastW[2]) break;
+        for (int k = 0; k < ZONE_COUNT; k++) lastW[k] = w[k];
+        float sx = 0.0f, sy = 0.0f, sw = 0.0f, best = -1.0f;
+        int   iterDom = -1;
+        float bRes = 0.0f, bPrec = 0.0f;
+        int   bClu = 0;
+        for (int k = 0; k < ZONE_COUNT; k++) {
+            if (w[k] <= 0.0f) continue;
+            const ZoneCal &z = cfg.zone[k];
+            const int32_t *ofs = z.valid ? z.micOffsetNs : cfg.micOffsetNs;
+            int64_t tNs[NUM_AIR];
+            for (int i = 0; i < NUM_AIR; i++) {
+                tNs[i] = seen[i] ? airT0NsRaw[i] - ofs[i] + (int64_t)lroundf(walk[i]) : 0;
+            }
+            // Schallgeschwindigkeit als Differenz zur Basis (SET SOUNDSPEED),
+            // damit eine DHT-Messung erhalten bleibt
+            soundMmPerNs = z.valid
+                ? (soundMpsActive + (z.soundMps - cfg.soundSpeedMps)) * 1.0e-6f
+                : baseSoundMmPerNs;
+            float px, py, pr, pp, pxPre, pyPre, ppPre;
+            int   pc, pcPre;
+            const bool ok = solveAirPosition(tNs, seen, (float)cfg.clusterRadiusUm / 1000.0f, false,
+                                             &px, &py, &pr, &pp, &pc,
+                                             &pxPre, &pyPre, &ppPre, &pcPre, nullptr);
+            soundMmPerNs = baseSoundMmPerNs;
+            if (!ok) continue;
+            const int32_t offX = z.valid ? z.offsetXUm : cfg.offsetXUm;
+            const int32_t offY = z.valid ? z.offsetYUm : cfg.offsetYUm;
+            sx += w[k] * (px + offX / 1000.0f);
+            sy += w[k] * (py + offY / 1000.0f);
+            sw += w[k];
+            if (w[k] > best) {
+                best = w[k]; iterDom = k;
+                bRes = pr; bPrec = pp; bClu = pc;
+            }
+        }
+        // keine Zone loesbar: Stand des letzten Durchgangs uebernehmen (nicht
+        // return - sonst gingen Lage und Rest-Fehler auseinander)
+        if (sw <= 0.0f) break;
+        x = sx / sw;
+        y = sy / sw;
+        dom = iterDom;
+        *resMm = bRes; *precMm = bPrec; *clusterN = bClu;
+    }
+    *xMm = x;
+    *yMm = y;
+    return dom;
+}
+
+// SHOWZONES (Rev 4.17.0): alle Zonenwerte in einer eigenen Zeile (haelt die
+// ohnehin lange "config"-Zeile kurz).
+static void sendShowZones()
+{
+    static char line[768];   // static: nur aus loop()
+    int n = snprintf(line, sizeof(line),
+                     "{\"type\":\"zones\",\"mac\":\"%s\",\"zones\":%d,\"active\":%d,"
+                     "\"z_hole_um\":%lu,\"z_band_um\":%lu,\"z_blend_um\":%lu",
+                     deviceMac, cfg.zonesOn ? 1 : 0, zonesActive() ? 1 : 0,
+                     (unsigned long)cfg.zHoleUm, (unsigned long)cfg.zBandUm,
+                     (unsigned long)cfg.zBlendUm);
+    for (int k = 0; k < ZONE_COUNT && n < (int)sizeof(line) - 200; k++) {
+        const ZoneCal &z = cfg.zone[k];
+        if (!z.valid) {
+            n += snprintf(line + n, sizeof(line) - n, ",\"%c\":null", ZONE_NAMES[k] + 32);
+            continue;
+        }
+        n += snprintf(line + n, sizeof(line) - n,
+                      ",\"%c\":{\"sound_mps\":%.1f,\"mic_offset_ns\":[%ld,%ld,%ld,%ld,%ld,%ld],"
+                      "\"offset_x_um\":%ld,\"offset_y_um\":%ld}",
+                      ZONE_NAMES[k] + 32, z.soundMps,
+                      (long)z.micOffsetNs[0], (long)z.micOffsetNs[1], (long)z.micOffsetNs[2],
+                      (long)z.micOffsetNs[3], (long)z.micOffsetNs[4], (long)z.micOffsetNs[5],
+                      (long)z.offsetXUm, (long)z.offsetYUm);
+    }
+    if (n < (int)sizeof(line) - 3) snprintf(line + n, sizeof(line) - n, "}\n");
+    emitLine(line);
 }
 
 static void processShot()
@@ -3085,6 +4343,7 @@ static void processShot()
     localFirstUs   = firstHitTimeUs;
     localPiezoCC   = piezoCC;
     localPiezoSeen = piezoSeen;
+    takeEdgeSnapshot();   // Pulsbreiten (SET WALKK), siehe edgeWidthNs()
 
     // Sperrzeit richtet sich danach, ob dieser Trigger plausibel zu einem
     // gueltigen Schuss gehoert: bei zu wenigen Mic-Treffern (typisch ein
@@ -3144,6 +4403,13 @@ static void processShot()
     int airHits = 0;
     for (int i = 0; i < NUM_AIR; i++) if (airSeen[i]) airHits++;
 
+    // Pulsbreite der ersten Flanke je Mic (Rev 4.14.0, -1 = keine, z.B. im
+    // ISR-Betrieb) - fuer SET WALKK, CAL START und das air_w_ns-Feld.
+    int32_t airWNs[NUM_AIR];
+    for (int i = 0; i < NUM_AIR; i++) {
+        airWNs[i] = airSeen[i] ? edgeWidthNs(i, localAirCC[i][0]) : -1;
+    }
+
     // Piezo-Verzoegerung relativ zum ersten Luft-Ereignis (siehe Rev-4.3-
     // Hinweis oben) - unabhaengig von Reject-Filter/Kalibrierung, da rein
     // diagnostisch bzw. fuer die Sauber-Bewertung (isClean) unten gebraucht.
@@ -3186,6 +4452,7 @@ static void processShot()
             for (int i = 0; i < NUM_AIR; i++) {
                 calSeenBuf[calCollected][i] = airSeen[i];
                 calRawNs[calCollected][i]   = airT0NsRaw[i];
+                calWNs[calCollected][i]     = airWNs[i];
             }
             calCollected++;
             if (calCollected >= cfg.calShotCount) {
@@ -3252,10 +4519,15 @@ static void processShot()
     sequenceNo++;
 
     // Kalibrierten Timing-Offset je Mikrofon abziehen (SET OFS<i> bzw.
-    // CAL START, Default 0) - siehe runCalibration().
+    // CAL START, Default 0) - siehe runCalibration() - und die Pulsbreiten-
+    // Korrektur (SET WALKK, Rev 4.14.0, bei 0 bzw. ohne Breiten = 0) addieren.
+    float walk[NUM_AIR];
+    walkDeltas(airWNs, airSeen, cfg.walkK, walk);
     int64_t airT0Ns[NUM_AIR];
     for (int i = 0; i < NUM_AIR; i++) {
-        airT0Ns[i] = airSeen[i] ? airT0NsRaw[i] - cfg.micOffsetNs[i] : 0;
+        airT0Ns[i] = airSeen[i]
+                   ? airT0NsRaw[i] - cfg.micOffsetNs[i] + (int64_t)lroundf(walk[i])
+                   : 0;
     }
     float posX = 0.0f, posY = 0.0f, posRes = 0.0f, posPrecision = 0.0f;
     int   clusterHits = 0;
@@ -3268,6 +4540,19 @@ static void processShot()
                                     &posPrecision, &clusterHits,
                                     &posXPre, &posYPre, &posPrecisionPre, &clusterHitsPre,
                                     nullptr); // Korrigierter Rest-Fehler wird nur fuer die Kalibrierung gebraucht (calCostClassic())
+    // Zonen-Kalibrierung (Rev 4.17.0, SET ZONES=1): zweite Stufe mit den
+    // Saetzen der Zone(n), in der die Basis-Lage liegt - siehe zoneSolve().
+    // Die Lage kommt dort inkl. Nachkorrektur der Zonen zurueck; die
+    // Basis-Nachkorrektur unten wird deshalb vorher wieder abgezogen.
+    int zoneIdx = -1;
+    if (posOk && zonesActive()) {
+        float zx = posX + cfg.offsetXUm / 1000.0f, zy = posY + cfg.offsetYUm / 1000.0f;
+        zoneIdx = zoneSolve(airT0NsRaw, airSeen, walk, &zx, &zy, &posRes, &posPrecision, &clusterHits);
+        if (zoneIdx >= 0) {
+            posX = zx - cfg.offsetXUm / 1000.0f;
+            posY = zy - cfg.offsetYUm / 1000.0f;
+        }
+    }
     long  xUm    = posOk ? lroundf(posX         * 1000.0f) : 0;
     long  yUm    = posOk ? lroundf(posY         * 1000.0f) : 0;
     long  resUm  = posOk ? lroundf(posRes       * 1000.0f) : 0;
@@ -3290,7 +4575,9 @@ static void processShot()
     }
 
     // 6 Mics x 6 Flanken je bis zu ~8-stellig -> Puffer grosszuegig bemessen
-    char line[900];
+    // (Rev 4.16.1: 1024 statt 900 Byte, static statt auf dem Loop-Stack -
+    // processShot() laeuft nur aus loop(), ist also nicht reentrant)
+    static char line[1024];
     int  n = snprintf(line, sizeof(line),
                       "{\"type\":\"shot\",\"seq\":%u,\"algo\":\"classic\",\"air_ns\":[", sequenceNo);
     for (int i = 0; i < NUM_AIR && n < (int)sizeof(line) - 32; i++) {
@@ -3309,6 +4596,7 @@ static void processShot()
         line[n++] = ']';
     }
     n += snprintf(line + n, sizeof(line) - n, "]");
+    n += appendAirWidths(line + n, sizeof(line) - n, airWNs);
     // SET DEBUG=3: zusaetzlich die Stufe-1-Werte (vor dem Verifizierungs-
     // schritt, siehe solveAirPosition()) ausgeben, damit sich beide Stufen
     // vergleichen lassen - sonst nur das Endergebnis nach der Verifizierung.
@@ -3320,8 +4608,14 @@ static void processShot()
     }
     n += snprintf(line + n, sizeof(line) - n,
                   ",\"x_um\":%ld,\"y_um\":%ld,\"pos_res_um\":%ld,"
-                  "\"precision_um\":%ld,\"cluster_hits\":%d,\"pos_valid\":%d",
-                  xUm, yUm, resUm, precUm, clusterN, posOk ? 1 : 0);
+                  "\"precision_um\":%ld,\"cluster_hits\":%d,\"pos_valid\":%d,"
+                  "\"sound_act_mps\":%.2f,\"raw_follows\":%d",
+                  xUm, yUm, resUm, precUm, clusterN, posOk ? 1 : 0, soundMpsActive,
+                  rawWillFollow() ? 1 : 0);
+    // Rev 4.17.0: Zone mit dem groessten Anteil (nur bei aktiven Zonen)
+    if (zoneIdx >= 0) {
+        n += snprintf(line + n, sizeof(line) - n, ",\"zone\":\"%c\"", ZONE_NAMES[zoneIdx]);
+    }
     if (cfg.usePiezo) {
         if (localPiezoSeen) {
             n += snprintf(line + n, sizeof(line) - n,
@@ -3357,6 +4651,18 @@ static void processShot()
     // jeder Sequenz-Nummer etwas ankommt. Die Anzeige kann "clean" (siehe
     // oben) nutzen, um trotzdem nur saubere Treffer hervorzuheben/zu werten.
     emitLine(line);
+
+    // SET RAWLOG=1 (Rev 4.16.0): Rohdaten fuer den Server-Simulator. Fenster
+    // wie in loop() (Sammelfenster, bei Piezo bis PIEZOMAX+200us) plus ein
+    // Vorlauf wie bei ALGO=RIM, damit auch Flanken VOR dem Fenster-Start
+    // (Muendungsknall, Sperrzeit) sichtbar sind.
+    if (cfg.rawLog) {
+        float postNs = (float)cfg.windowMs * 1.0e6f;
+        if (cfg.usePiezo) postNs = fmaxf(postNs, ((float)cfg.piezoMaxUs + 200.0f) * 1000.0f);
+        emitRawTelegram("classic", localFirstAirCC,
+                        (float)cfg.piezoMaxUs * 1000.0f + 50000.0f, postNs,
+                        localPiezoSeen, piezoT0NsRaw, localFirstUs, synSuffix);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3378,14 +4684,15 @@ static void processShotAnchored()
     syntheticShotPending = false;
     const char *synSuffix = wasSynthetic ? ",\"synthetic\":1" : "";
 
-    uint32_t localRingCC[NUM_AIR][EDGE_RING];
-    uint32_t localRingUs[NUM_AIR][EDGE_RING];
+    // Ringpuffer-Kopie liegt seit Rev 4.14.0 in edgeSnap (static, samt den
+    // fallenden Flanken fuer die Pulsbreiten) statt auf dem Loop-Stack.
+    const uint32_t (&localRingCC)[NUM_AIR][EDGE_RING] = edgeSnap.riseCC;
+    const uint32_t (&localRingUs)[NUM_AIR][EDGE_RING] = edgeSnap.riseUs;
     uint32_t localPiezoCC;
     uint64_t localPiezoUs;
 
     noInterrupts();
-    memcpy((void *)localRingCC, (const void *)ringCC, sizeof(localRingCC));
-    memcpy((void *)localRingUs, (const void *)ringUs, sizeof(localRingUs));
+    takeEdgeSnapshot();
     localPiezoCC = piezoAnchorCC;
     localPiezoUs = piezoAnchorUs;
     piezoPending = false;
@@ -3405,47 +4712,60 @@ static void processShotAnchored()
     const float preNs  = (float)cfg.piezoMaxUs * 1000.0f + 50000.0f;
     const float postNs = (float)postWaitUs * 1000.0f;
 
-    shotloc::Edges ed{};
+    // Rohe Kandidaten (ns relativ zum Piezo, OHNE Offset) samt Pulsbreite
+    // (Rev 4.14.0) sammeln und roh sortieren - so gehen sie in CAL START.
+    // static: Loop-Stack schonen, nicht reentrant.
+    static float   rawT[NUM_AIR][EDGE_RING];
+    static int32_t rawW[NUM_AIR][EDGE_RING];
+    static float   workT[NUM_AIR][EDGE_RING];
+    static int32_t workW[NUM_AIR][EDGE_RING];
+    int  rawN[NUM_AIR];
+    bool micOn[NUM_AIR];
+    float ofsNs[NUM_AIR];
     for (int i = 0; i < NUM_AIR; i++) {
-        ed.enabled[i] = cfg.micEnabled[i];
-        ed.n[i] = 0;
-        if (!ed.enabled[i]) continue;
-        float tmp[EDGE_RING];
-        int   n = 0;
+        micOn[i] = cfg.micEnabled[i];
+        ofsNs[i] = (float)cfg.micOffsetNs[i];
+        rawN[i]  = 0;
+        if (!micOn[i]) continue;
         for (int k = 0; k < EDGE_RING; k++) {
             if (localRingUs[i][k] == 0) continue;   // nie beschriebener Slot
             const float tNs = (float)(int32_t)(localRingCC[i][k] - localPiezoCC)
-                             * 1000.0f / (float)cpuMHz
-                             - (float)cfg.micOffsetNs[i];
-            if (tNs < -preNs || tNs > postNs) continue;
-            if (n < EDGE_RING) tmp[n++] = tNs;
+                             * 1000.0f / (float)cpuMHz;
+            // Fenster wie bisher auf die offset-korrigierte Zeit bezogen
+            if (tNs - ofsNs[i] < -preNs || tNs - ofsNs[i] > postNs) continue;
+            rawT[i][rawN[i]] = tNs;
+            rawW[i][rawN[i]] = edgeWidthNs(i, localRingCC[i][k]);
+            rawN[i]++;
         }
-        // Aufsteigend sortieren (n klein, <= EDGE_RING=32) - Insertion-Sort.
-        for (int a = 1; a < n; a++) {
-            float v = tmp[a]; int b = a - 1;
-            while (b >= 0 && tmp[b] > v) { tmp[b + 1] = tmp[b]; b--; }
-            tmp[b + 1] = v;
-        }
-        for (int k = 0; k < n && ed.n[i] < shotloc::MAX_EDGES; k++) ed.t[i][ed.n[i]++] = tmp[k];
+        sortEdgesWithWidth(rawT[i], rawW[i], rawN[i]);
+        if (rawN[i] > shotloc::MAX_EDGES) rawN[i] = shotloc::MAX_EDGES;
+        for (int k = 0; k < rawN[i]; k++) { workT[i][k] = rawT[i][k]; workW[i][k] = rawW[i][k]; }
     }
+    // Offset abziehen, Pulsbreiten-Korrektur (SET WALKK), sortieren - danach
+    // gehoert workW[i][k] zu ed.t[i][k].
+    shotloc::Edges ed{};
+    rimBuildEdges(workT, workW, rawN, micOn, ofsNs, cfg.walkK, &ed);
+    int32_t firstWNs[NUM_AIR];
+    for (int i = 0; i < NUM_AIR; i++) firstWNs[i] = ed.n[i] > 0 ? workW[i][0] : -1;
 
     int nAvail = 0;
     for (int i = 0; i < NUM_AIR; i++) if (ed.n[i] > 0) nAvail++;
 
     // Kalibrierung (CAL START) laeuft unabhaengig vom normalen Reject-Filter,
-    // analog zu processShot(). Gespeichert werden die ROHEN (nicht offset-
-    // korrigierten) Kandidatenflanken - dafuer cfg.micOffsetNs wieder
-    // aufaddieren (siehe calCostRim(), das sie beim Suchen abzieht).
+    // analog zu processShot(). Gespeichert werden die ROHEN (weder offset-
+    // noch pulsbreiten-korrigierten) Kandidatenflanken samt Breite - calCostRim()
+    // wendet beides beim Suchen ueber rimBuildEdges() selbst an.
     if (calActive) {
         if (nAvail < 3) {
             emitf("{\"type\":\"cal\",\"state\":\"skipped\",\"reason\":\"only %d mic(s)\","
                   "\"progress\":%d,\"need\":%d}\n", nAvail, calCollected, cfg.calShotCount);
         } else if (calCollected < MAX_CAL_SHOTS) {
             for (int i = 0; i < NUM_AIR; i++) {
-                calEnabledRim[calCollected][i]   = ed.enabled[i];
-                calEdgeCountRim[calCollected][i] = ed.n[i];
-                for (int k = 0; k < ed.n[i]; k++) {
-                    calEdgeNsRim[calCollected][i][k] = ed.t[i][k] + (float)cfg.micOffsetNs[i];
+                calEnabledRim[calCollected][i]   = micOn[i];
+                calEdgeCountRim[calCollected][i] = (uint8_t)rawN[i];
+                for (int k = 0; k < rawN[i]; k++) {
+                    calEdgeNsRim[calCollected][i][k] = rawT[i][k];
+                    calEdgeWRim[calCollected][i][k]  = rawW[i][k];
                 }
             }
             calCollected++;
@@ -3515,7 +4835,8 @@ static void processShotAnchored()
     long sigYUm = lroundf(r.sigmaYMm * 1000.0f);
 
     // 6 Mics x bis zu shotloc::MAX_EDGES Flanken -> Puffer grosszuegig bemessen
-    char line[900];
+    // (Rev 4.16.1: 1024 statt 900 Byte, static wie bei ALGO=CLASSIC)
+    static char line[1024];
     int  n = snprintf(line, sizeof(line),
                       "{\"type\":\"shot\",\"seq\":%u,\"algo\":\"rim\",\"air_ns\":[", sequenceNo);
     for (int i = 0; i < NUM_AIR && n < (int)sizeof(line) - 32; i++) {
@@ -3528,10 +4849,13 @@ static void processShotAnchored()
         line[n++] = ']';
     }
     n += snprintf(line + n, sizeof(line) - n, "]");
+    n += appendAirWidths(line + n, sizeof(line) - n, firstWNs);
     n += snprintf(line + n, sizeof(line) - n,
                   ",\"x_um\":%ld,\"y_um\":%ld,\"sigma_x_um\":%ld,\"sigma_y_um\":%ld,"
-                  "\"rms_ns\":%.0f,\"t0_ns\":%.0f,\"used_mask\":%u,\"pos_valid\":1",
-                  xUm, yUm, sigXUm, sigYUm, r.rmsNs, r.t0Ns, r.usedMask);
+                  "\"rms_ns\":%.0f,\"t0_ns\":%.0f,\"used_mask\":%u,\"pos_valid\":1,"
+                  "\"sound_act_mps\":%.2f,\"raw_follows\":%d",
+                  xUm, yUm, sigXUm, sigYUm, r.rmsNs, r.t0Ns, r.usedMask, soundMpsActive,
+                  rawWillFollow() ? 1 : 0);
     // "clean" (SET MAXSIGMA): Gegenstueck zu isClean bei ALGO=CLASSIC -
     // dort precision_um/cluster_hits/airOutlierUm, hier die statistische
     // 1-Sigma-Unsicherheit aus der Kovarianzmatrix.
@@ -3543,6 +4867,12 @@ static void processShotAnchored()
     snprintf(line + n, sizeof(line) - n, ",\"hits\":%d,\"ts\":%llu%s}\n",
              (int)r.nUsed, (unsigned long long)(localPiezoUs / 1000ULL), synSuffix);
     emitLine(line);
+
+    // SET RAWLOG=1 (Rev 4.16.0): Rohdaten fuer den Server-Simulator, Fenster
+    // = Kandidatenfenster oben, Nullpunkt = Piezo.
+    if (cfg.rawLog) {
+        emitRawTelegram("rim", localPiezoCC, preNs, postNs, true, 0, localPiezoUs, synSuffix);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3581,7 +4911,7 @@ static void sendHelp()
         "#   SET OUTLIER=<0-500000>   Ausreisser-Schwelle in 0.001mm (Default 5000)",
         "#   SET RADIUS=<0-500000>    Umkreis fuer cluster_hits UND fuer den Verifizierungs-",
         "#                            Mittelpunkt (Stufe 2, siehe solveAirPosition()) in",
-        "#                            0.001mm (Default 200) - sollte den Kugeldurchmesser",
+        "#                            0.001mm (Default 4000) - sollte den Kugeldurchmesser",
         "#                            (ca. 4500) mit abdecken, nicht nur reines Messrauschen",
         "#   SET MINCLUSTER=<0-20>    Mindest-cluster_hits fuer sauberen Schuss (Default 2)",
         "#   SET MAXPRECISION=<0-500000>   Max. precision_um fuer sauberen Schuss",
@@ -3596,7 +4926,7 @@ static void sendHelp()
         "#                            Gewichtung in % des Rest-Fehlers der Stufe-1-Loesung",
         "#                            gegen die daran unbeteiligten Mikrofone, als Ver-",
         "#                            schiebung Richtung/weg vom jeweiligen Mikrofon,",
-        "#                            fliesst auch in CAL START mit ein (Default 40,",
+        "#                            fliesst auch in CAL START mit ein (Default 30,",
         "#                            0=Korrektur aus)",
         "#   SET BSHIFTCAP=<0.0-20.0> Kappung der Kugeldurchmesser-Korrektur je Mikrofon",
         "#                            in mm (Default 3.0). Gilt NUR fuer ALGO=CLASSIC",
@@ -3622,6 +4952,16 @@ static void sendHelp()
         "#   SET MAXSIGMA=<0.0-50.0>  \"clean\"-Schwelle fuer ALGO=RIM in mm: max(sigma_x,",
         "#                            sigma_y) aus der Kovarianzmatrix (Default 2.0).",
         "#                            Gegenstueck zu MAXPRECISION/RADIUS/MINCLUSTER (CLASSIC)",
+        "#   SET CAPTURE=<ISR|MCPWM>  Zeitstempel der Luft-Mics: ISR (Default, bisher) oder",
+        "#                            MCPWM-Hardware-Capture (12,5ns, ohne Interrupt-",
+        "#                            Jitter, GPIO23 muss frei bleiben). Reboot noetig,",
+        "#                            danach CAL RESET + CAL START. STATUS \"capture\"",
+        "#                            zeigt den aktiven Modus (Fallback auf isr)",
+        "#   SET WALKK=<0.0-1.0>      Amplituden-Korrektur ueber die Pulsbreite (nur",
+        "#                            MCPWM): t += K*(Breite - Mittel). 0 = aus (Default),",
+        "#                            0.5 = Pulsmitte (symmetrischer Puls)",
+        "#   SET WALKCAL=<0|1>        CAL START bestimmt WALKK mit (Default 0)",
+        "#   SET WALKMAX=<5-500>      Groesste plausible Pulsbreite in us (Default 150)",
         "#   SET PIEZO=<0|1>          Piezo (Stahlplatte, GPIO34) als Trigger-",
         "#                            Bestaetigung nutzen (Default 1/an)",
         "#   SET PIEZOREQ=<0|1>       1 (Default): bei SET PIEZO=1 wird ein Schuss",
@@ -3646,11 +4986,27 @@ static void sendHelp()
         "#                            in 0.001mm, NACH der Trilateration addiert",
         "#                            (Default 0, z.B. gg. Messgitter-Versatz)",
         "#   SET OFFSETY=<-50000..50000>   Wie OFFSETX, fuer y_um (Default 0)",
-        "#   SET SOUNDSPEED=<300-400> Angenommene Schallgeschwindigkeit in m/s",
-        "#                            (Default 343). Radial mit dem Abstand",
+        "#   SET SOUNDSPEED=<300-400> Schallgeschwindigkeit in m/s bei SET DHT=0 bzw.",
+        "#                            ohne gueltige Messung (Default 342.5, Nach-",
+        "#                            kommastelle erlaubt). Radial mit dem Abstand",
         "#                            wachsender Fehler (Rand zu nah am Zentrum)",
         "#                            -> Wert erhoehen. Rein manueller Wert, wird",
         "#                            NICHT von CAL START mitkalibriert.",
+        "#   SET DHT=<0|1>            Schallgeschwindigkeit aus Temperatur/Luftfeuchte",
+        "#                            des DHT22 an GPIO15 (Default 0). STATUS zeigt",
+        "#                            sound_act_mps/sound_src/temp_c/rh_pct",
+        "#   SET ZONES=<0|1>          Zonen-Kalibrierung (nur ALGO=CLASSIC, Default 0):",
+        "#                            je Bereich eigener Satz, siehe SHOWZONES",
+        "#   SET ZHOLE=<0-60000>      Radius Loch der Vorsatzscheibe in 0.001mm",
+        "#                            (LG 15250, LP 29750; 0 = Zonen wirkungslos)",
+        "#   SET ZBAND=<0-100000>     halbe Breite des Schussbands (Default 45000)",
+        "#   SET ZBLEND=<0-10000>     Ueberblendung an den Grenzen (Default 2250)",
+        "#   SET ZCAL=<A|B|C>,<mps>,<ofs0>,..,<ofs5>,<offx>,<offy>  Satz einer Zone",
+        "#                            (A=Loch, B=neben Band, C=Band+Vorsatz),",
+        "#                            SET ZCAL=<A|B|C>,OFF = Zone nutzt die Basiswerte",
+        "#   SET RAWLOG=<0|1>         Zu jedem gueltigen Schuss ein \"raw\"-Telegramm mit",
+        "#                            allen unkorrigierten Flanken und Parametern fuer",
+        "#                            den Server-Simulator (Default 0)",
         "#   SET PAPERFEED=<0.0-150.0>      Papiervorschub je Schuss in mm (Default 50.0)",
         "#   SET PAPERSPEED=<0.5-30.0> Vorschub-Geschwindigkeit in mm/s fuer die erste",
         "#                            Haelfte der Strecke, danach Abbremsrampe (Default 5.0)",
@@ -3697,7 +5053,7 @@ static void sendHelp()
         "#   CAL IMPORT OFS0=<ns>,...,OFS5=<ns>,SOUNDSPEED=<mps>  atomarer Bulk-",
         "#                            Restore (z.B. vom Stand-PC gespeicherte Kalibrierung) -",
         "#                            erst alle Werte validieren, dann erst schreiben",
-        "# Weitere Befehle: SHOW  SHOWNET  STATUS  PING  RESET  REBOOT  FACTORY  HELP/?",
+        "# Weitere Befehle: SHOW  SHOWNET  SHOWZONES  STATUS  PING  RESET  REBOOT  FACTORY  HELP/?",
         "#   SHOWNET zeigt die Netzwerkkonfiguration (SSID/Pass/Host/Port/eigene",
         "#   IP-Konfiguration) UND den Live-Verbindungsstatus (wifi_ip/tcp_connected)",
         "#   separat von SHOW (Auswertungs-Parameter) und STATUS (Betriebsstatus)",
@@ -3876,6 +5232,41 @@ static bool handleSet(const String &raw)
         cfg.usePiezo = (v == 1);
         saveVal<bool>("use_piezo", cfg.usePiezo);
         emitf("{\"type\":\"ok\",\"set\":\"piezo\",\"value\":%d}\n", cfg.usePiezo ? 1 : 0);
+    } else if (key == "CAPTURE") {
+        // Rev 4.13.0: Zeitstempel der Luft-Mics per GPIO-ISR (Default) oder
+        // MCPWM-Hardware-Capture. Wirkt erst nach REBOOT (Peripherie wird in
+        // setup() eingerichtet), STATUS "capture" zeigt den aktiven Modus.
+        String v = val; v.toUpperCase();
+        if (v == "MCPWM")    cfg.airMcpwm = true;
+        else if (v == "ISR") cfg.airMcpwm = false;
+        else { emitLine("{\"type\":\"error\",\"msg\":\"capture isr|mcpwm\"}\n"); return true; }
+        saveVal<bool>("air_mcpwm", cfg.airMcpwm);
+        emitf("{\"type\":\"ok\",\"set\":\"capture\",\"value\":\"%s\","
+              "\"reboot_required\":true}\n", cfg.airMcpwm ? "mcpwm" : "isr");
+    } else if (key == "WALKK") {
+        // Rev 4.14.0: Pulsbreiten-Korrektur (siehe walkDeltas()), wirkt sofort.
+        float v = val.toFloat();
+        if (v < 0.0f || v > 1.0f) { emitLine("{\"type\":\"error\",\"msg\":\"walkk 0.0-1.0\"}\n"); return true; }
+        cfg.walkK = v;
+        saveVal<float>("walk_k", cfg.walkK);
+        if (v > 0.0f && !capActive) {
+            emitf("{\"type\":\"ok\",\"set\":\"walkk\",\"value\":%.3f,"
+                  "\"warn\":\"wirkt nur mit aktivem SET CAPTURE=MCPWM\"}\n", cfg.walkK);
+        } else {
+            emitf("{\"type\":\"ok\",\"set\":\"walkk\",\"value\":%.3f}\n", cfg.walkK);
+        }
+    } else if (key == "WALKCAL") {
+        long v = val.toInt();
+        if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"walkcal 0|1\"}\n"); return true; }
+        cfg.walkCal = (v == 1);
+        saveVal<bool>("walk_cal", cfg.walkCal);
+        emitf("{\"type\":\"ok\",\"set\":\"walkcal\",\"value\":%d}\n", cfg.walkCal ? 1 : 0);
+    } else if (key == "WALKMAX") {
+        long v = val.toInt();
+        if (v < 5 || v > 500) { emitLine("{\"type\":\"error\",\"msg\":\"walkmax 5-500\"}\n"); return true; }
+        cfg.walkMaxUs = (uint32_t)v;
+        saveVal<uint32_t>("walk_max", cfg.walkMaxUs);
+        emitf("{\"type\":\"ok\",\"set\":\"walkmax\",\"value\":%u}\n", (unsigned)cfg.walkMaxUs);
     } else if (key == "PIEZOREQ") {
         long v = val.toInt();
         if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"piezoreq 0|1\"}\n"); return true; }
@@ -3961,16 +5352,115 @@ static bool handleSet(const String &raw)
         saveVal<int32_t>("ofs_y_um", cfg.offsetYUm);
         emitf("{\"type\":\"ok\",\"set\":\"offsety\",\"value\":%ld}\n", (long)cfg.offsetYUm);
     } else if (key == "SOUNDSPEED") {
-        long v = val.toInt();
+        // Seit Rev 4.15.0 mit Nachkommastelle (z.B. 342.5); gilt bei SET DHT=0
+        // bzw. solange keine gueltige DHT-Messung vorliegt.
+        float v = val.toFloat();
         if (v < SOUND_SPEED_MIN_MPS || v > SOUND_SPEED_MAX_MPS) {
             emitf("{\"type\":\"error\",\"msg\":\"soundspeed %d-%d\"}\n",
                   SOUND_SPEED_MIN_MPS, SOUND_SPEED_MAX_MPS);
             return true;
         }
-        cfg.soundSpeedMps = (uint16_t)v;
-        saveVal<uint16_t>("sound_mps", cfg.soundSpeedMps);
+        cfg.soundSpeedMps = v;
+        saveVal<float>("sound_f", cfg.soundSpeedMps);
         applySoundSpeed();
-        emitf("{\"type\":\"ok\",\"set\":\"soundspeed\",\"value\":%u}\n", cfg.soundSpeedMps);
+        emitf("{\"type\":\"ok\",\"set\":\"soundspeed\",\"value\":%.1f,\"active_mps\":%.2f}\n",
+              cfg.soundSpeedMps, soundMpsActive);
+    } else if (key == "ZONES") {
+        // Rev 4.17.0: Zonen-Kalibrierung an/aus (wirkt nur mit ZHOLE > 0 und
+        // ALGO=CLASSIC), siehe zoneSolve()
+        long v = val.toInt();
+        if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"zones 0|1\"}\n"); return true; }
+        cfg.zonesOn = (v == 1);
+        saveVal<bool>("z_on", cfg.zonesOn);
+        emitf("{\"type\":\"ok\",\"set\":\"zones\",\"value\":%d,\"active\":%d}\n",
+              cfg.zonesOn ? 1 : 0, zonesActive() ? 1 : 0);
+    } else if (key == "ZHOLE" || key == "ZBAND" || key == "ZBLEND") {
+        // Rev 4.17.0: Zonengrenzen in 0.001mm - ZHOLE = Radius des Lochs der
+        // Vorsatzscheibe (LG 15250, LP 29750; vom Stand-PC je Scheibentyp
+        // gesetzt), ZBAND = halbe Bandbreite, ZBLEND = Ueberblendung
+        long v = val.toInt();
+        const long maxV = key == "ZHOLE" ? 60000 : (key == "ZBAND" ? 100000 : 10000);
+        if (v < 0 || v > maxV) {
+            emitf("{\"type\":\"error\",\"msg\":\"%s 0-%ld\"}\n", key == "ZHOLE" ? "zhole" : (key == "ZBAND" ? "zband" : "zblend"), maxV);
+            return true;
+        }
+        if (key == "ZHOLE")      { cfg.zHoleUm  = (uint32_t)v; saveVal<uint32_t>("z_hole",  cfg.zHoleUm); }
+        else if (key == "ZBAND") { cfg.zBandUm  = (uint32_t)v; saveVal<uint32_t>("z_band",  cfg.zBandUm); }
+        else                     { cfg.zBlendUm = (uint32_t)v; saveVal<uint32_t>("z_blend", cfg.zBlendUm); }
+        String lk = key; lk.toLowerCase();
+        emitf("{\"type\":\"ok\",\"set\":\"%s\",\"value\":%ld}\n", lk.c_str(), v);
+    } else if (key == "ZCAL") {
+        // Rev 4.17.0: Satz einer Zone, atomar (erst alles pruefen, dann
+        // schreiben): ZCAL=<A|B|C>,<mps>,<ofs0>,...,<ofs5>,<offx>,<offy>
+        // bzw. ZCAL=<A|B|C>,OFF (Zone nutzt die Basiswerte)
+        String v = val; v.toUpperCase();
+        int zi = -1;
+        if (v.length() >= 1) {
+            for (int k = 0; k < ZONE_COUNT; k++) if (v[0] == ZONE_NAMES[k]) zi = k;
+        }
+        if (zi < 0 || v.length() < 3 || v[1] != ',') {
+            emitLine("{\"type\":\"error\",\"msg\":\"zcal <A|B|C>,<mps>,<ofs0..5>,<offx>,<offy> | <A|B|C>,OFF\"}\n");
+            return true;
+        }
+        String rest = v.substring(2); rest.trim();
+        if (rest == "OFF") {
+            memset(&cfg.zone[zi], 0, sizeof(ZoneCal));
+            saveZoneSet(zi);
+            emitf("{\"type\":\"ok\",\"set\":\"zcal\",\"zone\":\"%c\",\"valid\":0}\n", ZONE_NAMES[zi]);
+            return true;
+        }
+        float  nums[9];
+        int    cnt = 0, start = 0;
+        bool   ok = true;
+        while (ok && cnt < 9) {
+            int comma = rest.indexOf(',', start);
+            String tok = comma < 0 ? rest.substring(start) : rest.substring(start, comma);
+            tok.trim();
+            if (tok.length() == 0) { ok = false; break; }
+            nums[cnt++] = tok.toFloat();
+            if (comma < 0) break;
+            start = comma + 1;
+        }
+        if (!ok || cnt != 9 || nums[0] < SOUND_SPEED_MIN_MPS || nums[0] > SOUND_SPEED_MAX_MPS) ok = false;
+        for (int i = 1; ok && i <= NUM_AIR; i++) {
+            if (nums[i] < -MIC_OFS_MAX_NS || nums[i] > MIC_OFS_MAX_NS) ok = false;
+        }
+        if (ok && (fabsf(nums[7]) > 50000.0f || fabsf(nums[8]) > 50000.0f)) ok = false;
+        if (!ok) {
+            emitLine("{\"type\":\"error\",\"msg\":\"zcal: 9 Werte (mps 300-400, ofs -20000..20000, offx/offy -50000..50000)\"}\n");
+            return true;
+        }
+        ZoneCal z;
+        memset(&z, 0, sizeof(z));
+        z.valid    = 1;
+        z.soundMps = roundf(nums[0] * 10.0f) / 10.0f;
+        for (int i = 0; i < NUM_AIR; i++) z.micOffsetNs[i] = (int32_t)lroundf(nums[1 + i]);
+        z.offsetXUm = (int32_t)lroundf(nums[7]);
+        z.offsetYUm = (int32_t)lroundf(nums[8]);
+        cfg.zone[zi] = z;
+        saveZoneSet(zi);
+        emitf("{\"type\":\"ok\",\"set\":\"zcal\",\"zone\":\"%c\",\"valid\":1}\n", ZONE_NAMES[zi]);
+    } else if (key == "RAWLOG") {
+        // Rev 4.16.0: "raw"-Telegramm zu jedem gueltigen Schuss (siehe
+        // emitRawTelegram()), wirkt sofort.
+        long v = val.toInt();
+        if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"rawlog 0|1\"}\n"); return true; }
+        cfg.rawLog = (v == 1);
+        saveVal<bool>("raw_log", cfg.rawLog);
+        emitf("{\"type\":\"ok\",\"set\":\"rawlog\",\"value\":%d}\n", cfg.rawLog ? 1 : 0);
+    } else if (key == "DHT") {
+        // Rev 4.15.0: Schallgeschwindigkeit aus DHT22 (GPIO15) an/aus, wirkt
+        // sofort. Erste Messung ca. 2,5 s nach dem Einschalten (serviceDht()),
+        // bis dahin und bei SET DHT=0 gilt SET SOUNDSPEED.
+        long v = val.toInt();
+        if (v != 0 && v != 1) { emitLine("{\"type\":\"error\",\"msg\":\"dht 0|1\"}\n"); return true; }
+        cfg.useDht = (v == 1);
+        saveVal<bool>("dht_en", cfg.useDht);
+        if (!cfg.useDht) {
+            dhtValid = false;
+            applySoundSpeed();
+        }
+        emitf("{\"type\":\"ok\",\"set\":\"dht\",\"value\":%d}\n", cfg.useDht ? 1 : 0);
     } else if (key == "PAPERFEED") {
         float v = val.toFloat();
         if (v < 0.0f || v > 150.0f) { emitLine("{\"type\":\"error\",\"msg\":\"paperfeed 0.0-150.0\"}\n"); return true; }
@@ -4368,6 +5858,7 @@ static void handleCommand(const String &rawCmd, bool viaTcp)
     }
     if (upper == "SHOW")    { sendShowConfig(); return; }
     if (upper == "SHOWNET") { sendShowNetConfig(); return; }
+    if (upper == "SHOWZONES") { sendShowZones(); return; }
     if (upper == "HELP" || upper == "?") { sendHelp(); return; }
     if (upper == "PING")    { emitLine("{\"type\":\"pong\"}\n"); return; }
     if (upper == "STATUS")  { sendStatus(); return; }
@@ -4442,9 +5933,15 @@ static void handleCommand(const String &rawCmd, bool viaTcp)
                 snprintf(key2, sizeof(key2), "ofs%d", i);
                 saveVal<int32_t>(key2, 0);
             }
-            cfg.soundSpeedMps = 343;
-            saveVal<uint16_t>("sound_mps", cfg.soundSpeedMps);
+            cfg.soundSpeedMps = 342.5f;   // Werks-Default seit Rev 4.15.0
+            saveVal<float>("sound_f", cfg.soundSpeedMps);
             applySoundSpeed();
+            // Rev 4.17.0: Zonen-Saetze gehoeren zu den alten Offsets - verwerfen
+            // (Grenzen und SET ZONES bleiben)
+            for (int z = 0; z < ZONE_COUNT; z++) {
+                memset(&cfg.zone[z], 0, sizeof(ZoneCal));
+                saveZoneSet(z);
+            }
             emitLine("{\"type\":\"ok\",\"cmd\":\"cal_reset\"}\n");
         } else if (sub.startsWith("IMPORT")) {
             // Atomarer Bulk-Restore einer vom Stand-PC gespeicherten
@@ -4460,7 +5957,7 @@ static void handleCommand(const String &rawCmd, bool viaTcp)
             int32_t newOfs[NUM_AIR];
             bool    setOfs[NUM_AIR];
             for (int i = 0; i < NUM_AIR; i++) { newOfs[i] = cfg.micOffsetNs[i]; setOfs[i] = false; }
-            uint16_t newSound = cfg.soundSpeedMps;
+            float    newSound = cfg.soundSpeedMps;
             bool     setSound = false;
             bool     ok = (rest.length() > 0);
             int      start = 0;
@@ -4479,8 +5976,10 @@ static void handleCommand(const String &rawCmd, bool viaTcp)
                         newOfs[idx] = (int32_t)v;
                         setOfs[idx] = true;
                     } else if (k == "SOUNDSPEED") {
-                        if (v < SOUND_SPEED_MIN_MPS || v > SOUND_SPEED_MAX_MPS) { ok = false; break; }
-                        newSound  = (uint16_t)v;
+                        // Seit Rev 4.15.0 auch mit Nachkommastelle
+                        const float fv = tok.substring(eq + 1).toFloat();
+                        if (fv < SOUND_SPEED_MIN_MPS || fv > SOUND_SPEED_MAX_MPS) { ok = false; break; }
+                        newSound  = fv;
                         setSound  = true;
                     } else {
                         ok = false; break;
@@ -4503,7 +6002,7 @@ static void handleCommand(const String &rawCmd, bool viaTcp)
             }
             if (setSound) {
                 cfg.soundSpeedMps = newSound;
-                saveVal<uint16_t>("sound_mps", newSound);
+                saveVal<float>("sound_f", newSound);
                 applySoundSpeed();
             }
             emitLine("{\"type\":\"ok\",\"cmd\":\"cal_import\"}\n");
@@ -4550,17 +6049,74 @@ static void pollCommands(Stream &s, String &buf, bool echo, bool viaTcp)
 // WLAN / TCP Verwaltung
 // ---------------------------------------------------------------------------
 
+// Prueft direkt am Socket, ob die Gegenstelle die Verbindung beendet hat.
+// Noetig, weil NetworkClient::connected() (Core 3.x) ein sauberes Schliessen
+// durch den Stand-PC (FIN, recv()==0) NICHT erkennt und weiter true liefert -
+// ohne diese Pruefung wuerde nie neu verbunden, solange nichts gesendet wird.
+// Nur aufrufen, wenn tcp.available()==0, damit noch gepufferte Befehle
+// vorher abgearbeitet werden.
+static bool tcpPeerGone()
+{
+    const int fd = tcp.fd();
+    if (fd < 0) return true;
+    uint8_t dummy;
+    const int res = recv(fd, &dummy, 1, MSG_DONTWAIT | MSG_PEEK);
+    if (res > 0)  return false;          // Daten liegen an
+    if (res == 0) return true;           // FIN: Gegenstelle hat geschlossen
+    switch (errno) {
+        case EWOULDBLOCK:
+#if EAGAIN != EWOULDBLOCK
+        case EAGAIN:
+#endif
+        case EINTR:
+        case ENOENT:                     // vfs, siehe NetworkClient::connected()
+            return false;
+        default:                         // ECONNRESET, ECONNABORTED (Keepalive), ...
+            return true;
+    }
+}
+
 static void maintainNetwork()
 {
     if (!wifiEnabled) return;
 
+    const uint32_t now = millis();
+
     if (WiFi.status() != WL_CONNECTED) {
         if (tcp.connected()) tcp.stop();
+        if (!wifiDown) {
+            wifiDown        = true;
+            wifiDownSinceMs = now;
+            Serial.println("# WLAN getrennt");
+        } else if (now - wifiDownSinceMs >= WIFI_RETRY_MS) {
+            // WiFi.disconnect()/begin() blockieren nicht (Verbindungsaufbau
+            // laeuft im WLAN-Task) - daher auch waehrend des Papiervorschubs ok.
+            Serial.printf("# WLAN seit %lus nicht verbunden (Status %d) - neuer Verbindungsversuch\n",
+                          (unsigned long)((now - wifiDownSinceMs) / 1000UL),
+                          (int)WiFi.status());
+            WiFi.disconnect();
+            WiFi.begin(cfg.ssid.c_str(), cfg.pass.c_str());
+            wifiDownSinceMs = now;
+        }
         return;
     }
+    if (wifiDown) {
+        wifiDown = false;
+        Serial.printf("# WLAN verbunden, IP %s\n", WiFi.localIP().toString().c_str());
+        // Nach (Wieder-)Verbindung sofort den Stand-PC versuchen
+        nextConnectAttemptMs = now;
+        connectBackoffMs     = 1000;
+    }
+
+    if (tcp.connected() && tcp.available() == 0 && tcpPeerGone()) {
+        Serial.println("# TCP-Verbindung vom Stand-PC beendet - baue neu auf");
+        tcp.stop();
+        nextConnectAttemptMs = now;
+        connectBackoffMs     = 1000;
+    }
+
     if (!tcp.connected()) {
-        uint32_t now = millis();
-        if (now < nextConnectAttemptMs) return;
+        if ((int32_t)(now - nextConnectAttemptMs) < 0) return;
 
         // tcp.connect() blockiert bis zu 2s (siehe Timeout unten) - waehrend
         // eines laufenden Papiervorschubs/Einfaedelns wuerde das den naechsten
@@ -4574,12 +6130,22 @@ static void maintainNetwork()
         Serial.printf("# TCP connect %s:%u ...\n", cfg.host.c_str(), cfg.port);
         if (tcp.connect(cfg.host.c_str(), cfg.port, 2000)) {
             tcp.setNoDelay(true);
+            const int ka = 1, kaIdle = TCP_KA_IDLE_S, kaIntvl = TCP_KA_INTVL_S,
+                      kaCnt = TCP_KA_CNT;
+            tcp.setSocketOption(SOL_SOCKET,  SO_KEEPALIVE,  &ka,      sizeof(ka));
+            tcp.setSocketOption(IPPROTO_TCP, TCP_KEEPIDLE,  &kaIdle,  sizeof(kaIdle));
+            tcp.setSocketOption(IPPROTO_TCP, TCP_KEEPINTVL, &kaIntvl, sizeof(kaIntvl));
+            tcp.setSocketOption(IPPROTO_TCP, TCP_KEEPCNT,   &kaCnt,   sizeof(kaCnt));
             connectBackoffMs = 1000;
             Serial.println("# TCP verbunden");
             sendStatus();
         } else {
-            nextConnectAttemptMs = now + connectBackoffMs;
-            if (connectBackoffMs < 15000) connectBackoffMs *= 2;
+            // millis() neu lesen: der fehlgeschlagene connect() kann bis zu
+            // 2s blockiert haben
+            nextConnectAttemptMs = millis() + connectBackoffMs;
+            Serial.printf("# TCP connect fehlgeschlagen - naechster Versuch in %lus\n",
+                          (unsigned long)(connectBackoffMs / 1000UL));
+            if (connectBackoffMs < 8000) connectBackoffMs *= 2;
         }
     }
 }
@@ -4731,6 +6297,20 @@ void setup()
     cpuMHz = getCpuFrequencyMhz();
     if (cpuMHz < 80) cpuMHz = 240;   // Fallback
 
+    // Luft-Mics: Hardware-Capture (SET CAPTURE=MCPWM, Rev 4.13.0) oder wie
+    // bisher GPIO-ISR. Faellt MCPWM aus, automatisch ISR (capErr nennt den
+    // Grund, STATUS zeigt "capture":"isr").
+    if (cfg.airMcpwm) {
+        if (airCaptureInit()) {
+            Serial.printf("# Luft-Mics: MCPWM-Hardware-Capture (%lu CPU-Zyklen/Tick,"
+                          " Gruppen-Sync %ld ns)\n",
+                          (unsigned long)capRatio, (long)capSyncCheckNs);
+        } else {
+            Serial.printf("# MCPWM-Capture nicht verfuegbar (%s) - Fallback auf ISR\n",
+                          capErr);
+            airCaptureRelease();
+        }
+    }
     // Alle ISRs auf gleichem Core (setup laeuft auf einem Core), damit
     // alle Mikrofone denselben Zykluszaehler benutzen.
     for (uint32_t i = 0; i < NUM_AIR; i++) {
@@ -4738,6 +6318,9 @@ void setup()
         // das LM339 muss (wie bei PIEZO_PIN bereits der Fall) aktiv treiben.
         // Aktuell betrifft das keinen der AIR_PINS (nur den Sonderfall aus
         // dem inzwischen zurueckgebauten Diagnose-Test 3, siehe Header).
+        // Bei aktivem MCPWM-Capture hat airCaptureInit() die Pins samt
+        // Pull-Up bereits konfiguriert, eine zusaetzliche ISR entfaellt.
+        if (capActive) continue;
         bool noPullup = AIR_PINS[i] >= 34 && AIR_PINS[i] <= 39;
         pinMode(AIR_PINS[i], noPullup ? INPUT : INPUT_PULLUP);
         attachInterruptArg(digitalPinToInterrupt(AIR_PINS[i]),
@@ -4889,6 +6472,8 @@ void loop()
     }
 
     servicePaperStepper();
+    serviceCaptureCheck();
+    serviceDht();
 
     maintainNetwork();
     serviceNetWatchdog();

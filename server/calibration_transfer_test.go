@@ -18,13 +18,28 @@ func TestFirmwareSettings_MatchesStandPC(t *testing.T) {
 	for _, s := range firmwareSettings(p) {
 		got = append(got, s.Key+"="+s.Value)
 	}
-	want := "STANDOFFPAPER=28.00 MICHALFX=115.00 OFFSETX=0 OFFSETY=0 SOUNDSPEED=343 " +
+	want := "STANDOFFPAPER=28.00 MICHALFX=115.00 OFFSETX=0 OFFSETY=0 SOUNDSPEED=343.0 " +
 		"OFS0=0 OFS1=100 OFS2=200 OFS3=300 OFS4=400 OFS5=500 BSHIFTPCT=50 BSHIFTCAP=3.00 RADIUS=200 " +
 		"CLUSTERCORR=1 CLUSTERITER=5 LSQ=0 LSQPELLETR=2.25 " +
 		"MICEN0=1 MICEN1=1 MICEN2=1 MICEN3=1 MICEN4=1 MICEN5=1 ALGO=CLASSIC " +
-		"PIEZOMIN=100 PIEZOMAX=1400 PIEZO=1"
+		"PIEZOMIN=100 PIEZOMAX=1400 PIEZO=1 ZONES=0"
 	if strings.Join(got, " ") != want {
 		t.Errorf("firmwareSettings\n  %s\nerwartet\n  %s", strings.Join(got, " "), want)
+	}
+}
+
+// Zonen-Saetze: Format wie standpc ZoneSetValue.zcalValue, ZONES zuletzt.
+func TestFirmwareSettings_Zones(t *testing.T) {
+	p := DefaultSimParams()
+	p.Zones = &ZoneParams{Enabled: true, HoleRadiusMM: 15.25,
+		A: &ZoneSet{SoundMps: 336.94, MicOffsetNs: [6]int64{0, 1371, -10627, -4091, -6309, -641}, OffsetXUm: -845, OffsetYUm: -2577}}
+	var got []string
+	for _, s := range zoneFirmwareSettings(p) {
+		got = append(got, s.Key+"="+s.Value)
+	}
+	want := "ZBAND=45000 ZBLEND=2250 ZCALA=336.9,0,1371,-10627,-4091,-6309,-641,-845,-2577 ZCALB=OFF ZCALC=OFF ZONES=1"
+	if strings.Join(got, " ") != want {
+		t.Errorf("zoneFirmwareSettings\n  %s\nerwartet\n  %s", strings.Join(got, " "), want)
 	}
 }
 

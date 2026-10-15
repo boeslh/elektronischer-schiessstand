@@ -35,6 +35,7 @@
   .ea-grid input,.ea-grid select,#ea-printer{width:100%;background:#0e1218;border:1px solid var(--line);
     border-radius:6px;color:var(--text);font-size:14px;padding:8px 12px}
   .ea-grid input:focus,.ea-grid select:focus{outline:none;border-color:var(--acc)}
+  #wd-time,#wd-switch{width:100%;max-width:560px;background:#0e1218;border:1px solid var(--line);color:var(--text);border-radius:4px;padding:7px 10px;font-size:13px}
   .ea-sub{font-size:12px;font-weight:600;color:var(--text);margin:6px 0 12px}
 
   .range-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -110,6 +111,33 @@
       <button class="btn-save" onclick="saveAllURLs()">Alle speichern</button>
       <div id="msg-urls" class="msg"></div>
     </div>
+  </div>
+
+  <div class="section">
+    <h2>Wettkampf-Vorgaben (Schießzeit)</h2>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:12px">
+      Vorbelegung für neue Wettkämpfe – im Wettkampf selbst jederzeit änderbar.
+      Die Zeiten kommen aus der Disziplin (Gesamtzeit oder getrennte Probe-/Wertungszeit).
+    </p>
+    <div class="field">
+      <label for="wd-time">Zeithandling</label>
+      <select id="wd-time">
+        <option value="uhrzeit">Uhrzeit – nur die Uhrzeit wird angezeigt</option>
+        <option value="soft">Soft – Zeit zählt herunter, ohne Wirkung (wird nach Ablauf negativ)</option>
+        <option value="hard">Hard – nach Ablauf der Zeit wird kein Schuss mehr gewertet</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="wd-switch">Umschalten Probe → Wertung</label>
+      <select id="wd-switch">
+        <option value="individuell">Individuell – jeder Schütze schaltet selbst um</option>
+        <option value="zentral">Zentral – Zeitstart und Umschalten über die Standsteuerung</option>
+        <option value="automatisch">Automatisch – nach Ablauf der Probezeit</option>
+      </select>
+      <div class="desc">Bei einer Gesamtzeit für Probe und Wertung schaltet immer jeder Schütze selbst um.</div>
+    </div>
+    <button class="btn-save" onclick="saveWkDefaults()">Speichern</button>
+    <div id="msg-wkdefaults" class="msg"></div>
   </div>
 
   <div class="section">
@@ -258,7 +286,28 @@ function showMsg(text, type) {
   setTimeout(() => el.style.display = 'none', 3000);
 }
 
+async function loadWkDefaults() {
+  try {
+    const d = await fetch('/api/settings/wettkampf-defaults').then(r => r.json());
+    document.getElementById('wd-time').value = d.time_mode || 'soft';
+    document.getElementById('wd-switch').value = d.switch_mode || 'individuell';
+  } catch (e) { showMsgEl('msg-wkdefaults', 'Fehler beim Laden.', 'err'); }
+}
+
+async function saveWkDefaults() {
+  try {
+    const r = await fetch('/api/settings/wettkampf-defaults', {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({time_mode: document.getElementById('wd-time').value,
+                            switch_mode: document.getElementById('wd-switch').value}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showMsgEl('msg-wkdefaults', 'Gespeichert.', 'ok');
+  } catch (e) { showMsgEl('msg-wkdefaults', 'Fehler: ' + e.message, 'err'); }
+}
+
 load();
+loadWkDefaults();
 loadLaneURLs();
 loadDevMode();
 loadAusgabe();

@@ -18,36 +18,47 @@ import (
 )
 
 type ESP32Calibration struct {
-	MAC       string     `json:"mac"`
-	OffsetsNs [6]int     `json:"offsets_ns"`
-	SoundMps  int        `json:"sound_mps"`
-	LaneNo    *int       `json:"lane_no,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"` // nur beim Lesen gesetzt
+	MAC       string `json:"mac"`
+	OffsetsNs [6]int `json:"offsets_ns"`
+	SoundMps  int    `json:"sound_mps"`
+	// Seit Firmware Rev 4.13-4.15 (siehe migrations/078): genaue
+	// Schallgeschwindigkeit (sound_mps ist gerundet), WALKK und der
+	// Erfassungsmodus ("isr"|"mcpwm"), in dem die Offsets bestimmt wurden -
+	// nil bei aelteren Sicherungen.
+	SoundSetMps *float64   `json:"sound_set_mps"`
+	WalkK       *float64   `json:"walk_k"`
+	Capture     *string    `json:"capture"`
+	LaneNo      *int       `json:"lane_no,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"` // nur beim Lesen gesetzt
 }
 
-func (s *Store) UpsertESP32Calibration(ctx context.Context, c ESP32Calibration) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO esp32_calibrations (mac, offsets_ns, sound_mps, lane_no, updated_at)
-		VALUES ($1, $2, $3, $4, now())
-		ON CONFLICT (mac) DO UPDATE SET
-		  offsets_ns=EXCLUDED.offsets_ns, sound_mps=EXCLUDED.sound_mps,
-		  lane_no=EXCLUDED.lane_no, updated_at=now()`,
-		c.MAC, c.OffsetsNs[:], c.SoundMps, c.LaneNo)
-	return err
-}
+const esp32CalColumns = `mac, offsets_ns, sound_mps, sound_set_mps::float8, walk_k::float8, capture, lane_no, updated_at`
 
-func (s *Store) GetESP32Calibration(ctx context.Context, mac string) (*ESP32Calibration, error) {
+func scanESP32Calibration(row interface{ Scan(...any) error }) (*ESP32Calibration, error) {
 	var c ESP32Calibration
 	var offsets []int
-	c.MAC = mac
-	err := s.pool.QueryRow(ctx, `
-		SELECT offsets_ns, sound_mps, lane_no, updated_at FROM esp32_calibrations WHERE mac=$1`, mac,
-	).Scan(&offsets, &c.SoundMps, &c.LaneNo, &c.UpdatedAt)
-	if err != nil {
+	if err := row.Scan(&c.MAC, &offsets, &c.SoundMps, &c.SoundSetMps, &c.WalkK, &c.Capture, &c.LaneNo, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
 	copy(c.OffsetsNs[:], offsets)
 	return &c, nil
+}
+
+func (s *Store) UpsertESP32Calibration(ctx context.Context, c ESP32Calibration) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO esp32_calibrations (mac, offsets_ns, sound_mps, sound_set_mps, walk_k, capture, lane_no, updated_at)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6,''), $7, now())
+		ON CONFLICT (mac) DO UPDATE SET
+		  offsets_ns=EXCLUDED.offsets_ns, sound_mps=EXCLUDED.sound_mps,
+		  sound_set_mps=EXCLUDED.sound_set_mps, walk_k=EXCLUDED.walk_k, capture=EXCLUDED.capture,
+		  lane_no=EXCLUDED.lane_no, updated_at=now()`,
+		c.MAC, c.OffsetsNs[:], c.SoundMps, c.SoundSetMps, c.WalkK, c.Capture, c.LaneNo)
+	return err
+}
+
+func (s *Store) GetESP32Calibration(ctx context.Context, mac string) (*ESP32Calibration, error) {
+	return scanESP32Calibration(s.pool.QueryRow(ctx,
+		`SELECT `+esp32CalColumns+` FROM esp32_calibrations WHERE mac=$1`, mac))
 }
 
 // GetESP32CalibrationByLane liefert die juengste Sicherung eines Stands -
@@ -56,17 +67,9 @@ func (s *Store) GetESP32Calibration(ctx context.Context, mac string) (*ESP32Cali
 // die Sicherung ihrer Vorgaengerin am selben Stand ist aber der beste
 // verfuegbare Ausgangspunkt (siehe standpc/admin.go handleAdminCalRestore).
 func (s *Store) GetESP32CalibrationByLane(ctx context.Context, laneNo int) (*ESP32Calibration, error) {
-	var c ESP32Calibration
-	var offsets []int
-	err := s.pool.QueryRow(ctx, `
-		SELECT mac, offsets_ns, sound_mps, lane_no, updated_at FROM esp32_calibrations
-		WHERE lane_no=$1 ORDER BY updated_at DESC LIMIT 1`, laneNo,
-	).Scan(&c.MAC, &offsets, &c.SoundMps, &c.LaneNo, &c.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	copy(c.OffsetsNs[:], offsets)
-	return &c, nil
+	return scanESP32Calibration(s.pool.QueryRow(ctx,
+		`SELECT `+esp32CalColumns+` FROM esp32_calibrations
+		 WHERE lane_no=$1 ORDER BY updated_at DESC LIMIT 1`, laneNo))
 }
 
 func (a *APIServer) postESP32Calibration(w http.ResponseWriter, r *http.Request) (any, error) {

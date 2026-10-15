@@ -312,6 +312,8 @@ if (initTab) {
 }
 
 // ── Wettkämpfe laden ─────────────────────────────────────────────────────────
+let rundeComps = {}; // id -> Wettkampf (für die festgelegte Wertung best_of)
+
 async function loadEvents(reload) {
   try {
     const incl = document.getElementById('chk-archived').checked ? '&include_archived=1' : '';
@@ -320,7 +322,9 @@ async function loadEvents(reload) {
     const prevVal = sel.value;
     // Optionen zurücksetzen (außer erstem Platzhalter)
     sel.innerHTML = '<option value="">Wettkampf wählen…</option>';
+    rundeComps = {};
     (all || []).forEach(c => {
+      rundeComps[c.id] = c;
       const opt = document.createElement('option');
       opt.value = c.id;
       const date = c.starts_on ? ' (' + c.starts_on.slice(0,10) + ')' : '';
@@ -366,6 +370,10 @@ async function onEventChange() {
     return;
   }
   document.getElementById('saved-bar').style.display = 'block';
+  // Wertung (beste N) ist im Wettkampf festgelegt - Anzeigen und PDF rechnen
+  // damit; hier vorbelegt
+  const c = rundeComps[eventID];
+  if (c && c.best_of != null) document.getElementById('sel-bestof').value = String(c.best_of);
   await loadSavedList(eventID);
   await auswerten();
 }
@@ -469,7 +477,9 @@ async function auswerten() {
       return;
     }
 
-    area.innerHTML = renderRunde(entries, bestOf);
+    const paar = await fetch(`/api/auswertung/rundenwettkampf/paarung?event_id=${eventID}`)
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    area.innerHTML = (paar && paar.modus === 'paarung' ? renderPaarung(paar) : '') + renderRunde(entries, bestOf);
     document.getElementById('btn-pdf').disabled = false;
   } catch(e) {
     area.innerHTML = `<div class="msg-err">Fehler: ${esc(e.message)}</div>`;
@@ -620,6 +630,47 @@ function renderRunde(entries, bestOf) {
   }).join('');
 
   return rankHTML + detailHTML;
+}
+
+// Paarungswettkampf: Paarungen mit Punkten (Berechnung serverseitig,
+// rwk_paarung.go - dieselbe Logik steht im PDF).
+function renderPaarung(p) {
+  if (!p.pairs || !p.pairs.length) {
+    return `<div class="msg-err">Paarungswettkampf: noch keine Paarungen zugeordnet (Wettkampf bearbeiten → Starter).</div>`;
+  }
+  const fv = e => !e ? '—' : (!e.shot_count ? '<span class="no-result">—</span>'
+    : (p.is_decimal ? e.total_decimal.toFixed(1) : String(e.total_rings)));
+  const nm = e => e ? `${esc(e.last_name)}, ${esc(e.first_name)}` : '<span style="color:var(--dim)">—</span>';
+  const pt = (pr, side) => pr.stechen ? '<span style="color:var(--warn)" title="Gleichstand – Stechschüsse">St.</span>'
+    : pr.winner === side ? `<strong>1</strong>${pr.by_stechen ? '<sup title="durch Stechschuss">St</sup>' : ''}` : pr.winner >= 0 ? '0' : '';
+  // Stechschüsse je Schütze: ab dem 4. (bei Zehntelwertung immer) Zehntel
+  const stv = (e) => !e || !e.stechen || !e.stechen.length ? '' :
+    `<div style="color:var(--dim);font-size:11px">Stechen: ${e.stechen.map(s => !s.shot ? '…'
+      : (p.is_decimal || s.no > 3) ? s.decimal.toFixed(1) : String(s.ring)).join(' · ')}</div>`;
+  const ft = v => p.is_decimal ? v.toFixed(1) : String(Math.round(v));
+  const tp = side => p.total_point === side ? '<strong>1</strong>' : p.total_point >= 0 ? '0' : '';
+  const rows = p.pairs.map(pr => `<tr>
+      <td style="text-align:center">${pr.no}</td>
+      <td>${nm(pr.heim)}</td><td style="text-align:right"><span class="rings-val">${fv(pr.heim)}</span>${stv(pr.heim)}</td>
+      <td style="text-align:center">${pt(pr,0)}</td><td style="text-align:center">${pt(pr,1)}</td>
+      <td style="text-align:right"><span class="rings-val">${fv(pr.gast)}</span>${stv(pr.gast)}</td><td>${nm(pr.gast)}</td>
+    </tr>`).join('');
+  const winner = p.winner === 0 ? `Sieger: ${esc(p.heim_name)}` : p.winner === 1 ? `Sieger: ${esc(p.gast_name)}` : 'noch nicht entschieden';
+  const hint = (p.pairs.length % 2 === 0) ? '<div style="color:var(--dim);font-size:12px">Bei Punktgleichstand zählt das Mannschaftsergebnis als weiterer Punkt.</div>' : '';
+  const unp = p.unpaired ? `<div style="color:var(--warn);font-size:12px">${p.unpaired} Starter ohne Paarung (zählen nicht).</div>` : '';
+  return `<div class="team-section">
+    <div class="team-header">
+      <span class="team-name">Paarungswertung</span>
+      <span class="team-total">Endstand <strong>${p.heim_points} : ${p.gast_points}</strong> – ${winner}</span>
+    </div>
+    <table>
+      <thead><tr><th>Paarung</th><th>${esc(p.heim_name)}</th><th style="text-align:right">Ergebnis</th><th>Pkt</th><th>Pkt</th><th style="text-align:right">Ergebnis</th><th>${esc(p.gast_name)}</th></tr></thead>
+      <tbody>${rows}
+        <tr style="font-weight:600"><td></td><td>Mannschaftsergebnis</td><td style="text-align:right">${ft(p.heim_total)}</td>
+          <td style="text-align:center">${tp(0)}</td><td style="text-align:center">${tp(1)}</td><td style="text-align:right">${ft(p.gast_total)}</td><td></td></tr>
+      </tbody>
+    </table>${hint}${unp}
+  </div>`;
 }
 
 function esc(s) {

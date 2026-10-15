@@ -14,10 +14,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -120,6 +122,16 @@ func (w *DBWriter) flush() error {
 	written := 0
 	for _, e := range pending {
 		if err := w.insertShot(e); err != nil {
+			// Session existiert nicht mehr (z.B. geloescht): der Schuss kann
+			// nie geschrieben werden und wuerde die Queue sonst dauerhaft
+			// blockieren - verwerfen (bleibt im lokalen Schussprotokoll).
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+				log.Printf("DB: Schuss %d verworfen – Session %s existiert nicht mehr", e.shotNo, e.sessionID)
+				written++
+				continue
+			}
+			log.Printf("DB: Schuss %d (Session %s) nicht geschrieben: %v", e.shotNo, e.sessionID, err)
 			break // Verbindung weg -> Rest bleibt in der Queue
 		}
 		written++
@@ -181,6 +193,20 @@ func (w *DBWriter) insertShot(e dbEntry) error {
 	if len(s.AirNs) > 0 {
 		airNs, _ = json.Marshal(s.AirNs)
 	}
+	var airWNs []byte
+	if len(s.AirWNs) > 0 {
+		airWNs, _ = json.Marshal(s.AirWNs)
+	}
+	var rawEdges []byte // nil -> NULL (ohne SET RAWLOG=1)
+	if len(s.RawEdges) > 0 {
+		rawEdges = s.RawEdges
+	}
+	nullStr := func(v string) *string {
+		if v == "" {
+			return nil
+		}
+		return &v
+	}
 
 	// shot_no = PC-seitiger Sessionzaehler (1-basiert, inkl. reject); device_seq = ESP32
 	_, err := w.pool.Exec(ctx, `
@@ -189,13 +215,15 @@ func (w *DBWriter) insertShot(e dbEntry) error {
 			device_seq, sensor_hits,
 			x_mm, y_mm, ring, decimal_value, is_inner_ten, center_distance,
 			air_ns, x_um, y_um, pos_res_um, precision_um, cluster_hits,
-			pos_valid, piezo_ns, piezo_ok, clean, reject_reason, device_ts_ms
+			pos_valid, piezo_ns, piezo_ok, clean, reject_reason, device_ts_ms,
+			air_w_ns, sound_act_mps, capture, walk_k, algo, raw_edges, zone
 		) VALUES (
 			$1::uuid, $2, $3::shot_kind, $4::shot_status, $5, $6,
 			$7, $8,
 			$9::float8, $10::float8, $11::smallint, $12::numeric, $13, $14::numeric,
 			$15::jsonb, $16::bigint, $17::bigint, $18::bigint, $19::bigint, $20::smallint,
-			$21::boolean, $22::bigint, $23::boolean, $24::boolean, $25, $26::bigint
+			$21::boolean, $22::bigint, $23::boolean, $24::boolean, $25, $26::bigint,
+			$27::jsonb, $28::numeric, $29, $30::numeric, $31, $32::jsonb, $33
 		)
 		ON CONFLICT (session_id, shot_no) DO NOTHING`,
 		e.sessionID, e.shotNo, kind, status, s.FiredAt, s.SeriesNo,
@@ -203,9 +231,12 @@ func (w *DBWriter) insertShot(e dbEntry) error {
 		s.XMM, s.YMM, s.Ring, s.Decimal, s.InnerTen, s.CenterDistance,
 		airNs, s.XUm, s.YUm, s.PosResUm, s.PrecisionUm, s.ClusterHits,
 		s.PosValid, s.PiezoNs, s.PiezoOk, s.Clean, s.RejectMsg, s.DeviceTsMs,
+		airWNs, s.SoundActMps, nullStr(s.Capture), s.WalkK, nullStr(s.Algo), rawEdges, nullStr(s.Zone),
 	)
-	if err != nil {
+	var pgErr *pgconn.PgError
+	if err != nil && !errors.As(err, &pgErr) {
 		// Pool bei Verbindungsfehler verwerfen -> ensurePool baut neu auf
+		// (Fehlermeldungen der Datenbank selbst lassen die Verbindung heil)
 		w.pool.Close()
 		w.pool = nil
 	}

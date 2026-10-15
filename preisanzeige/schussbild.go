@@ -321,7 +321,8 @@ const RAW_SHOTS = {{SHOTS_JSON}};
 const GEO = {{GEO_JSON}};
 
 const CALIBER = 4.5;
-const SHOT_STROKE_W = CALIBER * 0.05;
+// Schussrand: halbe Staerke, in der Farbe des Schusses und deckend
+const SHOT_STROKE_W = CALIBER * 0.025;
 const SHOT_R = CALIBER / 2 - SHOT_STROKE_W / 2;
 const NS = 'http://www.w3.org/2000/svg';
 const COLORS = { ring10: '#e04040', ring9: '#f3fb06', other: '#4ab8ff', annulled: '#666666' };
@@ -499,7 +500,7 @@ function buildTarget(target) {
   const labelPositions = [{nx:0,ny:-1},{nx:1,ny:0},{nx:0,ny:1},{nx:-1,ny:0}];
   for (let i = 0; i < rings.length; i++) {
     const r = rings[i];
-    if (r.v < 1 || r.v > 9) continue;
+    if (r.v < 1 || r.v > 8) continue; // die 9 steht auf Original-Scheiben nicht (zu gedraengt)
     const outerRadius = r.d / 2;
     const innerRadius = (i + 1 < rings.length) ? rings[i + 1].d / 2 : 0;
     const labelR    = (outerRadius + innerRadius) / 2;
@@ -552,7 +553,8 @@ function renderShots(list) {
     c.setAttribute('r', SHOT_R);
     c.setAttribute('fill', fillColor);
     c.setAttribute('fill-opacity', '0.82');
-    c.setAttribute('stroke', '#1a1a1a');
+    c.setAttribute('stroke', fillColor);
+    c.setAttribute('stroke-opacity', '1');
     c.setAttribute('stroke-width', SHOT_STROKE_W);
 
     const t = document.createElementNS(NS, 'text');

@@ -46,6 +46,7 @@ type seriesSum struct {
 // standTile: alles fuer eine Kachel - leere Felder = Stand frei.
 type standTile struct {
 	LaneNo         int
+	SessionID      string // aktive Session ("" = Stand frei)
 	ShooterName    string
 	Discipline     string
 	DecimalScoring bool
@@ -57,6 +58,14 @@ type standTile struct {
 	LastShot       *standShot  // letzter Schuss aus Shots, fuer die Ergebniszeile
 	Series         []seriesSum // die letzten (max. 6) Serien, aelteste faellt zuerst raus
 	ProbeMode      bool        // noch kein Wertungsschuss (kind='match') in dieser Session
+	// StechenNo: Stechschuss-Session (server/rwk_stechen.go) - Scheibe zeigt
+	// nur den Stechschuss, Gesamt/Serien kommen aus der Wertungs-Session.
+	StechenNo int
+}
+
+// lastDecimal: letzter Schuss in Zehntel - bei Stechschuss (ab dem 4. Durchgang immer).
+func (t standTile) lastDecimal() bool {
+	return t.DecimalScoring || t.StechenNo > 3
 }
 
 // maxDisplayedSeries: mehr Serien werden von vorne (aelteste zuerst) verworfen.
@@ -200,35 +209,102 @@ func seriesSums(match []standShot, shotsPerSeries int) []seriesSum {
 }
 
 func loadStandTile(ctx context.Context, pool *pgxpool.Pool, laneNo int) standTile {
-	t := standTile{LaneNo: laneNo}
-
-	var sessionID, targetID, targetName string
-	var innerTenD float64
-	var shotsPerSeries int
+	var sessionID string
 	err := pool.QueryRow(ctx, `
-		SELECT se.id::text, COALESCE(sh.last_name||', '||sh.first_name,''),
-		       d.name, d.decimal_scoring, d.shots_per_series, tg.id::text, tg.name, COALESCE(tg.inner_ten_d_mm,0)
+		SELECT se.id::text
 		FROM lanes l
 		JOIN sessions se ON se.lane_id = l.id AND se.status IN ('assigned','sighting','match','paused')
+		WHERE l.lane_no = $1
+		ORDER BY se.started_at DESC NULLS LAST LIMIT 1`, laneNo).Scan(&sessionID)
+	if err != nil {
+		return standTile{LaneNo: laneNo} // kein aktiver Stand -> "Frei"
+	}
+	t := loadSessionTile(ctx, pool, sessionID)
+	t.LaneNo = laneNo
+	return t
+}
+
+// loadSessionTile: Kachel-Daten einer Session (unabhaengig davon, ob sie noch
+// laeuft) - auch fuer die Scheibenansicht der Rundenwettkampf-Anzeige.
+func loadSessionTile(ctx context.Context, pool *pgxpool.Pool, sessionID string) standTile {
+	var t standTile
+	var targetID, targetName string
+	var innerTenD float64
+	var shotsPerSeries int
+	var stechenOf string
+	err := pool.QueryRow(ctx, `
+		SELECT COALESCE(l.lane_no,0), COALESCE(sh.last_name||', '||sh.first_name,''),
+		       d.name, d.decimal_scoring, d.shots_per_series, tg.id::text, tg.name, COALESCE(tg.inner_ten_d_mm,0),
+		       COALESCE(se.stechen_no,0), COALESCE(se.stechen_of::text,'')
+		FROM sessions se
+		LEFT JOIN lanes l ON l.id = se.lane_id
 		JOIN disciplines d ON d.id = se.discipline_id
 		JOIN targets tg ON tg.id = d.target_id
 		LEFT JOIN shooters sh ON sh.id = se.shooter_id
-		WHERE l.lane_no = $1
-		ORDER BY se.started_at DESC NULLS LAST LIMIT 1`, laneNo,
-	).Scan(&sessionID, &t.ShooterName, &t.Discipline, &t.DecimalScoring, &shotsPerSeries, &targetID, &targetName, &innerTenD)
+		WHERE se.id = $1::uuid`, sessionID,
+	).Scan(&t.LaneNo, &t.ShooterName, &t.Discipline, &t.DecimalScoring, &shotsPerSeries, &targetID, &targetName, &innerTenD,
+		&t.StechenNo, &stechenOf)
 	if err != nil {
-		return t // kein aktiver Stand -> "Frei"
+		return t
+	}
+	t.SessionID = sessionID
+	statsID := sessionID
+	if t.StechenNo > 0 && stechenOf != "" {
+		statsID = stechenOf // Gesamtergebnis bleibt das der Wertung
 	}
 
 	pool.QueryRow(ctx, `
 		SELECT COALESCE(shot_count,0), COALESCE(total_rings,0), COALESCE(total_decimal,0)
-		FROM v_session_results WHERE session_id=$1`, sessionID,
+		FROM v_session_results WHERE session_id=$1`, statsID,
 	).Scan(&t.ShotCount, &t.TotalRings, &t.TotalDecimal)
 
-	// Alle Schuesse laden und je Schussart (Probe/Wertung) durchnummerieren -
-	// dieselbe Konvention wie schussbild.go/pdf_einzelergebnis.go (Position
-	// innerhalb der eigenen Schussart, nicht die rohe fortlaufende shot_no).
-	var sighting, match []standShot
+	sighting, match := loadTileShots(ctx, pool, sessionID)
+	if statsID != sessionID {
+		// Stechschuss: Scheibe nur mit dem Stechschuss, Serien der Wertung
+		_, base := loadTileShots(ctx, pool, statsID)
+		spS := shotsPerSeries
+		if spS <= 0 {
+			spS = len(base)
+		}
+		if len(base) > 0 {
+			t.Series = seriesSums(base, spS)
+		}
+		t.Shots = match
+		if n := len(t.Shots); n > 0 {
+			last := t.Shots[n-1]
+			t.LastShot = &last
+		}
+		loadTileGeo(ctx, pool, &t, targetID, targetName, innerTenD)
+		return t
+	}
+	t.ProbeMode = len(match) == 0
+
+	// Kachel zeigt die aktuelle (letzte, ggf. noch unvollstaendige) Serie -
+	// vor dem ersten Wertungsschuss ersatzweise alle bisherigen Probeschuesse.
+	if len(match) > 0 {
+		spS := shotsPerSeries
+		if spS <= 0 {
+			spS = len(match)
+		}
+		seriesStart := ((len(match) - 1) / spS) * spS
+		t.Shots = match[seriesStart:]
+		t.Series = seriesSums(match, spS)
+	} else {
+		t.Shots = sighting
+	}
+	if n := len(t.Shots); n > 0 {
+		last := t.Shots[n-1]
+		t.LastShot = &last
+	}
+	loadTileGeo(ctx, pool, &t, targetID, targetName, innerTenD)
+	return t
+}
+
+// loadTileShots: Probe- und Wertungsschuesse einer Session, je Schussart
+// durchnummeriert - dieselbe Konvention wie schussbild.go/
+// pdf_einzelergebnis.go (Position innerhalb der eigenen Schussart, nicht die
+// rohe fortlaufende shot_no).
+func loadTileShots(ctx context.Context, pool *pgxpool.Pool, sessionID string) (sighting, match []standShot) {
 	srows, err := pool.Query(ctx, `
 		SELECT kind::text,
 		       COALESCE(corrected_x_mm,x_mm), COALESCE(corrected_y_mm,y_mm),
@@ -251,26 +327,11 @@ func loadStandTile(ctx context.Context, pool *pgxpool.Pool, laneNo int) standTil
 		}
 		srows.Close()
 	}
-	t.ProbeMode = len(match) == 0
+	return sighting, match
+}
 
-	// Kachel zeigt die aktuelle (letzte, ggf. noch unvollstaendige) Serie -
-	// vor dem ersten Wertungsschuss ersatzweise alle bisherigen Probeschuesse.
-	if len(match) > 0 {
-		spS := shotsPerSeries
-		if spS <= 0 {
-			spS = len(match)
-		}
-		seriesStart := ((len(match) - 1) / spS) * spS
-		t.Shots = match[seriesStart:]
-		t.Series = seriesSums(match, spS)
-	} else {
-		t.Shots = sighting
-	}
-	if n := len(t.Shots); n > 0 {
-		last := t.Shots[n-1]
-		t.LastShot = &last
-	}
-
+// loadTileGeo: Ringgeometrie der Scheibe fuer die Kachel.
+func loadTileGeo(ctx context.Context, pool *pgxpool.Pool, t *standTile, targetID, targetName string, innerTenD float64) {
 	cutoff := fillCutoffForTargetName(targetName)
 	t.Geo.InnerTenD = innerTenD
 	rrows, err := pool.Query(ctx, `SELECT ring_value, diameter_mm FROM target_rings WHERE target_id=$1 ORDER BY diameter_mm DESC`, targetID)
@@ -289,7 +350,6 @@ func loadStandTile(ctx context.Context, pool *pgxpool.Pool, laneNo int) standTil
 		rrows.Close()
 		t.Geo.InnerTenDashed = innerTenD > 0 && ring10D > 0 && innerTenD < ring10D
 	}
-	return t
 }
 
 func fmtTotal(t standTile) string {
@@ -306,7 +366,7 @@ func fmtLastShot(t standTile) string {
 	if t.LastShot == nil || t.LastShot.Ring == nil {
 		return "–"
 	}
-	if t.DecimalScoring && t.LastShot.Decimal != nil {
+	if t.lastDecimal() && t.LastShot.Decimal != nil {
 		return fmt.Sprintf("%.1f", *t.LastShot.Decimal)
 	}
 	return fmt.Sprintf("%d", *t.LastShot.Ring)
@@ -360,9 +420,17 @@ func renderStandTile(t standTile) string {
   <script>drawStandTarget(%q, %s, %s);</script>
 </div>`,
 		t.LaneNo, triangle, svgID,
-		html.EscapeString(t.ShooterName), fmtLastShot(t), html.EscapeString(t.Discipline),
+		html.EscapeString(t.ShooterName), fmtLastShot(t), html.EscapeString(stechenPrefix(t)+t.Discipline),
 		fmtTotal(t), fmtSeriesRow(t),
 		svgID, geoJSON, shotsJSON)
+}
+
+// stechenPrefix: "Stechschuss n · " vor der Disziplin einer Stechschuss-Kachel.
+func stechenPrefix(t standTile) string {
+	if t.StechenNo == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Stechschuss %d · ", t.StechenNo)
 }
 
 func standanzeigeHead(gridSize int) string {
@@ -409,7 +477,14 @@ func standanzeigeHead(gridSize int) string {
     opacity:.5;z-index:2}
 </style>
 <script>
-// Muss VOR den Kachel-Markup stehen (siehe renderStandTile: jede Kachel ruft
+%s</script>
+</head><body>
+`, cols, rows, standTargetJS)
+}
+
+// standTargetJS: Trefferbild-Zeichnung (drawStandTarget) - gemeinsam fuer
+// die Raster-Standanzeige und RWK-Dynamisch (rwk_dynamisch.go).
+const standTargetJS = `// Muss VOR den Kachel-Markup stehen (siehe renderStandTile: jede Kachel ruft
 // drawStandTarget() direkt in einem eigenen <script>-Tag auf, sobald der
 // Parser dort ankommt) - stand die Funktion frueher in standanzeigeFoot
 // (also NACH allen Kacheln), war sie beim ersten Aufruf noch undefiniert
@@ -430,7 +505,8 @@ const STAND_ZOOM_FRACTIONS = [0.0626, 0.2418, 0.4209, 0.60, 1.00];
 // skaliert also automatisch mit der Scheibengeometrie statt einem fixen
 // Bruchteil des Aussenrings (der bei kleinem Zoom viel zu klein wirkte).
 const STAND_CALIBER = 4.5;
-const STAND_SHOT_STROKE_W = STAND_CALIBER * 0.05;
+// Schussrand: halbe Staerke, in der Farbe des Schusses und deckend
+const STAND_SHOT_STROKE_W = STAND_CALIBER * 0.025;
 const STAND_SHOT_R = STAND_CALIBER / 2 - STAND_SHOT_STROKE_W / 2;
 
 function drawStandTarget(svgID, geo, shots) {
@@ -488,7 +564,7 @@ function drawStandTarget(svgID, geo, shots) {
     svg.appendChild(inn);
   }
 
-  // Ringzahlen (analog schussbild.go buildTarget): je Ring 1-9 an vier
+  // Ringzahlen (analog schussbild.go buildTarget): je Ring 1-8 an vier
   // Positionen (N/O/S/W) auf der Mitte zwischen diesem und dem naechst
   // inneren Ring beschriftet.
   let minStep = Infinity;
@@ -497,7 +573,7 @@ function drawStandTarget(svgID, geo, shots) {
   const labelPositions = [{nx:0,ny:-1},{nx:1,ny:0},{nx:0,ny:1},{nx:-1,ny:0}];
   for (let i = 0; i < rings.length; i++) {
     const r = rings[i];
-    if (r.v < 1 || r.v > 9) continue;
+    if (r.v < 1 || r.v > 8) continue; // die 9 steht auf Original-Scheiben nicht (zu gedraengt)
     const outerRadius = r.d / 2;
     const innerRadius = (i + 1 < rings.length) ? rings[i + 1].d / 2 : 0;
     const labelR = (outerRadius + innerRadius) / 2;
@@ -525,7 +601,7 @@ function drawStandTarget(svgID, geo, shots) {
     c.setAttribute('cx', s.x_mm); c.setAttribute('cy', -s.y_mm);
     c.setAttribute('r', STAND_SHOT_R);
     c.setAttribute('fill', fillColor); c.setAttribute('fill-opacity','0.85');
-    c.setAttribute('stroke', '#1a1a1a'); c.setAttribute('stroke-width', STAND_SHOT_STROKE_W);
+    c.setAttribute('stroke', fillColor); c.setAttribute('stroke-opacity', '1'); c.setAttribute('stroke-width', STAND_SHOT_STROKE_W);
     g.appendChild(c);
 
     const t = document.createElementNS(NS,'text');
@@ -542,10 +618,7 @@ function drawStandTarget(svgID, geo, shots) {
     svg.appendChild(g);
   }
 }
-</script>
-</head><body>
-`, cols, rows)
-}
+`
 
 // standanzeigeFoot: Rotations-/Reload-Skript. Muss NACH allen Kacheln
 // stehen, weil es per document.querySelectorAll('section.grid') auf das

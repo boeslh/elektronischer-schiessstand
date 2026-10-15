@@ -32,13 +32,23 @@ func (ws *WebServer) uploadCalibrationBackup(cal CalTelegram) {
 	if ws.cfg.ServerURL == "" || cal.MAC == "" {
 		return
 	}
+	// Seit Firmware Rev 4.14/4.15 zusaetzlich: genaue Schallgeschwindigkeit
+	// (sound_mps ist gerundet), WALKK und der Erfassungsmodus, in dem die
+	// Offsets bestimmt wurden (ISR-Offsets passen nicht zu MCPWM).
 	type payload struct {
-		MAC       string `json:"mac"`
-		OffsetsNs [6]int `json:"offsets_ns"`
-		SoundMps  int    `json:"sound_mps"`
-		LaneNo    int    `json:"lane_no"`
+		MAC         string   `json:"mac"`
+		OffsetsNs   [6]int   `json:"offsets_ns"`
+		SoundMps    int      `json:"sound_mps"`
+		SoundSetMps *float64 `json:"sound_set_mps,omitempty"`
+		WalkK       *float64 `json:"walk_k,omitempty"`
+		Capture     string   `json:"capture,omitempty"`
+		LaneNo      int      `json:"lane_no"`
 	}
-	data, err := json.Marshal(payload{cal.MAC, cal.OffsetsNs, cal.SoundMps, ws.cfg.LaneNo})
+	capture := cal.capture
+	if capture == "" && ws.deviceState != nil {
+		capture = ws.deviceState.ActiveCapture()
+	}
+	data, err := json.Marshal(payload{cal.MAC, cal.OffsetsNs, cal.SoundMps, cal.SoundSetMps, cal.WalkK, capture, ws.cfg.LaneNo})
 	if err != nil {
 		return
 	}
@@ -67,11 +77,22 @@ func (ws *WebServer) uploadCalibrationBackup(cal CalTelegram) {
 // ?lane_no=N (server/esp32calibrations.go) - Grundlage fuer "CAL IMPORT" im
 // Restore.
 type esp32Calibration struct {
-	MAC       string     `json:"mac"`
-	OffsetsNs [6]int     `json:"offsets_ns"`
-	SoundMps  int        `json:"sound_mps"`
-	LaneNo    *int       `json:"lane_no"`
-	UpdatedAt *time.Time `json:"updated_at"`
+	MAC         string     `json:"mac"`
+	OffsetsNs   [6]int     `json:"offsets_ns"`
+	SoundMps    int        `json:"sound_mps"`
+	SoundSetMps *float64   `json:"sound_set_mps"` // nil bei Sicherungen vor Firmware 4.15
+	WalkK       *float64   `json:"walk_k"`
+	Capture     *string    `json:"capture"` // Erfassungsmodus der Offsets, nil = unbekannt (vor 4.13)
+	LaneNo      *int       `json:"lane_no"`
+	UpdatedAt   *time.Time `json:"updated_at"`
+}
+
+// soundSet: genaue Schallgeschwindigkeit der Sicherung.
+func (c esp32Calibration) soundSet() float64 {
+	if c.SoundSetMps != nil {
+		return *c.SoundSetMps
+	}
+	return float64(c.SoundMps)
 }
 
 // errNoBackup: fuer diese Geraete-ID bzw. diesen Stand ist keine Sicherung

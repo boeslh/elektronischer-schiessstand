@@ -55,6 +55,20 @@
              padding:8px 10px;color:#ffe0c8}
   #maintHint a{color:var(--acc)}
   .lane.ps-locked{cursor:default}
+  /* Markieren fuer gemeinsame Standaktionen */
+  .lane .mark{position:absolute;top:8px;right:26px;width:18px;height:18px;cursor:pointer;accent-color:var(--acc)}
+  .lane.marked{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+  .state.stechen{background:#7a2a2a;color:#ffd8d8}
+  #actionBar{position:sticky;top:0;z-index:5;display:none;gap:8px;align-items:center;flex-wrap:wrap;
+             background:#16302a;border:1px solid var(--acc);border-radius:8px;padding:10px 14px;margin-bottom:12px}
+  #actionBar .cnt{font-weight:700;margin-right:6px}
+  #actionBar .sep{width:1px;align-self:stretch;background:var(--line);margin:0 4px}
+  #stechenPanel{display:none;background:#2a1a1a;border:1px solid #7a2a2a;border-radius:8px;padding:10px 14px;margin-bottom:14px}
+  #stechenPanel h2{font-size:14px;margin-bottom:8px;color:#ffb0b0}
+  .st-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:5px 0;border-top:1px solid #3a2626;font-size:13px}
+  .st-row:first-of-type{border-top:none}
+  .st-row .who{flex:1;min-width:220px}
+  .st-row small{color:var(--dim)}
   .lane.ps-locked:hover{border-color:var(--line)}
 
 
@@ -137,6 +151,23 @@
 </header>
 <div class="sub">Aufsicht – Stände belegen, Sitzungen steuern, Schüsse prüfen</div>
 
+<div id="stechenPanel"><h2>⚔ Stechen erforderlich</h2><div id="stechenRows"></div></div>
+
+<div id="actionBar">
+  <span class="cnt" id="markCount"></span>
+  <button onclick="bulkTimeStart()" title="Schießzeit auf allen markierten Ständen jetzt starten">⏱ Zeit starten</button>
+  <button onclick="bulkStatus('sighting')">Probe</button>
+  <button onclick="bulkStatus('match')">Wertung</button>
+  <button class="warn" onclick="bulkStatus('finished')">Stände freigeben</button>
+  <span class="sep"></span>
+  <button class="sec" onclick="bulkUILock(true)" title="Bedienung an der Schützenanzeige sperren (nur noch Ansehen/Zoom)">🔒 Bedienung sperren</button>
+  <button class="sec" onclick="bulkUILock(false)" title="Bedienung an der Schützenanzeige wieder erlauben">🔓 Bedienung freigeben</button>
+  <span class="sep"></span>
+  <button class="err" id="btnStechen" onclick="startStechen()" title="Nächster Stechschuss für die Paarung auf genau zwei markierten Ständen">⚔ Stechschuss</button>
+  <span class="sep"></span>
+  <button class="sec" onclick="clearMarks()">Markierung aufheben</button>
+</div>
+
 <div id="lanes"></div>
 
 <!-- ── Wettkampf-Schnellbelegung ─────────────────────────────────────── -->
@@ -159,6 +190,18 @@
 
 <div id="detail">
   <h2 id="dTitle"></h2>
+  <div class="row">
+    <button class="sec" id="uiLockBtn" onclick="setUILock([current.lane_no], !current.ui_locked)"></button>
+    <span id="uiLockInfo" style="font-size:12px;color:var(--dim)"></span>
+  </div>
+
+  <!-- Preisschießen-Selbstbedienung: Stand reserviert -->
+  <div id="psBox" style="display:none">
+    <div class="row" id="psInfo" style="font-size:13px;color:var(--dim)"></div>
+    <div class="row">
+      <button class="warn" onclick="leavePS(current.lane_no)" title="Preisschießmodus beenden – eine evtl. laufende Scheibe wird beendet, der Stand ist danach frei">Preisschießmodus beenden / Stand freigeben</button>
+    </div>
+  </div>
 
   <!-- Belegen (wenn frei) -->
   <div id="assignBox">
@@ -192,6 +235,7 @@
       Nach dem Freigeben im <a href="/simulator?wartung=1">Simulator</a> unter
       „Wartungs-Schütze" auswählbar.</div>
     <div class="row">
+      <button onclick="timeStart([current.lane_no])" title="Schießzeit jetzt starten (sonst ab Beginn der Probe)">⏱ Zeit starten</button>
       <button onclick="setStatus('sighting')">Probe</button>
       <button onclick="setStatus('match')">Wertung</button>
       <button class="warn" onclick="setStatus('finished')" title="Session beenden, Stand wird frei. Bereits geschossene Schüsse bleiben gespeichert.">Stand freigeben</button>
@@ -236,6 +280,7 @@ const STATUS_CSS = {
 function laneStatus(l) {
   if (l.ps_selfservice_name) return {cls: 'ps', label: 'Preisschießen'};
   if (!l.session_id) return {cls: 'frei', label: 'Frei'};
+  if (l.stechen_no) return {cls: 'stechen', label: `Stechschuss ${l.stechen_no}`};
   if (l.maintenance) {
     const sub = l.live_mode === 'probe' ? ' · Probe' : l.live_mode === 'wertung' ? ' · Wertung' : '';
     return {cls: 'maint', label: 'Wartung' + sub};
@@ -306,9 +351,12 @@ async function refreshLanes() {
   for (const l of visible) {
     const {cls, label} = laneStatus(l);
     const d = document.createElement('div');
-    d.className = 'lane' + (l.ps_selfservice_name ? ' ps-locked' : '') + (l.maintenance ? ' maint' : '');
+    d.className = 'lane' + (l.maintenance ? ' maint' : '') +
+      (marked.has(l.lane_no) ? ' marked' : '');
     d.innerHTML = `<div class="conn-dot ${connDotClass(l)}" data-lane-status="${l.lane_no}"></div>
-      <div class="no">Stand ${l.lane_no}</div>
+      ${`<input type="checkbox" class="mark" title="Stand markieren (gemeinsame Standaktionen)"
+        ${marked.has(l.lane_no) ? 'checked' : ''} onclick="event.stopPropagation(); toggleMark(${l.lane_no}, this.checked)">`}
+      <div class="no">Stand ${l.lane_no}${l.ui_locked ? ' <span title="Bedienung an der Schützenanzeige gesperrt">🔒</span>' : ''}</div>
       <div class="who">${l.ps_selfservice_name ? esc(l.ps_selfservice_name) : (l.shooter_name || (l.session_id ? 'anonym' : '—'))}</div>
       <div class="disc">${l.ps_selfservice_name ? 'wartet auf Teilnehmerwahl am Stand' : (l.discipline || '')}</div>
       <div class="event">${eventLabel(l)}</div>
@@ -321,13 +369,149 @@ async function refreshLanes() {
     const upd = lanes.find(x => x.lane_no === current.lane_no);
     if (upd) { current = upd; renderDetail(); }
   }
+  renderActionBar();
+  refreshStechen();
+}
+
+// ── Markierte Stände / gemeinsame Standaktionen ──────────────────────────
+const marked = new Set();
+
+function toggleMark(no, on) {
+  if (on) marked.add(no); else marked.delete(no);
+  document.querySelectorAll('.lane').forEach(el => {
+    const cb = el.querySelector('.mark');
+    el.classList.toggle('marked', !!cb && cb.checked);
+  });
+  renderActionBar();
+}
+
+function clearMarks() {
+  marked.clear();
+  refreshLanes();
+}
+
+function renderActionBar() {
+  const bar = document.getElementById('actionBar');
+  bar.style.display = marked.size ? 'flex' : 'none';
+  const list = [...marked].sort((a, b) => a - b);
+  document.getElementById('markCount').textContent =
+    `${marked.size} ${marked.size === 1 ? 'Stand' : 'Stände'} markiert (${list.join(', ')})`;
+  document.getElementById('btnStechen').disabled = marked.size !== 2;
+}
+
+// Bedienung an der Schützenanzeige sperren/freigeben (wirkt nach ≤ 3 s)
+async function setUILock(nos, locked) {
+  const errs = [];
+  for (const no of nos) {
+    try {
+      await api(`/lanes/${no}/ui-lock`, {method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({locked})});
+    } catch (e) { errs.push(`Stand ${no}: ${e.message}`); }
+  }
+  if (errs.length) alert(errs.join('\n'));
+  else ticker(`Bedienung ${locked ? 'gesperrt' : 'freigegeben'}: Stand ${nos.join(', ')}`, true);
+  refreshLanes();
+}
+
+function bulkUILock(locked) {
+  setUILock([...marked].sort((a, b) => a - b), locked);
+}
+
+async function leavePS(no) {
+  if (!confirm(`Preisschießmodus an Stand ${no} beenden und den Stand freigeben?\nEine evtl. laufende Scheibe wird beendet.`)) return;
+  try {
+    await api(`/lanes/${no}/preisschiessen/verlassen`, {method:'POST'});
+    ticker(`Stand ${no}: Preisschießmodus beendet`, true);
+    document.getElementById('detail').style.display = 'none';
+    current = null;
+  } catch (e) { alert(e.message); }
+  refreshLanes();
+}
+
+async function bulkStatus(status) {
+  // Preisschießen-Stände werden beim Freigeben aus dem Selbstbedienungsmodus geholt
+  const psLanes = status === 'finished' ? lanes.filter(l => marked.has(l.lane_no) && l.ps_selfservice_name) : [];
+  const targets = lanes.filter(l => marked.has(l.lane_no) && l.session_id && !l.ps_selfservice_name);
+  if (!targets.length && !psLanes.length) { alert('Keiner der markierten Stände ist belegt.'); return; }
+  if (psLanes.length) {
+    if (!confirm(`${psLanes.length + targets.length} Stände freigeben (davon ${psLanes.length} im Preisschießmodus)?`)) return;
+    for (const l of psLanes) {
+      try { await api(`/lanes/${l.lane_no}/preisschiessen/verlassen`, {method:'POST'}); }
+      catch (e) { alert(`Stand ${l.lane_no}: ${e.message}`); }
+    }
+    if (!targets.length) { marked.clear(); refreshLanes(); return; }
+    status = 'finished';
+  }
+  const label = {sighting: 'auf Probe schalten', match: 'auf Wertung schalten', finished: 'freigeben'}[status];
+  if (status === 'finished' && !psLanes.length && !confirm(`${targets.length} Stände ${label}?`)) return;
+  const errs = [];
+  for (const l of targets) {
+    try {
+      await api(`/sessions/${l.session_id}/status`, {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({status})});
+    } catch (e) { errs.push(`Stand ${l.lane_no}: ${e.message}`); }
+  }
+  if (errs.length) alert(errs.join('\n'));
+  if (status === 'finished') marked.clear();
+  refreshLanes();
+}
+
+// Schießzeit starten (Zeitmodus Soft/Hard des Wettkampfs, Zeiten aus der Disziplin)
+async function timeStart(nos) {
+  const errs = [];
+  for (const no of nos) {
+    try { await api(`/lanes/${no}/time-start`, {method:'POST'}); }
+    catch (e) { errs.push(e.message); }
+  }
+  if (errs.length) alert(errs.join('\n'));
+  else ticker(`Zeit gestartet: Stand ${nos.join(', ')}`, true);
+  refreshLanes();
+}
+
+function bulkTimeStart() {
+  const nos = lanes.filter(l => marked.has(l.lane_no) && l.session_id).map(l => l.lane_no);
+  if (!nos.length) { alert('Keiner der markierten Stände ist belegt.'); return; }
+  timeStart(nos);
+}
+
+async function startStechen(laneNos) {
+  const list = laneNos || [...marked].sort((a, b) => a - b);
+  if (list.length !== 2) { alert('Für einen Stechschuss genau die zwei Stände einer Paarung markieren.'); return; }
+  try {
+    const r = await api('/lanes/stechen', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({lane_nos: list})});
+    ticker(`Stechschuss ${r.stechen_no} gestartet (Stand ${list.join(' / ')})`, true);
+  } catch (e) { alert(e.message); }
+  refreshLanes();
+}
+
+// Offene Stechen (unentschiedene Paarungen nach allen Wertungsschüssen)
+async function refreshStechen() {
+  let list = [];
+  try { list = await api('/stechen/offen') || []; } catch (e) { /* ohne Hinweis weiter */ }
+  const panel = document.getElementById('stechenPanel');
+  panel.style.display = list.length ? 'block' : 'none';
+  document.getElementById('stechenRows').innerHTML = list.map(o => {
+    const lanesOk = o.heim_lane && o.gast_lane;
+    const lane = n => n ? `Stand ${n}` : '<span style="color:var(--warn)">nicht am Stand</span>';
+    const state = o.running ? `Stechschuss ${o.running} läuft`
+      : `${o.done ? o.done + ' Stechschuss' + (o.done > 1 ? 'e' : '') + ' gleich – ' : ''}als Nächstes Stechschuss ${o.next_round}${o.decimal ? ' (Zehntel)' : ''}`;
+    return `<div class="st-row">
+      <div class="who"><strong>Paarung ${o.pair_no}</strong>: ${esc(o.heim)} (${lane(o.heim_lane)}) – ${esc(o.gast)} (${lane(o.gast_lane)})
+        <br><small>${esc(o.event_name)} · ${state}</small></div>
+      <button class="sec" ${lanesOk ? '' : 'disabled'} onclick="markLanes([${o.heim_lane},${o.gast_lane}])">Stände markieren</button>
+      <button class="err" ${lanesOk && !o.running ? '' : 'disabled'} onclick="startStechen([${o.heim_lane},${o.gast_lane}])">⚔ Stechschuss ${o.next_round} starten</button>
+    </div>`;
+  }).join('');
+}
+
+function markLanes(nos) {
+  marked.clear();
+  nos.forEach(n => marked.add(n));
+  refreshLanes();
 }
 
 async function openLane(l) {
-  if (l.ps_selfservice_name) {
-    alert(`Stand ${l.lane_no} ist im Preisschießen-Selbstbedienungsmodus für "${l.ps_selfservice_name}" reserviert und wartet auf die Teilnehmerwahl am Stand-PC. Eine reguläre Belegung ist erst möglich, nachdem der Preisschießmodus am Stand verlassen wurde.`);
-    return;
-  }
   current = l;
   document.getElementById('detail').style.display = 'block';
   renderDetail();
@@ -338,8 +522,18 @@ function renderDetail() {
   const l = current;
   document.getElementById('dTitle').textContent =
     `Stand ${l.lane_no}` + (l.shooter_name ? ' – ' + l.shooter_name : '');
-  document.getElementById('assignBox').style.display = l.session_id ? 'none' : '';
-  document.getElementById('controlBox').style.display = l.session_id ? '' : 'none';
+  document.getElementById('uiLockBtn').textContent = l.ui_locked ? '🔓 Bedienung freigeben' : '🔒 Bedienung sperren';
+  document.getElementById('uiLockInfo').textContent = l.ui_locked
+    ? 'Bedienung an der Schützenanzeige gesperrt – nur Ansehen/Zoom'
+    : 'Schütze kann die Schützenanzeige bedienen';
+  // Preisschießen-Selbstbedienung: keine reguläre Belegung, nur Freigeben
+  const ps = !!l.ps_selfservice_name;
+  document.getElementById('psBox').style.display = ps ? '' : 'none';
+  if (ps) document.getElementById('psInfo').textContent =
+    `Stand ${l.lane_no} ist im Preisschießen-Selbstbedienungsmodus für „${l.ps_selfservice_name}“ reserviert` +
+    (l.session_id ? ` – gerade schießt ${l.shooter_name || 'ein Teilnehmer'}.` : ' und wartet auf die Teilnehmerwahl am Stand-PC.');
+  document.getElementById('assignBox').style.display = l.session_id || ps ? 'none' : '';
+  document.getElementById('controlBox').style.display = l.session_id && !ps ? '' : 'none';
   document.getElementById('maintHint').style.display = l.maintenance ? 'block' : 'none';
   updateMaintVisibility();
 }

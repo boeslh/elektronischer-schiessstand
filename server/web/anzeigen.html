@@ -91,6 +91,7 @@
           <option value="stand">Standanzeige (Raster)</option>
           <option value="runde">Rundenwettkampf</option>
           <option value="preisschiessen">Preisschießen (Kiosk)</option>
+          <option value="rwk_dynamisch">RWK-Dynamisch (belegte Stände + laufende Rundenwettkämpfe)</option>
         </select>
       </div>
 
@@ -128,8 +129,45 @@
             <option value="">– wählen –</option>
           </select>
         </div>
+        <div class="field">
+          <label for="sf-runde-ansicht">Ansicht</label>
+          <select id="sf-runde-ansicht">
+            <option value="liste">Schützen und Ergebnisse (Liste)</option>
+            <option value="scheiben">Scheibenansicht (bis zu 5 Trefferbilder je Mannschaft)</option>
+          </select>
+          <div class="hint" style="margin-top:6px;margin-bottom:0">Beide Ansichten zeigen den Stand und die Hochrechnung (HR) je Mannschaft.</div>
+        </div>
       </div>
 
+      <div id="type-fields-rwk_dynamisch" style="display:none">
+        <div class="hint">Links alle gerade mit Schützen belegten Stände (Raster passt sich an), rechts die Uhr und
+          die heute laufenden Rundenwettkämpfe (Datum heute, Status „laufend“) mit Stand und Hochrechnung je
+          Mannschaft. Verbleibende Schießzeit erscheint, wenn die Disziplin eine Schießzeit hat.</div>
+        <div class="field">
+          <label>Nur diese Stände (optional)</label>
+          <div class="hint" style="margin-bottom:8px">Keine Auswahl = alle belegten Stände.</div>
+          <div class="lane-check-grid" id="sf-rd-lanes"></div>
+        </div>
+        <div class="field">
+          <label for="sf-rd-rotate">Wechsel der Rundenwettkämpfe (Sekunden)</label>
+          <input type="number" id="sf-rd-rotate" min="3" max="120" value="10">
+        </div>
+        <div class="field">
+          <label for="sf-rd-page">Wechsel der Standgruppen bei mehr als 16 Ständen (Sekunden)</label>
+          <input type="number" id="sf-rd-page" min="3" max="120" value="10">
+        </div>
+        <div class="field">
+          <label for="sf-rd-side">Breite der rechten Spalte (%)</label>
+          <input type="number" id="sf-rd-side" min="10" max="40" value="18">
+        </div>
+        <div class="field">
+          <label>Mannschaftsfarben</label>
+          <div class="hint" style="margin-bottom:8px">Je gleichzeitig laufender Paarung (Reihenfolge wie in der Anzeige rechts,
+            alphabetisch nach Wettkampfname) eine Farbe für Heim und Gast – dieselbe Farbe trägt der Namensbalken des Standes.</div>
+          <div id="sf-rd-colors" style="display:grid;grid-template-columns:auto 1fr 1fr;gap:6px 12px;align-items:center"></div>
+          <button type="button" class="btn-reset" style="margin-top:8px" onclick="resetTeamColors()">Standardfarben</button>
+        </div>
+      </div>
       <div id="type-fields-preisschiessen" style="display:none">
         <div class="field">
           <label for="sf-ps">Preisschießen</label>
@@ -197,7 +235,7 @@ async function loadAll() {
 function renderSlotTable() {
   const tbody = document.getElementById('slot-tbody');
   tbody.innerHTML = '';
-  const typeLabel = {stand: 'Standanzeige', runde: 'Rundenwettkampf', preisschiessen: 'Preisschießen'};
+  const typeLabel = {stand: 'Standanzeige', runde: 'Rundenwettkampf', preisschiessen: 'Preisschießen', rwk_dynamisch: 'RWK-Dynamisch'};
   for (const s of slots) {
     const tr = document.createElement('tr');
     tr.className = 'slot-row';
@@ -215,11 +253,26 @@ function renderSlotTable() {
   }
 }
 
+// Mannschaftsfarben RWK-Dynamisch - Standard wie preisanzeige/rwk_dynamisch.go
+const DEFAULT_TEAM_COLORS = ['#e8622c', '#2f6fe0', '#c0258f', '#1f9e6e', '#8e44ad', '#d4a017', '#c0392b', '#1aa3b8', '#7f8c3d', '#a0522d'];
+function renderTeamColors(colors) {
+  const c = DEFAULT_TEAM_COLORS.map((d, i) => (colors && /^#[0-9a-fA-F]{6}$/.test(colors[i] || '')) ? colors[i] : d);
+  let html = '<span></span><span style="font-size:12px;color:var(--dim)">Heim</span><span style="font-size:12px;color:var(--dim)">Gast</span>';
+  for (let k = 0; k < 5; k++) {
+    html += `<span style="font-size:13px">Paarung ${k + 1}</span>`
+      + `<input type="color" class="team-color" value="${c[2 * k]}" style="width:100%;height:32px;padding:2px">`
+      + `<input type="color" class="team-color" value="${c[2 * k + 1]}" style="width:100%;height:32px;padding:2px">`;
+  }
+  document.getElementById('sf-rd-colors').innerHTML = html;
+}
+function resetTeamColors() { renderTeamColors(null); }
+
 function renderLaneChecks() {
-  const wrap = document.getElementById('sf-lanes');
-  wrap.innerHTML = lanes.map(l => `
+  const html = lanes.map(l => `
     <label><input type="checkbox" value="${l.lane_no}"> Stand ${l.lane_no}</label>
   `).join('');
+  document.getElementById('sf-lanes').innerHTML = html;
+  document.getElementById('sf-rd-lanes').innerHTML = html;
 }
 
 function renderEventSelect() {
@@ -240,6 +293,7 @@ function renderTypeFields() {
   document.getElementById('type-fields-stand').style.display = type === 'stand' ? 'block' : 'none';
   document.getElementById('type-fields-runde').style.display = type === 'runde' ? 'block' : 'none';
   document.getElementById('type-fields-preisschiessen').style.display = type === 'preisschiessen' ? 'block' : 'none';
+  document.getElementById('type-fields-rwk_dynamisch').style.display = type === 'rwk_dynamisch' ? 'block' : 'none';
 }
 
 function newSlot() {
@@ -250,9 +304,14 @@ function newSlot() {
   document.getElementById('sf-grid').value = 'auto';
   document.getElementById('sf-reload').value = 8;
   document.getElementById('sf-event').value = '';
+  document.getElementById('sf-runde-ansicht').value = 'liste';
   document.getElementById('sf-ps').value = '';
   document.getElementById('sf-ps-kiosk').value = '1';
-  document.querySelectorAll('#sf-lanes input').forEach(cb => cb.checked = false);
+  document.querySelectorAll('#sf-lanes input, #sf-rd-lanes input').forEach(cb => cb.checked = false);
+  document.getElementById('sf-rd-rotate').value = 10;
+  document.getElementById('sf-rd-page').value = 10;
+  document.getElementById('sf-rd-side').value = 18;
+  renderTeamColors(null);
   renderTypeFields();
 }
 
@@ -269,6 +328,14 @@ function editSlot(s) {
     document.querySelectorAll('#sf-lanes input').forEach(cb => cb.checked = selected.has(cb.value));
   } else if (s.type === 'runde') {
     document.getElementById('sf-event').value = params.event_id || '';
+    document.getElementById('sf-runde-ansicht').value = params.ansicht === 'scheiben' ? 'scheiben' : 'liste';
+  } else if (s.type === 'rwk_dynamisch') {
+    const selected = new Set((params.lane_nos || []).map(String));
+    document.querySelectorAll('#sf-rd-lanes input').forEach(cb => cb.checked = selected.has(cb.value));
+    document.getElementById('sf-rd-rotate').value = params.rotate_seconds || 10;
+    document.getElementById('sf-rd-page').value = params.lane_page_seconds || 10;
+    document.getElementById('sf-rd-side').value = params.side_percent || 18;
+    renderTeamColors(params.team_colors);
   } else if (s.type === 'preisschiessen') {
     document.getElementById('sf-ps').value = params.preisschiessen_id || '';
     document.getElementById('sf-ps-kiosk').value = params.kiosk === 2 ? '2' : '1';
@@ -294,7 +361,15 @@ async function saveSlot(e) {
   } else if (type === 'runde') {
     const eventID = document.getElementById('sf-event').value;
     if (!eventID) { showMsg('Bitte einen Rundenwettkampf wählen.', 'err'); return; }
-    params = { event_id: eventID };
+    params = { event_id: eventID, ansicht: document.getElementById('sf-runde-ansicht').value };
+  } else if (type === 'rwk_dynamisch') {
+    params = {
+      lane_nos: [...document.querySelectorAll('#sf-rd-lanes input:checked')].map(cb => parseInt(cb.value)),
+      rotate_seconds: parseInt(document.getElementById('sf-rd-rotate').value) || 10,
+      lane_page_seconds: parseInt(document.getElementById('sf-rd-page').value) || 10,
+      side_percent: parseInt(document.getElementById('sf-rd-side').value) || 18,
+      team_colors: [...document.querySelectorAll('#sf-rd-colors .team-color')].map(el => el.value),
+    };
   } else if (type === 'preisschiessen') {
     const psID = document.getElementById('sf-ps').value;
     if (!psID) { showMsg('Bitte ein Preisschießen wählen.', 'err'); return; }
@@ -327,6 +402,7 @@ async function deleteSlot(id) {
   }
 }
 
+renderTeamColors(null);
 loadAll();
 </script>
 <script src="/role.js"></script>

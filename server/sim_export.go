@@ -192,6 +192,14 @@ type simExportShot struct {
 type simExportRaw struct {
 	AirNs   [6][]int64 `json:"air_ns"`
 	PiezoNs *int64     `json:"piezo_ns"`
+	// Firmware Rev 4.13-4.15 (fehlen bei aelteren Schuessen): Pulsbreiten,
+	// Schallgeschwindigkeit/Erfassung/WALKK zum Schusszeitpunkt, Auswertepfad.
+	AirWNs      *[6]*int64 `json:"air_w_ns,omitempty"`
+	SoundActMps *float64   `json:"sound_act_mps,omitempty"`
+	Capture     string     `json:"capture,omitempty"`
+	WalkK       *float64   `json:"walk_k,omitempty"`
+	Algo        string     `json:"algo,omitempty"`
+	Raw         *RawEdges  `json:"raw,omitempty"` // Rohdaten-Telegramm (RAWLOG, Firmware 4.16.0)
 }
 
 // simExportEffective: die tatsaechlich wirksamen Werte nach allen Fallbacks
@@ -246,16 +254,27 @@ func buildSimExportShot(sh SimShotRaw, p SimParams) simExportShot {
 	if !sh.HasRaw {
 		return out
 	}
-	out.Raw = &simExportRaw{AirNs: sh.AirNs, PiezoNs: sh.PiezoNs}
+	out.Raw = &simExportRaw{AirNs: sh.AirNs, PiezoNs: sh.PiezoNs,
+		SoundActMps: sh.SoundActMps, Capture: sh.Capture, WalkK: sh.WalkK, Algo: sh.Algo, Raw: sh.Raw}
+	for _, w := range sh.AirWNs {
+		if w != nil {
+			ws := sh.AirWNs
+			out.Raw.AirWNs = &ws
+			break
+		}
+	}
 
+	// Eingabe der Loesung: Rohzeiten inkl. Pulsbreiten-Korrektur (WALKK),
+	// abzueglich Mikrofon-Offsets - genau wie in solveShotInternal.
 	enabled := p.micEnabled()
+	air := sh.airFor(p)
 	in := &simExportInput{}
 	for i := 0; i < 6; i++ {
-		in.AirNsCorrected[i] = make([]int64, len(sh.AirNs[i]))
-		for k, t := range sh.AirNs[i] {
+		in.AirNsCorrected[i] = make([]int64, len(air[i]))
+		for k, t := range air[i] {
 			in.AirNsCorrected[i][k] = t - p.MicOffsetNs[i]
 		}
-		if len(sh.AirNs[i]) > 0 && enabled[i] {
+		if len(air[i]) > 0 && enabled[i] {
 			in.MicUsed[i] = true
 			t := in.AirNsCorrected[i][0]
 			in.TFirstNs[i] = &t
@@ -263,7 +282,7 @@ func buildSimExportShot(sh SimShotRaw, p SimParams) simExportShot {
 	}
 	out.Input = in
 
-	res, cands, bshift := SolveShotDetail(sh.AirNs, sh.PiezoNs, p)
+	res, cands, bshift := SolveSimShotDetail(sh, p)
 	out.Sim = &simExportScored{SimResult: res}
 	for _, c := range cands {
 		out.Candidates = append(out.Candidates, simExportCandidate{

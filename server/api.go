@@ -138,6 +138,11 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/lanes/{no}/session", a.h(a.laneSession))
 	mux.HandleFunc("PUT /api/lanes/{no}/livestate", a.h(a.setLiveState))
 	mux.HandleFunc("POST /api/lanes/{no}/assign", a.h(a.assignLane))
+	mux.HandleFunc("POST /api/lanes/stechen", a.h(a.startStechen))
+	mux.HandleFunc("POST /api/lanes/{no}/time-start", a.h(a.startLaneTime))
+	mux.HandleFunc("GET /api/lanes/{no}/ui-lock", a.h(a.getLaneUILock))
+	mux.HandleFunc("PUT /api/lanes/{no}/ui-lock", a.h(a.putLaneUILock))
+	mux.HandleFunc("GET /api/stechen/offen", a.h(a.listOpenStechen))
 	mux.HandleFunc("POST /api/lanes/{no}/assign-maintenance", a.h(a.assignLaneMaintenance))
 	mux.HandleFunc("GET /api/lanes/{no}/preisschiessen", a.h(a.getLanePreisschiessenInfo))
 	mux.HandleFunc("POST /api/lanes/{no}/preisschiessen/scheibe", a.h(a.postChooseScheibeAtLane))
@@ -195,6 +200,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /auswertung", a.serveHTMLGated(webSub, "auswertung.html", "auswertung"))
 	mux.HandleFunc("GET /api/auswertung/rundenwettkampf", a.h(a.listRundenwettkampfResults))
 	mux.HandleFunc("GET /api/auswertung/rundenwettkampf/pdf", a.getRundenwettkampfPDF)
+	mux.HandleFunc("GET /api/auswertung/rundenwettkampf/paarung", a.h(a.getRundenPaarung))
 	mux.HandleFunc("GET /api/auswertung/gruppenwettkampf", a.h(a.listGruppenwettkampfData))
 	mux.HandleFunc("GET /api/auswertungen", a.h(a.listSavedAuswertungen))
 	mux.HandleFunc("POST /api/auswertungen", a.h(a.createSavedAuswertung))
@@ -213,6 +219,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/competitions/{id}/starters", a.h(a.addStarter))
 	mux.HandleFunc("POST /api/competitions/{id}/starters/import-team", a.h(a.importTeamStarters))
 	mux.HandleFunc("PUT /api/competitions/{id}/starters/{sid}/role", a.h(a.setStarterRole))
+	mux.HandleFunc("PUT /api/competitions/{id}/starters/{sid}/pair", a.h(a.setStarterPair))
 	mux.HandleFunc("DELETE /api/competitions/{id}/starters/{sid}", a.h(a.removeStarter))
 	mux.HandleFunc("POST /api/competitions/{id}/starters/{sid}/manual-result", a.h(a.manualResultStarter))
 
@@ -327,6 +334,13 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/sessions/{id}/shots/{no}/solve-detail", a.h(a.solveShotDetail))
 	mux.HandleFunc("POST /api/sessions/{id}/simulator-export", a.h(a.exportSimulation))
 	mux.HandleFunc("POST /api/sessions/{id}/photo-calibrate", a.h(a.photoCalibrateSession))
+	mux.HandleFunc("POST /api/sessions/{id}/photo-calibrate-zones", a.h(a.photoCalibrateZones))
+	mux.HandleFunc("POST /api/sessions/{id}/photo-verify", a.h(a.photoVerifySession))
+	mux.HandleFunc("GET /api/sessions/{id}/photo", a.getSessionPhoto)
+	mux.HandleFunc("GET /api/sessions/{id}/photo/meta", a.h(a.getSessionPhotoMeta))
+	mux.HandleFunc("PUT /api/sessions/{id}/photo", a.h(a.putSessionPhoto))
+	mux.HandleFunc("PUT /api/sessions/{id}/photo/markers", a.h(a.putSessionPhotoMarkers))
+	mux.HandleFunc("DELETE /api/sessions/{id}/photo", a.h(a.deleteSessionPhoto))
 	mux.Handle("GET /simulator-foto.js", http.FileServer(http.FS(webSub)))
 	mux.HandleFunc("GET /api/simulator-configs", a.h(a.listSimulatorConfigs))
 	mux.HandleFunc("POST /api/simulator-configs", a.h(a.saveSimulatorConfig))
@@ -347,6 +361,8 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/lanes/{no}/standpc-url", a.h(a.setLaneStandpcURL))
 	mux.HandleFunc("GET /api/settings/standpc-dev-mode", a.h(a.getStandpcDevMode))
 	mux.HandleFunc("PUT /api/settings/standpc-dev-mode", a.h(a.setStandpcDevMode))
+	mux.HandleFunc("GET /api/settings/wettkampf-defaults", a.h(a.getWettkampfDefaults))
+	mux.HandleFunc("PUT /api/settings/wettkampf-defaults", a.h(a.putWettkampfDefaults))
 	mux.HandleFunc("GET /api/settings/font-sizes", a.h(a.getFontSizes))
 	mux.HandleFunc("PUT /api/settings/font-sizes", a.h(a.setFontSizes))
 	mux.HandleFunc("POST /api/settings/font-sizes/push", a.h(a.pushFontSizes))
@@ -367,6 +383,8 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/lanes/{no}/calibration-transfer", a.h(a.getCalibrationTransfer))
 	mux.HandleFunc("PUT /api/lanes/{no}/calibration-transfer", a.h(a.putCalibrationTransfer))
 	mux.HandleFunc("POST /api/lanes/{no}/calibration-transfer/applied", a.h(a.postCalibrationTransferApplied))
+	mux.HandleFunc("GET /api/lanes/{no}/simulator-configs", a.h(a.listLaneSimulatorConfigs))
+	mux.HandleFunc("POST /api/lanes/{no}/calibration-transfer/from-config", a.h(a.postCalibrationTransferFromConfig))
 	mux.HandleFunc("GET /api/lanes/{no}/local-sessions", a.h(a.proxyLocalSessions))
 	mux.HandleFunc("GET /api/lanes/{no}/local-sessions/{sid}/shots", a.h(a.proxyLocalSessionShots))
 	mux.HandleFunc("POST /api/transfer", a.h(a.transferSession))
@@ -773,6 +791,8 @@ type simSideResult struct {
 	ClusterSumN      int    `json:"cluster_sum_n,omitempty"`
 	ClusterSumCorrUm *int64 `json:"cluster_sum_corr_um,omitempty"`
 	ClusterSumCorrN  int    `json:"cluster_sum_corr_n,omitempty"`
+	// Zone der Neuberechnung bei Zonen-Kalibrierung (sim_zones.go)
+	Zone string `json:"zone,omitempty"`
 }
 
 type simShotResult struct {
@@ -835,13 +855,14 @@ func (a *APIServer) simulateSession(w http.ResponseWriter, r *http.Request) (any
 			},
 		}
 		if sh.HasRaw {
-			sim := SolveShot(sh.AirNs, sh.PiezoNs, body.Params)
+			sim := SolveSimShot(sh, body.Params)
 			res.Sim.PosValid = sim.PosValid
 			res.Sim.ClusterHits = sim.ClusterHits
 			res.Sim.ClusterSumUm = sim.ClusterSumUm
 			res.Sim.ClusterSumN = sim.ClusterSumN
 			res.Sim.ClusterSumCorrUm = sim.ClusterSumCorrUm
 			res.Sim.ClusterSumCorrN = sim.ClusterSumCorrN
+			res.Sim.Zone = sim.Zone
 			if sim.PosValid {
 				xmm := float64(sim.XUm) / 1000.0
 				ymm := float64(sim.YUm) / 1000.0
@@ -874,12 +895,12 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 	if err != nil {
 		return nil, errBadRequest("ungueltiger Body: " + err.Error())
 	}
-	airNs, piezoNs, err := a.calibrationShots(r, sessionID, body.ShotNos)
+	airNs, piezoNs, sounds, err := a.calibrationShots(r, sessionID, body.ShotNos, body.Params)
 	if err != nil {
 		return nil, err
 	}
 
-	offsets, cost := CalibrateMicOffsets(airNs, body.Params)
+	offsets, cost := CalibrateMicOffsetsSound(airNs, sounds, body.Params)
 	after := body.Params
 	after.MicOffsetNs = offsets
 	resp := map[string]any{
@@ -889,24 +910,26 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 	}
 	// Σ9-Mittelwert der Kalibrier-Schuesse vorher (aktuelle Offsets) und
 	// nachher (neue Offsets) - zur Einordnung des Ergebnisses.
-	if before, ok := meanClusterSum(airNs, piezoNs, body.Params); ok {
+	if before, ok := meanClusterSum(airNs, piezoNs, sounds, body.Params); ok {
 		resp["cluster_sum_before_mm"] = before
 	}
-	if a, ok := meanClusterSum(airNs, piezoNs, after); ok {
+	if a, ok := meanClusterSum(airNs, piezoNs, sounds, after); ok {
 		resp["cluster_sum_after_mm"] = a
 	}
 	return resp, nil
 }
 
 // calibrationShots liefert die Rohdaten der ausgewaehlten Kalibrier-Schuesse
-// einer Session (mind. 3 mit Rohdaten).
-func (a *APIServer) calibrationShots(r *http.Request, sessionID string, shotNos []int) ([][6][]int64, []*int64, error) {
+// einer Session (mind. 3 mit Rohdaten) - bereits mit der Pulsbreiten-
+// Korrektur aus p (SimShotRaw.airFor) - sowie je Schuss die Schall-
+// geschwindigkeit bei p.SoundFromShot (0 = p.SoundMps).
+func (a *APIServer) calibrationShots(r *http.Request, sessionID string, shotNos []int, p SimParams) ([][6][]int64, []*int64, []float64, error) {
 	if len(shotNos) < 3 {
-		return nil, nil, errBadRequest("mindestens 3 Kalibrier-Schuesse noetig")
+		return nil, nil, nil, errBadRequest("mindestens 3 Kalibrier-Schuesse noetig")
 	}
 	shots, err := a.store.SessionShotsRaw(r.Context(), sessionID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	wanted := make(map[int]bool, len(shotNos))
 	for _, no := range shotNos {
@@ -914,16 +937,18 @@ func (a *APIServer) calibrationShots(r *http.Request, sessionID string, shotNos 
 	}
 	var airNs [][6][]int64
 	var piezoNs []*int64
+	var sounds []float64
 	for _, sh := range shots {
 		if wanted[sh.ShotNo] && sh.HasRaw {
-			airNs = append(airNs, sh.AirNs)
+			airNs = append(airNs, sh.airFor(p))
 			piezoNs = append(piezoNs, sh.PiezoNs)
+			sounds = append(sounds, sh.soundFor(p))
 		}
 	}
 	if len(airNs) < 3 {
-		return nil, nil, errBadRequest("zu wenige der ausgewaehlten Schuesse haben Rohdaten (mind. 3 noetig)")
+		return nil, nil, nil, errBadRequest("zu wenige der ausgewaehlten Schuesse haben Rohdaten (mind. 3 noetig)")
 	}
-	return airNs, piezoNs, nil
+	return airNs, piezoNs, sounds, nil
 }
 
 // calibrateCluster9 optimiert Offsets und (je nach Auswahl) Geometrie-/
@@ -938,7 +963,9 @@ func (a *APIServer) calibrateCluster9(w http.ResponseWriter, r *http.Request) (a
 	if err != nil {
 		return nil, errBadRequest("ungueltiger Body: " + err.Error())
 	}
-	airNs, _, err := a.calibrationShots(r, r.PathValue("id"), body.ShotNos)
+	// Sigma9-Optimierung bestimmt die Schallgeschwindigkeit selbst - je
+	// Schuss gespeicherte Werte (SoundFromShot) gelten hier nicht.
+	airNs, _, _, err := a.calibrationShots(r, r.PathValue("id"), body.ShotNos, body.Params)
 	if err != nil {
 		return nil, err
 	}
@@ -951,7 +978,7 @@ func (a *APIServer) calibrateCluster9(w http.ResponseWriter, r *http.Request) (a
 
 // meanClusterSum: mittlerer Σ9-Wert (mm) ueber alle loesbaren Schuesse -
 // ok=false, wenn kein Schuss loesbar ist.
-func meanClusterSum(airNs [][6][]int64, piezoNs []*int64, p SimParams) (float64, bool) {
+func meanClusterSum(airNs [][6][]int64, piezoNs []*int64, sounds []float64, p SimParams) (float64, bool) {
 	var sum float64
 	n := 0
 	for k, shot := range airNs {
@@ -959,7 +986,11 @@ func meanClusterSum(airNs [][6][]int64, piezoNs []*int64, p SimParams) (float64,
 		if k < len(piezoNs) {
 			pz = piezoNs[k]
 		}
-		if r := SolveShot(shot, pz, p); r.PosValid && r.ClusterSumUm != nil {
+		q := p
+		if k < len(sounds) && sounds[k] > 0 {
+			q.SoundMps = sounds[k]
+		}
+		if r := SolveShot(shot, pz, q); r.PosValid && r.ClusterSumUm != nil {
 			sum += float64(*r.ClusterSumUm) / 1000
 			n++
 		}
@@ -1035,7 +1066,7 @@ func (a *APIServer) solveShotDetail(w http.ResponseWriter, r *http.Request) (any
 		return nil, errBadRequest("keine Rohdaten fuer diesen Schuss vorhanden")
 	}
 
-	res, candidates, bulletShift := SolveShotDetail(target.AirNs, target.PiezoNs, body.Params)
+	res, candidates, bulletShift := SolveSimShotDetail(*target, body.Params)
 
 	cands := make([]candidateOut, len(candidates))
 	for i, c := range candidates {
@@ -1043,10 +1074,10 @@ func (a *APIServer) solveShotDetail(w http.ResponseWriter, r *http.Request) (any
 			Ref:        c.Ref,
 			A:          c.A,
 			B:          c.B,
-			XUm:        int64(math.Round(float64(c.X)*1000)) + body.Params.OffsetXUm,
-			YUm:        int64(math.Round(float64(c.Y)*1000)) + body.Params.OffsetYUm,
-			CorrXUm:    int64(math.Round(float64(c.CorrX)*1000)) + body.Params.OffsetXUm,
-			CorrYUm:    int64(math.Round(float64(c.CorrY)*1000)) + body.Params.OffsetYUm,
+			XUm:        int64(math.Round(float64(c.X)*1000)) + res.EffOffsetXUm,
+			YUm:        int64(math.Round(float64(c.Y)*1000)) + res.EffOffsetYUm,
+			CorrXUm:    int64(math.Round(float64(c.CorrX)*1000)) + res.EffOffsetXUm,
+			CorrYUm:    int64(math.Round(float64(c.CorrY)*1000)) + res.EffOffsetYUm,
 			ResidualMM: round2(float64(c.ResidualMM)),
 			Best:       c.Best,
 			InCluster:  c.InCluster,
@@ -1099,7 +1130,10 @@ func (a *APIServer) saveSimulatorConfig(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *APIServer) deleteSimulatorConfig(w http.ResponseWriter, r *http.Request) (any, error) {
-	return nil, a.store.DeleteSimulatorConfig(r.Context(), r.PathValue("id"))
+	if _, err := a.requireTile(w, r, "simulator"); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, a.store.DeleteSimulatorConfig(r.Context(), r.PathValue("id"))
 }
 
 // ----------------------------------------------------------------------------
@@ -1586,6 +1620,71 @@ func (a *APIServer) importTeamStarters(w http.ResponseWriter, r *http.Request) (
 		return nil, err
 	}
 	return map[string]any{"added": n}, nil
+}
+
+// getLaneUILock / putLaneUILock: Bedienung an der Schuetzenanzeige sperren
+// (Standsteuerung setzt, der Stand-PC pollt - siehe standpc/uilock.go).
+func (a *APIServer) getLaneUILock(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errBadRequest("ungueltige Standnummer")
+	}
+	var locked bool
+	err = a.store.pool.QueryRow(r.Context(), `SELECT ui_locked FROM lanes WHERE lane_no=$1`, no).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return map[string]bool{"locked": false}, nil
+	}
+	return map[string]bool{"locked": locked}, err
+}
+
+func (a *APIServer) putLaneUILock(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errBadRequest("ungueltige Standnummer")
+	}
+	body, err := decodeBody[struct {
+		Locked bool `json:"locked"`
+	}](r)
+	if err != nil {
+		return nil, errBadRequest("ungueltiger Body")
+	}
+	tag, err := a.store.pool.Exec(r.Context(), `UPDATE lanes SET ui_locked=$1 WHERE lane_no=$2`, body.Locked, no)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, errBadRequest(fmt.Sprintf("Stand %d unbekannt", no))
+	}
+	return map[string]bool{"locked": body.Locked}, nil
+}
+
+// startLaneTime: POST /api/lanes/{no}/time-start - "Zeit starten".
+func (a *APIServer) startLaneTime(w http.ResponseWriter, r *http.Request) (any, error) {
+	no, err := strconv.Atoi(r.PathValue("no"))
+	if err != nil {
+		return nil, errBadRequest("ungueltige Standnummer")
+	}
+	if err := a.store.StartSessionTime(r.Context(), no); err != nil {
+		return nil, errBadRequest(err.Error())
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+// setStarterPair: PUT .../starters/{sid}/pair {pair_no: 1..5 | null}
+func (a *APIServer) setStarterPair(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[struct {
+		PairNo *int `json:"pair_no"`
+	}](r)
+	if err != nil {
+		return nil, errBadRequest("ungueltiger Body")
+	}
+	if body.PairNo != nil && (*body.PairNo < 1 || *body.PairNo > 5) {
+		return nil, errBadRequest("Paarung 1 bis 5")
+	}
+	if err := a.store.SetStarterPair(r.Context(), r.PathValue("id"), r.PathValue("sid"), body.PairNo); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
 }
 
 func (a *APIServer) setStarterRole(w http.ResponseWriter, r *http.Request) (any, error) {

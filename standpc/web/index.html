@@ -43,20 +43,23 @@
   body.dev-mode #devBadge { display: inline-block; }
   body.dev-mode #target { cursor: crosshair; }
 
-  #modeWrap { display: flex; align-items: center; gap: 8px; }
-  #modeBadge {
-    font-size: var(--fs-status); font-weight: 700; letter-spacing: 1.5px;
-    text-transform: uppercase; padding: 3px 10px; border-radius: 4px;
-    transition: background 0.2s, color 0.2s;
+  /* Umschalter Probe | Wertung: links immer Probe (orange), rechts immer
+     Wertung (gruen); der aktive Modus fett mit gefuelltem Hintergrund */
+  #modeWrap { display: flex; align-items: stretch; }
+  .seg {
+    font-size: var(--fs-status); font-weight: 400; letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 3px 12px; background: transparent; cursor: pointer;
+    transition: background 0.2s, color 0.2s, opacity 0.2s;
   }
-  #modeBadge.probe   { background: var(--probe-bg);   color: var(--probe-fg); }
-  #modeBadge.wertung { background: var(--wertung-bg); color: var(--wertung-fg); }
-  #modeBtn {
-    font-size: var(--fs-status); padding: 3px 10px; border-radius: 4px; cursor: pointer;
-    border: 1px solid var(--line); background: var(--panel); color: var(--text);
-  }
-  #modeBtn:hover:not(:disabled) { background: var(--line); }
-  #modeBtn:disabled { opacity: 0.35; cursor: default; }
+  .seg.probe   { color: var(--probe-fg);   border: 1px solid var(--probe-fg);   border-radius: 4px 0 0 4px; }
+  .seg.wertung { color: var(--wertung-fg); border: 1px solid var(--wertung-fg); border-radius: 0 4px 4px 0; border-left: none; }
+  .seg:not(.active) { opacity: 0.55; }
+  .seg:not(.active):not(:disabled):hover { opacity: 0.9; }
+  .seg.active { font-weight: 700; opacity: 1; cursor: default; }
+  .seg.probe.active   { background: var(--probe-bg); }
+  .seg.wertung.active { background: var(--wertung-bg); }
+  .seg:disabled:not(.active) { opacity: 0.25; cursor: default; }
+  .seg:disabled { cursor: default; }
 
   /* ── Menü-Buttons ── */
   #psBtn, #discBtn, #zoomBtn, #releaseBtn, #ergBtn {
@@ -65,6 +68,10 @@
     line-height: 1;
   }
   #psBtn:hover, #discBtn:hover, #zoomBtn:hover, #releaseBtn:hover, #ergBtn:hover { background: var(--line); }
+  /* Bedienung gesperrt (Standsteuerung): Schloss zeigt den Zustand */
+  #lockInd { font-size: 16px; padding: 3px 4px; line-height: 1; cursor: default; opacity: 0.6; }
+  body.ui-locked #lockInd { opacity: 1; }
+  body.ui-locked #psBtn, body.ui-locked #discBtn, body.ui-locked #releaseBtn, body.ui-locked #ergBtn { display: none !important; }
 
   /* ── Menü-Modale (3 unabhängige: Preisschießen / Disziplin / Zoom) ── */
   .menu-overlay {
@@ -199,6 +206,11 @@
   /* ── Gesamt + Serien ── */
   #scoreArea { flex-shrink: 0; border-bottom: 1px solid var(--line); }
 
+  #stechenLine { display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+                 background:#3a1f1f; border:1px solid #e05c5c; border-radius:6px; padding:6px 10px; margin-bottom:8px; }
+  #stechenLine .sl { font-weight:800; color:#ff9a9a; text-transform:uppercase; letter-spacing:1px; }
+  #stechenLine .sb { color:var(--dim); }
+  #stechenLine .sb b { color:var(--acc); font-size:1.3em; }
   #totalLine {
     display: flex; align-items: baseline; justify-content: center; gap: 8px;
     padding: 8px 12px 6px; border-bottom: 1px solid var(--line);
@@ -225,6 +237,15 @@
 
   /* ── Schussliste ── */
   #list { flex: 1; overflow-y: auto; font-size: var(--fs-ergebnis); }
+  #clockBox { flex-shrink: 0; border-top: 1px solid var(--line); padding: 6px 12px 8px; text-align: right; }
+  #clockLabel { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; min-height: 13px; }
+  #clockTime { font-size: calc(var(--fs-ergebnis) + 22px); font-weight: 700; line-height: 1.05;
+               font-variant-numeric: tabular-nums; }
+  #clockBox.uhrzeit #clockTime { color: #ffffff; }
+  #clockBox.soft    #clockTime { color: #3dcc6e; }
+  #clockBox.hard    #clockTime { color: #e05c5c; }
+  #clockBox.waiting #clockTime { opacity: .45; }
+  #clockBox.over    #clockLabel { color: #e05c5c; }
   #list table { width: 100%; border-collapse: collapse; }
   #list td, #list th {
     padding: 6px 10px; text-align: right;
@@ -258,14 +279,15 @@
   <span id="discipline"></span>
   <div id="eventName"></div>
   <div id="modeWrap">
-    <span id="modeBadge" class="probe">Probe</span>
-    <button id="modeBtn">→ Wertung</button>
+    <button id="modeProbe" class="seg probe" title="Probe">Probe</button>
+    <button id="modeWertung" class="seg wertung" title="Wertung">Wertung</button>
   </div>
   <button id="psBtn" title="Preisschießen" style="display:none">🏆</button>
-  <button id="releaseBtn" title="Stand freigeben" style="display:none">🔓</button>
+  <button id="releaseBtn" title="Stand freigeben" style="display:none">🚪</button>
   <button id="ergBtn" title="Ergebnis mitnehmen (E-Mail, Druck, QR-Code)">📤</button>
   <button id="discBtn" title="Disziplin wählen">🎯</button>
   <button id="zoomBtn" title="Zoom">🔍</button>
+  <span id="lockInd" title="Bedienung möglich">🔓</span>
   <span id="devBadge" title="Klick auf die Scheibe löst einen Schuss aus">🛠 Testmodus</span>
   <span id="connStatus">verbinde…</span>
   <span id="laneBadge"></span>
@@ -375,6 +397,7 @@
   </div>
 
   <div id="scoreArea">
+    <div id="stechenLine" style="display:none"></div>
     <div id="totalLine">
       <span class="tv" id="totRings">–</span>
       <span class="tl">Ringe gesamt</span>
@@ -388,6 +411,12 @@
       <tbody id="rows"></tbody>
     </table>
   </div>
+
+  <!-- Schießzeit (timing.go): Uhrzeit weiß, Soft grün, Hard rot -->
+  <div id="clockBox" class="uhrzeit">
+    <div id="clockLabel"></div>
+    <div id="clockTime">--:--</div>
+  </div>
 </div>
 
 <script>
@@ -397,7 +426,9 @@ const CALIBER = 4.5; // Kaliberdurchmesser mm (4,5 mm Diabolo)
 // Kreisradius wird um die halbe Randbreite verkleinert, damit die
 // AUSSENkante von Fläche+Rand exakt CALIBER entspricht (kein optisch
 // vergrößerter Schuss durch den Rand).
-const SHOT_STROKE_W = CALIBER * 0.05;
+// Schussrand: halbe Staerke (frueher 0,05), in der Farbe des Schusses und
+// deckend - nur die Fuellung ist leicht transparent
+const SHOT_STROKE_W = CALIBER * 0.025;
 const SHOT_R = CALIBER / 2 - SHOT_STROKE_W / 2;
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -576,7 +607,7 @@ function buildTarget(target) {
     svg.appendChild(inn);
   }
 
-  // 5. Ringbeschriftung: Ringe 1–9, jeweils an 4 Positionen (N/O/S/W)
+  // 5. Ringbeschriftung: Ringe 1–8, jeweils an 4 Positionen (N/O/S/W)
   //    Beschriftungsradius = Mittelpunkt zwischen äußerem und nächst-innerem Ring
   const labelPositions = [
     {nx:  0, ny: -1},  // oben
@@ -587,7 +618,7 @@ function buildTarget(target) {
 
   for (let i = 0; i < rings.length; i++) {
     const r = rings[i];
-    if (r.v < 1 || r.v > 9) continue;
+    if (r.v < 1 || r.v > 8) continue; // die 9 steht auf Original-Scheiben nicht (zu gedraengt)
 
     const outerRadius = r.d / 2;
     const innerRadius = (i + 1 < rings.length) ? rings[i + 1].d / 2 : 0;
@@ -727,7 +758,8 @@ function renderShots() {
     c.setAttribute('r', SHOT_R);
     c.setAttribute('fill', fillColor);
     c.setAttribute('fill-opacity', '0.82');
-    c.setAttribute('stroke', '#1a1a1a');
+    c.setAttribute('stroke', fillColor);
+    c.setAttribute('stroke-opacity', '1');
     c.setAttribute('stroke-width', SHOT_STROKE_W);
 
     const t = document.createElementNS(NS, 'text');
@@ -781,10 +813,73 @@ function addShot(s, isNew) {
 }
 
 // ── Modus-UI ─────────────────────────────────────────────────────────────────
-const modeBadge = document.getElementById('modeBadge');
-const modeBtn   = document.getElementById('modeBtn');
+const modeProbe   = document.getElementById('modeProbe');
+const modeWertung = document.getElementById('modeWertung');
+
+// ── Schießzeit ──────────────────────────────────────────────────────────────
+// timer: Zeitpunkte in Stand-PC-Zeit; clockSkew gleicht die Browser-Uhr ab
+// (Tablet als Anzeige kann eine andere Uhrzeit haben).
+let timer = { mode: 'uhrzeit' }, clockSkew = 0, timerMode = 'probe';
+
+function fmtDur(ms) {
+  const neg = ms < 0;
+  let s = Math.ceil(Math.abs(ms) / 1000);
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  const t = (h ? h + ':' + String(m).padStart(2, '0') : String(m).padStart(2, '0')) + ':' + String(s).padStart(2, '0');
+  return (neg ? '−' : '') + t;
+}
+
+function tickClock() {
+  const box = document.getElementById('clockBox');
+  const lbl = document.getElementById('clockLabel');
+  const tim = document.getElementById('clockTime');
+  const now = Date.now() + clockSkew;
+  const mode = timer.mode || 'uhrzeit';
+  box.className = mode;
+  if (mode === 'uhrzeit') {
+    lbl.textContent = 'Uhrzeit';
+    tim.textContent = new Date(now).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+    return;
+  }
+  const inProbe = timer.separate && timerMode === 'probe';
+  const zentral = timer.switch === 'zentral';
+  if (!timer.started) {
+    box.classList.add('waiting');
+    lbl.textContent = (timer.separate ? (inProbe ? 'Probezeit' : 'Wertungszeit') : 'Schießzeit') +
+      (zentral ? ' · warten auf Start' : ' · nicht gestartet');
+    tim.textContent = fmtDur(((inProbe ? timer.probe_s : timer.total_s) || 0) * 1000);
+    return;
+  }
+  // zentral: Probezeit vorbei, Wertung noch nicht freigegeben
+  if (zentral && (inProbe ? now >= timer.probe_deadline_ms : !timer.deadline_ms)) {
+    box.classList.add('waiting', 'over');
+    lbl.textContent = 'Probezeit abgelaufen · warten auf Wertung';
+    tim.textContent = fmtDur((timer.total_s || 0) * 1000);
+    return;
+  }
+  let label, left;
+  if (inProbe && now < timer.probe_deadline_ms) {
+    label = 'Probezeit'; left = timer.probe_deadline_ms - now;
+  } else {
+    label = timer.separate ? 'Wertungszeit' : 'Schießzeit'; left = timer.deadline_ms - now;
+  }
+  if (left < 0) {
+    box.classList.add('over');
+    label = mode === 'hard' ? 'Zeit abgelaufen' : label + ' überschritten';
+    if (mode === 'hard') left = 0;
+  }
+  lbl.textContent = label;
+  tim.textContent = fmtDur(left);
+}
+setInterval(tickClock, 250);
 
 function applyStatus(st) {
+  timer = st.timer || { mode: 'uhrzeit' };
+  timerMode = st.mode || 'probe';
+  if (st.now_ms) clockSkew = st.now_ms - Date.now();
+  tickClock();
+
   currentMode       = st.mode || 'probe';
   currentHistoryGen = st.history_gen;
   discipline        = st.discipline || null;
@@ -793,17 +888,42 @@ function applyStatus(st) {
   document.getElementById('laneBadge').textContent = st.lane_no ? `Stand ${st.lane_no}` : '';
   document.body.classList.toggle('dev-mode', !!st.dev_mode);
 
-  modeBadge.textContent = currentMode === 'wertung' ? 'Wertung' : 'Probe';
-  modeBadge.className   = currentMode === 'wertung' ? 'wertung' : 'probe';
+  // Stechschuss: eigene leere Scheibe je Durchgang, das Gesamtergebnis der
+  // Wertung bleibt sichtbar (server/rwk_stechen.go)
+  const stechen = st.stechen_no > 0;
+  const wertung = currentMode === 'wertung';
+  modeProbe.classList.toggle('active', !wertung);
+  modeWertung.classList.toggle('active', wertung);
+  modeWertung.textContent = stechen ? `Stechschuss ${st.stechen_no}` : 'Wertung';
+  modeProbe.style.display = stechen ? 'none' : '';
+  modeWertung.style.borderLeft = stechen ? '' : 'none';
+  modeWertung.style.borderRadius = stechen ? '4px' : '';
+  // zentrales Umschalten bzw. Stechschuss: Zustand sichtbar, aber nur über
+  // die Standsteuerung umschaltbar
+  // Bedienung gesperrt (Standsteuerung, uilock.go)
+  const uiLocked = !!st.ui_locked;
+  document.body.classList.toggle('ui-locked', uiLocked);
+  const lockInd = document.getElementById('lockInd');
+  lockInd.textContent = uiLocked ? '🔒' : '🔓';
+  lockInd.title = uiLocked ? 'Bedienung gesperrt (Standsteuerung)' : 'Bedienung möglich';
+  if (uiLocked) ['psOverlay', 'discOverlay', 'ergOverlay'].forEach(id => document.getElementById(id) && closeMenu(id));
+  const locked = uiLocked || stechen || (st.timer && st.timer.switch === 'zentral');
+  const stEl = document.getElementById('stechenLine');
+  stEl.style.display = stechen ? '' : 'none';
+  // Gesamt/Serien der Stechschuss-Session wären nur der Stechschuss selbst -
+  // das Gesamtergebnis steht im Stechschuss-Hinweis
+  document.getElementById('totalLine').style.display = stechen ? 'none' : '';
+  document.getElementById('seriesGrid').style.display = stechen ? 'none' : '';
+  if (stechen) {
+    stEl.innerHTML = `<span class="sl">Stechschuss ${st.stechen_no}${st.stechen_no > 3 || (discipline && discipline.decimal_scoring) ? ' · Zehntelwertung' : ''}</span>` +
+      `<span class="sb">Gesamtergebnis <b>${st.base_total || '–'}</b></span>`;
+  }
 
   const noProbePhase = discipline && discipline.trial_shots === 0;
-  if (currentMode === 'probe') {
-    modeBtn.textContent = '→ Wertung';
-    modeBtn.disabled    = false;
-  } else {
-    modeBtn.textContent = '← Probe';
-    modeBtn.disabled    = st.wertung_count > 0 || noProbePhase;
-  }
+  modeWertung.disabled = locked || wertung;
+  modeProbe.disabled   = locked || !wertung || st.wertung_count > 0 || noProbePhase;
+  modeProbe.title   = uiLocked ? 'Bedienung gesperrt' : locked ? 'Umschalten nur über die Standsteuerung' : (modeProbe.disabled && wertung ? 'Nach Wertungsschüssen nicht mehr möglich' : 'Probe');
+  modeWertung.title = uiLocked ? 'Bedienung gesperrt' : locked ? 'Umschalten nur über die Standsteuerung' : 'Wertung';
 
 
   lastSessionShooter = st.shooter || '';
@@ -855,9 +975,9 @@ function showNotification(msg) {
 }
 
 
-modeBtn.addEventListener('click', () => {
-  const next = currentMode === 'probe' ? 'wertung' : 'probe';
-  modeBtn.disabled = true;
+function switchMode(next) {
+  if (next === currentMode) return;
+  modeProbe.disabled = modeWertung.disabled = true;
   fetch('/mode', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -871,8 +991,14 @@ modeBtn.addEventListener('click', () => {
   // alten Probeschuesse und zaehlt Wertungsschuesse einfach weiter (Bugfix:
   // "Schuesse werden am Stand nach Probe->Wertung weitergezaehlt").
   .then(st => applyOrReloadOnHistoryChange(st))
-  .catch(err => { alert('Umschalten nicht möglich:\n' + err.message); modeBtn.disabled = false; });
-});
+  .catch(err => {
+    alert('Umschalten nicht möglich:\n' + err.message);
+    modeProbe.disabled = currentMode === 'probe';
+    modeWertung.disabled = currentMode === 'wertung';
+  });
+}
+modeProbe.addEventListener('click', () => switchMode('probe'));
+modeWertung.addEventListener('click', () => switchMode('wertung'));
 
 // ── Entwicklermodus: Schuss per Mausklick ───────────────────────────────────
 // Nur aktiv wenn body.dev-mode gesetzt ist (siehe applyStatus). Rechnet den

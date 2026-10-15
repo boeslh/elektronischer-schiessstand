@@ -38,14 +38,18 @@ type firmwareSetting struct {
 }
 
 type calibrationTransfer struct {
-	LaneNo     int               `json:"lane_no"`
-	Settings   []firmwareSetting `json:"settings"`
-	Note       string            `json:"note"`
-	CreatedBy  string            `json:"created_by"`
-	CreatedAt  time.Time         `json:"created_at"`
-	AppliedAt  *time.Time        `json:"applied_at"`
-	AppliedMAC *string           `json:"applied_mac"`
-	AppliedOK  *bool             `json:"applied_ok"`
+	LaneNo   int               `json:"lane_no"`
+	Settings []firmwareSetting `json:"settings"`
+	// Capture: Erfassungsmodus ("isr"|"mcpwm") der Schuesse, aus denen die
+	// Freigabe im Simulator berechnet wurde ("" = unbekannt) - die Offsets
+	// passen nur zu einem Geraet im selben Modus (Firmware Rev 4.13.0).
+	Capture    string     `json:"capture"`
+	Note       string     `json:"note"`
+	CreatedBy  string     `json:"created_by"`
+	CreatedAt  time.Time  `json:"created_at"`
+	AppliedAt  *time.Time `json:"applied_at"`
+	AppliedMAC *string    `json:"applied_mac"`
+	AppliedOK  *bool      `json:"applied_ok"`
 }
 
 func fetchCalibrationTransfer(serverURL string, laneNo int) (*calibrationTransfer, int, error) {
@@ -115,7 +119,51 @@ func currentSettingValue(c *ConfigTelegram, key string) (string, bool) {
 	case "OFFSETY":
 		return itoa(c.OffsetYUm), true
 	case "SOUNDSPEED":
+		if c.SoundSetMps != nil { // Firmware >= 4.15.0: genauer Wert
+			return strconv.FormatFloat(*c.SoundSetMps, 'f', 1, 64), true
+		}
 		return itoa(c.SoundMps), true
+	// seit Firmware Rev 4.13-4.15 - aeltere Firmware meldet sie nicht (ok=false)
+	case "CAPTURE":
+		if c.Capture == "" {
+			return "", false
+		}
+		return strings.ToUpper(c.Capture), true
+	case "WALKK":
+		if c.WalkK == nil {
+			return "", false
+		}
+		return strconv.FormatFloat(*c.WalkK, 'f', 3, 64), true
+	case "WALKCAL":
+		return optItoa(c.WalkCal)
+	case "WALKMAX":
+		return optItoa(c.WalkMaxUs)
+	case "DHT":
+		return optItoa(c.Dht)
+	case "RAWLOG":
+		return optItoa(c.RawLog)
+	// Zonen-Kalibrierung (Firmware Rev 4.17.0) - ZBAND/ZBLEND/ZCAL<Zone>
+	// stehen nicht im config, sondern in der SHOWZONES-Antwort (ZoneSets)
+	case "ZONES":
+		return optItoa(c.Zones)
+	case "ZHOLE":
+		return optItoa(c.ZHoleUm)
+	case "ZBAND", "ZBLEND", "ZCALA", "ZCALB", "ZCALC":
+		z := c.ZoneSets
+		if z == nil {
+			return "", false
+		}
+		switch key {
+		case "ZBAND":
+			return itoa(z.ZBandUm), true
+		case "ZBLEND":
+			return itoa(z.ZBlendUm), true
+		case "ZCALA":
+			return z.A.zcalValue(), true
+		case "ZCALB":
+			return z.B.zcalValue(), true
+		}
+		return z.C.zcalValue(), true
 	case "BSHIFTPCT":
 		return itoa(c.BulletShiftPct), true
 	case "BSHIFTCAP":
@@ -186,6 +234,18 @@ func currentSettingValue(c *ConfigTelegram, key string) (string, bool) {
 	return "", false
 }
 
+// targetForDevice passt einen Zielwert an die Firmware des Geraets an:
+// SOUNDSPEED nimmt erst ab Rev 4.15.0 Nachkommastellen an (erkennbar an
+// sound_set_mps im SHOW) - fuer aeltere Firmware wird ganzzahlig gerundet.
+func targetForDevice(c *ConfigTelegram, s firmwareSetting) string {
+	if s.Key == "SOUNDSPEED" && c != nil && c.SoundSetMps == nil {
+		if f, err := strconv.ParseFloat(s.Value, 64); err == nil {
+			return strconv.Itoa(int(math.Round(f)))
+		}
+	}
+	return s.Value
+}
+
 func optItoa(v *int) (string, bool) {
 	if v == nil {
 		return "", false
@@ -219,6 +279,7 @@ type transferItem struct {
 func diffTransfer(c *ConfigTelegram, settings []firmwareSetting) []transferItem {
 	items := make([]transferItem, 0, len(settings))
 	for _, s := range settings {
+		s.Value = targetForDevice(c, s)
 		it := transferItem{Key: s.Key, Target: s.Value, Changed: true}
 		if c != nil {
 			if cur, ok := currentSettingValue(c, s.Key); ok {
@@ -238,6 +299,32 @@ func diffTransfer(c *ConfigTelegram, settings []firmwareSetting) []transferItem 
 // uebersprungen statt als Fehler zu enden.
 var firmwareOptionalKeys = map[string]bool{
 	"CLUSTERCORR": true, "CLUSTERITER": true, "LSQ": true, "LSQPELLETR": true,
+	"CAPTURE": true, "WALKK": true, "WALKCAL": true, "WALKMAX": true, "DHT": true, "RAWLOG": true,
+	"ZONES": true, "ZHOLE": true, "ZBAND": true, "ZBLEND": true, "ZCALA": true, "ZCALB": true, "ZCALC": true,
+}
+
+// setCommand: SET-Befehl fuer einen Schluessel - die Zonen-Saetze
+// (ZCALA/B/C) gehen als "SET ZCAL=<Zone>,<Werte>" (Firmware Rev 4.17.0).
+func setCommand(key, value string) string {
+	if strings.HasPrefix(key, "ZCAL") && len(key) == 5 {
+		return fmt.Sprintf("SET ZCAL=%s,%s", key[4:], value)
+	}
+	return fmt.Sprintf("SET %s=%s", key, value)
+}
+
+// readDeviceConfig: SHOW und - bei Firmware mit Zonen - SHOWZONES, damit
+// auch die Zonen-Saetze verglichen werden koennen.
+func (ws *WebServer) readDeviceConfig(c *ConfigTelegram) error {
+	if err := ws.queryTelegram("SHOW", "config", c); err != nil {
+		return err
+	}
+	if c.Zones != nil {
+		var z ZonesTelegram
+		if err := ws.queryTelegram("SHOWZONES", "zones", &z); err == nil {
+			c.ZoneSets = &z
+		}
+	}
+	return nil
 }
 
 func isCalImportKey(key string) bool {
@@ -262,7 +349,7 @@ func transferCommands(items []transferItem) []string {
 	}
 	for _, it := range items {
 		if it.Changed && !isCalImportKey(it.Key) {
-			cmds = append(cmds, fmt.Sprintf("SET %s=%s", it.Key, it.Target))
+			cmds = append(cmds, setCommand(it.Key, it.Target))
 		}
 	}
 	return cmds
@@ -293,7 +380,7 @@ func (ws *WebServer) handleAdminTransfer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var cfg ConfigTelegram
-	showErr := ws.queryTelegram("SHOW", "config", &cfg)
+	showErr := ws.readDeviceConfig(&cfg)
 	var cur *ConfigTelegram
 	if showErr == nil {
 		cur = &cfg
@@ -302,6 +389,9 @@ func (ws *WebServer) handleAdminTransfer(w http.ResponseWriter, r *http.Request)
 	resp := map[string]any{
 		"lane_no": ws.cfg.LaneNo, "transfer": t, "items": items, "changed": countChanged(items),
 		"mac": ws.deviceState.CurrentMAC(), "device_connected": showErr == nil,
+	}
+	if msg := ws.transferCaptureMismatch(t); msg != "" {
+		resp["capture_error"] = msg
 	}
 	if showErr != nil {
 		resp["device_error"] = showErr.Error()
@@ -314,20 +404,33 @@ func (ws *WebServer) handleAdminTransfer(w http.ResponseWriter, r *http.Request)
 // normale Antwortzeile, nicht als Fehler - ein abgelehnter Wert (z.B.
 // ausserhalb des Wertebereichs) wuerde sonst als uebernommen gelten.
 func (ws *WebServer) sendChecked(cmd string) error {
+	_, err := ws.sendCheckedReboot(cmd)
+	return err
+}
+
+// sendCheckedReboot wie sendChecked, meldet zusaetzlich, ob die Firmware
+// fuer die Aenderung einen Neustart verlangt ("reboot_required":true, z.B.
+// SET CAPTURE oder Netzwerk-Schluessel).
+func (ws *WebServer) sendCheckedReboot(cmd string) (bool, error) {
 	lines, err := ws.cmds.SendCommand(cmd, 0)
 	if err != nil {
-		return err
+		return false, err
 	}
+	reboot := false
 	for _, l := range lines {
 		var t struct {
-			Type string `json:"type"`
-			Msg  string `json:"msg"`
+			Type           string `json:"type"`
+			Msg            string `json:"msg"`
+			RebootRequired bool   `json:"reboot_required"`
 		}
-		if json.Unmarshal(l, &t) == nil && t.Type == "error" {
-			return fmt.Errorf("Gerät meldet Fehler: %s", t.Msg)
+		if json.Unmarshal(l, &t) == nil {
+			if t.Type == "error" {
+				return false, fmt.Errorf("Gerät meldet Fehler: %s", t.Msg)
+			}
+			reboot = reboot || t.RebootRequired
 		}
 	}
-	return nil
+	return reboot, nil
 }
 
 // queryTelegram sendet cmd und dekodiert die erste Antwortzeile vom Typ
@@ -398,10 +501,13 @@ type transferStep struct {
 // applyResult: Ergebnis von applySettings (Antwort der Admin-GUI und
 // Rueckmeldung an den Server).
 type applyResult struct {
-	OK        bool           `json:"ok"`
-	Steps     []transferStep `json:"steps"`
-	Remaining []transferItem `json:"remaining"`
-	MAC       string         `json:"mac"`
+	OK bool `json:"ok"`
+	// RebootRequired: mindestens eine Aenderung wirkt erst nach einem
+	// Neustart des Geraets (SET CAPTURE).
+	RebootRequired bool           `json:"reboot_required,omitempty"`
+	Steps          []transferStep `json:"steps"`
+	Remaining      []transferItem `json:"remaining"`
+	MAC            string         `json:"mac"`
 }
 
 // applySettings schreibt die von settings abweichenden Werte auf das Geraet
@@ -420,22 +526,24 @@ func (ws *WebServer) applySettings(settings []firmwareSetting) (applyResult, int
 		return applyResult{}, http.StatusConflict, fmt.Errorf("Am Gerät läuft gerade eine Kalibrierung (CAL START) - erst abschließen oder abbrechen.")
 	}
 	var before ConfigTelegram
-	if err := ws.queryTelegram("SHOW", "config", &before); err != nil {
+	if err := ws.readDeviceConfig(&before); err != nil {
 		return applyResult{}, http.StatusBadGateway, fmt.Errorf("Gerätekonfiguration nicht lesbar: %w", err)
 	}
 
 	res := applyResult{Steps: []transferStep{}, Remaining: []transferItem{}}
 	for _, cmd := range transferCommands(diffTransfer(&before, settings)) {
 		st := transferStep{Cmd: cmd, OK: true}
-		if err := ws.sendChecked(cmd); err != nil {
+		reboot, err := ws.sendCheckedReboot(cmd)
+		if err != nil {
 			st.OK, st.Error = false, err.Error()
 		}
+		res.RebootRequired = res.RebootRequired || reboot
 		res.Steps = append(res.Steps, st)
 	}
 
 	var afterCfg ConfigTelegram
 	var after []transferItem
-	if err := ws.queryTelegram("SHOW", "config", &afterCfg); err != nil {
+	if err := ws.readDeviceConfig(&afterCfg); err != nil {
 		after = diffTransfer(nil, settings) // Kontrolle nicht moeglich -> alles als offen melden
 	} else {
 		after = diffTransfer(&afterCfg, settings)
@@ -473,15 +581,103 @@ func (ws *WebServer) handleAdminTransferApply(w http.ResponseWriter, r *http.Req
 		http.Error(w, "Die Freigabe wurde im Simulator inzwischen geändert - bitte erneut prüfen.", http.StatusConflict)
 		return
 	}
+	if msg := ws.transferCaptureMismatch(t); msg != "" {
+		http.Error(w, msg, http.StatusConflict)
+		return
+	}
 	res, status, err := ws.applySettings(t.Settings)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	resp := map[string]any{"ok": res.OK, "steps": res.Steps, "remaining": res.Remaining, "mac": res.MAC}
+	resp := map[string]any{"ok": res.OK, "steps": res.Steps, "remaining": res.Remaining, "mac": res.MAC,
+		"reboot_required": res.RebootRequired}
 	if err := reportCalibrationTransferApplied(ws.cfg.ServerURL, ws.cfg.LaneNo, t.CreatedAt, res.MAC, res.OK,
 		map[string]any{"steps": res.Steps, "remaining": res.Remaining}); err != nil {
 		resp["report_error"] = "Rückmeldung an den Server fehlgeschlagen: " + err.Error()
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// transferCaptureMismatch prueft, ob die Freigabe zum aktiven Erfassungsmodus
+// des Geraets passt (siehe captureMismatch) - "" wenn ja oder unbekannt.
+func (ws *WebServer) transferCaptureMismatch(t *calibrationTransfer) string {
+	if t.Capture == "" {
+		return ""
+	}
+	var st StatusTelegram
+	if err := ws.queryTelegram("STATUS", "status", &st); err != nil {
+		return ""
+	}
+	c := t.Capture
+	return captureMismatch(&c, st.Capture)
+}
+
+// ---------------------------------------------------------------------------
+// Beliebige gespeicherte Kalibrierung dieses Stands waehlen (statt nur der
+// zuletzt im Simulator freigegebenen): der Server setzt sie als Freigabe,
+// danach laeuft alles wie gewohnt (pruefen, uebernehmen, Rueckmeldung).
+// ---------------------------------------------------------------------------
+
+// handleAdminTransferConfigs: GET /admin/api/transfer/configs - die fuer
+// diesen Stand im Simulator gespeicherten Kalibrierungen (neueste zuerst).
+func (ws *WebServer) handleAdminTransferConfigs(w http.ResponseWriter, r *http.Request) {
+	if ws.cfg.ServerURL == "" {
+		http.Error(w, "kein Server konfiguriert", http.StatusServiceUnavailable)
+		return
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("%s/api/lanes/%d/simulator-configs", ws.cfg.ServerURL, ws.cfg.LaneNo))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "Server antwortete mit "+resp.Status, http.StatusBadGateway)
+		return
+	}
+	var list []json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// handleAdminTransferSelect: POST /admin/api/transfer/select {id} - die
+// gewaehlte Kalibrierung beim Server als Freigabe fuer diesen Stand setzen.
+func (ws *WebServer) handleAdminTransferSelect(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+		http.Error(w, "id erforderlich", http.StatusBadRequest)
+		return
+	}
+	if ws.cfg.ServerURL == "" {
+		http.Error(w, "kein Server konfiguriert", http.StatusServiceUnavailable)
+		return
+	}
+	data, _ := json.Marshal(body)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(fmt.Sprintf("%s/api/lanes/%d/calibration-transfer/from-config", ws.cfg.ServerURL, ws.cfg.LaneNo),
+		"application/json", bytes.NewReader(data))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error == "" {
+			e.Error = "Server antwortete mit " + resp.Status
+		}
+		http.Error(w, e.Error, http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

@@ -184,7 +184,7 @@
     <span style="margin-left:14px">Filter: <select id="cfgLaneFilter" onchange="setCfgLaneFilter(this.value)"></select></span>
   </div>
   <table id="cfgTable" style="margin-bottom:14px">
-    <thead><tr><th>Name</th><th>Stand</th><th>Gespeichert am</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Stand</th><th title="Erfassungsmodus der Schüsse, aus denen die Kalibrierung bestimmt wurde - die Offsets passen nur zu einem Gerät im selben Modus">Erfassung</th><th title="Zonen-Kalibrierung (je Bereich eigener Satz, Firmware ab 4.17.0)">Zonen</th><th>Gespeichert am</th><th></th></tr></thead>
     <tbody id="cfgTbody"></tbody>
   </table>
 
@@ -203,10 +203,31 @@
     <div class="filter-group"><label>Mic-Halbabstand X (mm)</label><input type="number" id="p-micHalfX" step="0.1" value="115.0"></div>
     <div class="filter-group"><label>Offset X (0.001mm)</label><input type="number" id="p-offsetX" step="1" value="0"></div>
     <div class="filter-group"><label>Offset Y (0.001mm)</label><input type="number" id="p-offsetY" step="1" value="0"></div>
-    <div class="filter-group"><label>Schallgeschw. (m/s)</label><input type="number" id="p-sound" step="1" value="343"></div>
-    <div class="filter-group"><label>Kugeldurchm.-Korrektur (%)</label><input type="number" id="p-bshiftPct" step="1" min="0" max="100" value="50"></div>
+    <div class="filter-group"><label>Schallgeschw. (m/s)</label><input type="number" id="p-sound" step="0.1" value="343"></div>
+    <div class="filter-group" title="SET WALKK (Firmware ab 4.14.0): Pulsbreiten-Korrektur t += WALKK·(Breite − Mittel). Wirkt nur auf Schüsse mit gespeicherten Pulsbreiten (MCPWM-Erfassung); 0 = aus.">
+      <label>Pulsbreiten-Korr. WALKK</label><input type="number" id="p-walkK" step="0.01" min="0" max="1" value="0"></div>
+    <div class="filter-group"><label>Kugeldurchm.-Korrektur (%)</label><input type="number" id="p-bshiftPct" step="1" min="0" max="100" value="30"></div>
     <div class="filter-group"><label>Korrektur-Kappung (mm)</label><input type="number" id="p-bshiftCap" step="0.1" min="0" value="3.0"></div>
-    <div class="filter-group"><label>Cluster-Radius (0.001mm)</label><input type="number" id="p-clusterRadius" step="1" min="0" max="500000" value="200"></div>
+    <div class="filter-group"><label>Cluster-Radius (0.001mm)</label><input type="number" id="p-clusterRadius" step="1" min="0" max="500000" value="4000"></div>
+  </div>
+
+  <div id="rawParamsBox" style="display:none;margin:8px 0 0;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Rohdaten (Firmware ab 4.16.0, SET RAWLOG=1)</div>
+    <div class="hint" id="rawParamsHint" style="margin-bottom:6px"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;align-items:center">
+      <label title="SET TDOA: Fenster ab der ersten Flanke, in dem je Mikrofon die erste steigende Flanke gesucht wird (Firmware-Default 750 µs)">
+        TDOA-Fenster <input type="number" id="p-tdoa" min="100" max="5000" step="10" value="750" style="width:70px"> µs</label>
+      <label title="SET WALKMAX: größte plausible Pulsbreite; leer = Wert zum Schusszeitpunkt">
+        WALKMAX <input type="number" id="p-walkMax" min="5" max="500" step="1" placeholder="vom Schuss" style="width:80px"> µs</label>
+      <label title="Firmware: letzte fallende Flanke vor der nächsten steigenden. Variante nur im Simulator.">
+        Pulsbreite bis <select id="p-walkRule"><option value="">letzte fallende Flanke (Firmware)</option><option value="first">erste fallende Flanke (Variante)</option></select></label>
+      <button class="btn-sec" type="button" onclick="applyShotParams()" title="Offsets, aktive Mikrofone, WALKK, WALKMAX und Schallgeschwindigkeit so einstellen, wie sie beim Schuss am Gerät aktiv waren">Parameter vom Schusszeitpunkt übernehmen</button>
+    </div>
+  </div>
+
+  <div style="margin:6px 0 0;font-size:12px">
+    <label title="Firmware ab 4.15.0 mit DHT22: je Schuss die damals aktive Schallgeschwindigkeit aus Temperatur/Luftfeuchte verwenden. Gilt für Neuberechnen und Kalibrierung; Σ9- und Foto-Kalibrierung bestimmen die Schallgeschwindigkeit selbst und nutzen den Wert oben.">
+      <input type="checkbox" id="p-soundFromShot"> Schallgeschwindigkeit je Schuss verwenden (gespeicherter Gerätewert, z.B. aus DHT22-Messung) – sonst gilt der Wert oben</label>
   </div>
 
   <div id="posAlgoBox" style="margin:10px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
@@ -258,6 +279,29 @@
     <label class="mic-en"><input type="checkbox" id="p-micen3" checked> Mic3</label>
     <label class="mic-en"><input type="checkbox" id="p-micen4" checked> Mic4</label>
     <label class="mic-en"><input type="checkbox" id="p-micen5" checked> Mic5</label>
+  </div>
+
+  <!-- Zonen-Kalibrierung (sim_zones.go): je Bereich der Scheibe eigener Satz
+       aus Schallgeschwindigkeit, Offsets und Nachkorrektur. -->
+  <div id="zoneBox" style="margin:0 0 14px;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
+    <label title="Der Knall ist je nach getroffenen Papierlagen unterschiedlich laut - je Bereich ein eigener Parametersatz. Erst die Lage mit den Werten oben bestimmen, dann mit dem Satz der Zone neu rechnen (an den Grenzen überblendet).">
+      <input type="checkbox" id="z-enabled" onchange="renderZoneBox()"> <strong>Zonen-Kalibrierung</strong>
+      <span class="hint">(ab Firmware 4.17.0 auch am Gerät – Übertragung mit „Zur Übernahme freigeben“; ältere Firmware übernimmt nur den Basissatz oben)</span></label>
+    <div id="zoneFields" style="display:none;margin-top:8px">
+      <div class="params-grid">
+        <div class="filter-group"><label title="Radius des Lochs in der Vorsatzscheibe: dort wird nur das Schussband getroffen. LG: 15,25 mm (Ø 30,5), LP: 29,75 mm (Ø 59,5).">Lochradius Vorsatzscheibe (mm)</label>
+          <input type="number" id="z-hole" step="0.05" min="0" max="60"></div>
+        <div class="filter-group"><label title="Halbe Breite des Schussbands (Band ca. 90 mm breit)">halbe Bandbreite (mm)</label>
+          <input type="number" id="z-band" step="0.5" min="0" max="100" value="45"></div>
+        <div class="filter-group"><label title="Lineare Überblendung ± um jede Zonengrenze - ein Diabolo am Rand trifft beide Bereiche">Überblendung ± (mm)</label>
+          <input type="number" id="z-blend" step="0.05" min="0" max="10" value="2.25"></div>
+      </div>
+      <table style="width:auto;margin-top:6px" id="zoneTable">
+        <thead><tr><th>Zone</th><th>eigener Satz</th><th>Schall <span style="text-transform:none">(m/s)</span></th><th>OFS0</th><th>OFS1</th><th>OFS2</th><th>OFS3</th><th>OFS4</th><th>OFS5</th><th>OFFSETX <span style="text-transform:none">(µm)</span></th><th>OFFSETY <span style="text-transform:none">(µm)</span></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="hint">A = im Loch der Vorsatzscheibe (nur Band) · B = neben dem Schussband (nur Vorsatzscheibe) · C = Band + Vorsatzscheibe. Ohne eigenen Satz gelten die Werte oben.</div>
+    </div>
   </div>
 
   <button class="btn" onclick="runSimulation()">Neu berechnen</button>
@@ -359,15 +403,17 @@
     den Schussbereich angeben).
   </div>
   <div class="foto-controls">
-    <div class="filter-group"><label>Foto</label><input type="file" id="foto-file" accept="image/*"></div>
+    <div class="filter-group"><label>Foto</label><input type="file" id="foto-file" accept="image/*"
+      title="Das Foto wird zur Scheibe auf dem Server gespeichert und beim nächsten Laden der Scheibe automatisch geöffnet - ein neues Foto ersetzt das vorhandene."></div>
     <div class="filter-group"><label>Ø Innenkreis (mm)</label>
       <input type="number" id="foto-diameter" value="59.5" step="0.1" min="5" max="200" style="width:90px" list="foto-diam-list">
       <datalist id="foto-diam-list"><option value="59.5">LP 10m</option><option value="30.5">LG 10m</option></datalist></div>
-    <div class="filter-group"><label title="Mittenabstand der Befestigungsschrauben (gemessen 141,5 mm). Leer lassen = aus dem Kreisdurchmesser bestimmen.">Schraubenabstand B × H (mm)</label>
+    <div class="filter-group"><label title="Mittenabstand der Befestigungsschrauben - nur noch zur Kontrolle: der Maßstab kommt aus dem Innenkreis, die Schrauben entzerren die Aufnahme und richten die Achsen aus.">Schraubenabstand B × H (mm, Kontrolle)</label>
       <div style="display:flex;gap:4px;align-items:center">
         <input type="number" id="foto-screwW" step="0.01" value="141.5" placeholder="aus Kreis" style="width:95px"> ×
         <input type="number" id="foto-screwH" step="0.01" value="141.5" placeholder="aus Kreis" style="width:95px"></div></div>
   </div>
+  <div id="foto-stored" class="hint" style="margin:4px 0"></div>
   <div id="foto-work" style="display:none">
     <div class="row-actions" id="foto-modes" style="margin:10px 0 6px;flex-wrap:wrap">
       <button class="btn-sec" data-mode="screws">1. Schrauben</button>
@@ -402,6 +448,14 @@
       <input type="number" id="foto-maxdist" value="15" min="1" max="60" step="1" style="width:70px"> <span class="hint">mm</span>
       <button class="btn" id="foto-match">Löcher den Schüssen zuordnen</button>
     </div>
+    <div class="row-actions" style="margin-top:10px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+      <button class="btn" id="foto-oneclick"
+        title="Löcher zuordnen (falls noch nicht geschehen), Basissatz an allen Schüssen und je Zone einen eigenen Satz kalibrieren, alles in Abschnitt 2 eintragen und als Kalibrierung speichern - danach unten wie gewohnt für den Stand freigeben.">One-Click-Kalibrierung (Zonen)</button>
+      <span class="hint">ordnet zu, kalibriert Basissatz + Zonen A/B/C, trägt alles in Abschnitt 2 ein und speichert es als Kalibrierung.
+        Lochradius/Bandbreite aus Abschnitt 2 (Zonen-Kalibrierung); für den Basissatz gelten die Häkchen unter „Zu optimierende Parameter“ (Geometrie nur, wenn angehakt).</span>
+      <span id="foto-oneclick-status" class="hint" style="width:100%"></span>
+    </div>
+    <div id="foto-zoneresult" style="display:none;margin-top:10px"></div>
     <div id="foto-pairs" style="margin-top:8px;max-height:320px;overflow:auto"></div>
 
     <div id="foto-optbox" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
@@ -418,6 +472,19 @@
         <span id="foto-optstatus" class="hint"></span>
       </div>
       <div id="foto-result" style="display:none;margin-top:10px"></div>
+    </div>
+    <div id="foto-verifybox" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+      <div style="font-weight:600;margin-bottom:4px">Messwerte gegen das Foto prüfen</div>
+      <div class="hint" style="margin-bottom:6px">Die zugeordneten Löcher gelten als wahre Trefferlage. Verglichen werden die vom Gerät gemeldete Position,
+        das neu berechnete Schusszentrum (Parameter aus Abschnitt 2), die einzelnen Schnittpunkte (Messpunkte) und die Rohzeiten je Mikrofon.
+        Zusätzlich lassen sich Varianten der Parameter bzw. des Verfahrens auf dieselben Schüsse rechnen.</div>
+      <div class="row-actions" id="foto-variants" style="flex-wrap:wrap;gap:6px 14px;font-size:12px"></div>
+      <div class="row-actions" style="margin-top:8px">
+        <button class="btn" id="foto-verify">Prüfen</button>
+        <label style="font-size:12px"><input type="checkbox" id="foto-allpoints"> Messpunkte aller Schüsse im Foto zeigen</label>
+        <span id="foto-verifystatus" class="hint"></span>
+      </div>
+      <div id="foto-verify-result" style="margin-top:10px"></div>
     </div>
   </div>
 </section>
@@ -452,6 +519,11 @@
         <span><span class="dot" style="background:#7ba7ff"></span>Simuliert</span>
         <span><span class="dot" style="background:#e04040"></span>Simuliert (ungültig/keine Rohdaten)</span>
         <span><span class="cross"></span>Schnittpunkte (Detail)</span>
+        <label class="detail-toggle" id="fotoPosToggleWrap" style="display:none;margin-left:0"
+               title="Lage des Einschusslochs laut Foto (Foto-Kalibrierung, Abschnitt 5) als grüner Ring, mit Linie zur Neuberechnung">
+          <input type="checkbox" id="fotoPosToggle" checked onchange="renderTargetSVG(currentTargetGeometry, lastSimShots)">
+          <span class="dot" style="background:none;border:2px solid #2ecc71"></span>Foto
+        </label>
         <label class="detail-toggle">
           <input type="checkbox" id="showDetailToggle" checked onchange="onDetailToggleChange()">
           Details &amp; Schnittpunkte beim Anklicken einblenden
@@ -477,15 +549,95 @@
 
 <script>
 async function api(path, opts) {
-  const r = await fetch(path, opts);
-  if (!r.ok) throw new Error(await r.text());
+  let r = await fetch(path, opts);
+  // 403: Anmeldung abgelaufen (Rollen mit Passwort enden nach 1 Stunde ohne
+  // Aktivitaet, danach gilt die Rolle "Anwender") - neu anmelden lassen OHNE
+  // die Seite neu zu laden (Eingaben bleiben erhalten), dann einmal wiederholen.
+  if (r.status === 403 && typeof window.ssRelogin === 'function') {
+    const ok = await window.ssRelogin('Die Anmeldung ist abgelaufen (nach 1 Stunde ohne Aktivität) – deshalb wurde '
+      + 'die Aktion abgelehnt. Bitte erneut anmelden; die Eingaben im Simulator bleiben erhalten.');
+    if (ok) r = await fetch(path, opts);
+  }
+  if (!r.ok) {
+    let msg = await r.text();
+    try { msg = JSON.parse(msg).error || msg; } catch (e) { /* Klartext */ }
+    if (r.status === 403) msg += ' (Anmeldung abgelaufen oder Rolle ohne Simulator-Recht – unten rechts neu anmelden)';
+    throw new Error(msg);
+  }
   return r.json();
 }
 
 let currentSessionId = null;
+let currentDiscipline = '';
 let currentLoadedLaneNo = null; // Stand der geladenen Session, siehe selectSession()/saveConfig()
 let lastSimShots = [];
 let lastSessionShots = []; // Antwort von .../simulator-shots (fuer die Kalibrier-Schussauswahl)
+// Erfassungsmodus der geladenen Schuesse ("isr"|"mcpwm", "" = unbekannt/
+// gemischt) - geht mit "Zur Uebernahme freigeben" an den Stand, der nur auf
+// ein Geraet im selben Modus uebernimmt (Firmware 4.13.0).
+let sessionCapture = '';
+
+// firmwareShotSummary: Zusatzdaten der Schuesse ab Firmware 4.13-4.15
+// (Erfassung, Pulsbreiten, Schallgeschwindigkeit je Schuss, WALKK).
+function firmwareShotSummary(shots) {
+  const raw = shots.filter(s => s.has_raw);
+  const caps = [...new Set(raw.map(s => s.capture).filter(Boolean))];
+  sessionCapture = caps.length === 1 ? caps[0] : '';
+  const parts = [];
+  if (caps.length) parts.push('Erfassung ' + caps.map(c => c.toUpperCase()).join('/') + (caps.length > 1 ? ' (gemischt!)' : ''));
+  const withW = raw.filter(s => Array.isArray(s.air_w_ns) && s.air_w_ns.some(w => w != null)).length;
+  if (withW) parts.push(`Pulsbreiten bei ${withW} Schuss/Schüssen`);
+  const snd = raw.map(s => s.sound_act_mps).filter(v => v != null);
+  if (snd.length) {
+    const lo = Math.min(...snd), hi = Math.max(...snd);
+    parts.push(`Schall ${lo === hi ? lo.toFixed(2) : lo.toFixed(2) + '–' + hi.toFixed(2)} m/s`);
+  }
+  const wk = [...new Set(raw.map(s => s.walk_k).filter(v => v != null))];
+  if (wk.length) parts.push('WALKK beim Schuss ' + wk.map(v => v.toFixed(3)).join('/'));
+  const withRawEdges = raw.filter(s => s.raw && s.raw.ref === 'first').length;
+  if (withRawEdges) parts.push(`Rohdaten (RAWLOG) bei ${withRawEdges} Schuss/Schüssen`);
+  const box = document.getElementById('rawParamsBox');
+  box.style.display = withRawEdges ? '' : 'none';
+  document.getElementById('rawParamsHint').textContent = withRawEdges
+    ? `${withRawEdges} von ${raw.length} Schüssen haben alle Rohflanken - diese rechnet der Simulator wie die Firmware selbst nach `
+      + '(erste Flanke im TDOA-Fenster, Pulsbreite aus steigenden/fallenden Flanken). TDOA, WALKMAX und Breiten-Regel wirken nur auf diese Schüsse.'
+      + (raw.some(s => s.raw && s.raw.truncated) ? ' Achtung: bei einigen Schüssen wurden mehr als 16 Flanken gekürzt (truncated).' : '')
+    : '';
+  return parts.length ? ' · Firmware-Daten: ' + parts.join(' · ') : '';
+}
+
+// applyShotParams: Parameter, die beim Schuss am Geraet aktiv waren (aus dem
+// Rohdaten-Telegramm, sonst aus den beim Schuss gespeicherten Werten), ins
+// Formular uebernehmen - Abweichungen zwischen den Schuessen werden gemeldet.
+function applyShotParams() {
+  const raw = lastSessionShots.filter(s => s.has_raw);
+  const withRaw = raw.filter(s => s.raw);
+  if (!withRaw.length && !raw.some(s => s.walk_k != null || s.sound_act_mps != null)) {
+    alert('Für diese Schüsse sind keine Geräteparameter gespeichert.'); return;
+  }
+  const ref = withRaw.length ? withRaw[0].raw : null;
+  const p = {};
+  const notes = [];
+  if (ref) {
+    p.mic_offset_ns = ref.ofs_ns;
+    p.mic_enabled = ref.mic_en.map(v => !!v);
+    if (ref.walk_max_us != null) p.walk_max_us = ref.walk_max_us;
+    const differs = withRaw.some(s => JSON.stringify(s.raw.ofs_ns) !== JSON.stringify(ref.ofs_ns)
+      || JSON.stringify(s.raw.mic_en) !== JSON.stringify(ref.mic_en));
+    if (differs) notes.push('Offsets/aktive Mikrofone unterscheiden sich zwischen den Schüssen – übernommen wurden die des ersten Schusses.');
+  }
+  const wk = (ref && ref.walk_k != null) ? ref.walk_k : (raw.find(s => s.walk_k != null) || {}).walk_k;
+  if (wk != null) p.walk_k = wk;
+  const snd = raw.map(s => s.sound_act_mps != null ? s.sound_act_mps : (s.raw && s.raw.sound_act_mps)).filter(v => v != null);
+  if (snd.length) {
+    const lo = Math.min(...snd), hi = Math.max(...snd);
+    p.sound_mps = +((lo + hi) / 2).toFixed(1);
+    p.sound_from_shot = hi - lo >= 0.05;
+    if (p.sound_from_shot) notes.push(`Schallgeschwindigkeit schwankt (${lo.toFixed(2)}–${hi.toFixed(2)} m/s) – „je Schuss“ wurde eingeschaltet.`);
+  }
+  applyParams(p);
+  alert('Parameter vom Schusszeitpunkt übernommen.' + (notes.length ? '\n\n' + notes.join('\n') : ''));
+}
 let calSelected = new Set(); // ausgewaehlte shot_no fuer die Kalibrierung
 
 // ── Zoom ─────────────────────────────────────────────────────────────────
@@ -565,10 +717,15 @@ function renderResultsTable(rows) {
   for (const r of rows) {
     const tr = document.createElement('tr');
     const dt = r.started_at ? new Date(r.started_at) : null;
-    const date = dt ? dt.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'}) : '–';
+    const date = dt ? dt.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'})
+      + ' ' + dt.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : '–';
     const score = r.total_rings ? String(r.total_rings) : '–';
+    // Schuesse mit Rohdaten (inkl. Probe) - Wartungs-Serien bestehen oft nur aus Probeschuessen
+    const shots = r.raw_shot_count && r.raw_shot_count !== r.shot_count
+      ? `${r.shot_count || 0} <span style="opacity:.6" title="Schüsse mit Rohdaten inkl. Probeschüssen">(${r.raw_shot_count} roh)</span>`
+      : (r.shot_count || '–');
     tr.innerHTML = `<td>${r.maintenance ? '🔧 ' : ''}${esc(r.shooter_name)}${r.maintenance && r.lane_no != null ? ` <span style="opacity:.6">(Stand ${r.lane_no})</span>` : ''}</td><td>${date}</td><td>${esc(r.discipline)}</td>
-      <td class="num">${r.shot_count||'–'}</td><td class="num">${score}</td>`;
+      <td class="num">${shots}</td><td class="num">${score}</td>`;
     tr.onclick = () => selectSession(tr, r);
     tbody.appendChild(tr);
   }
@@ -627,7 +784,10 @@ async function selectSession(tr, r) {
     document.getElementById('seriesGrid').innerHTML = '';
     const withRaw = shots.filter(s => s.has_raw).length;
     info.textContent = `Geladen: ${esc(r.shooter_name)} · ${esc(r.discipline)} · `
-      + `${shots.length} Schuss/Schüsse, davon ${withRaw} mit Rohdaten (nur diese können neu berechnet werden).`;
+      + `${shots.length} Schuss/Schüsse, davon ${withRaw} mit Rohdaten (nur diese können neu berechnet werden).`
+      + firmwareShotSummary(shots);
+    currentDiscipline = r.discipline;
+    if (!document.getElementById('z-hole').value) document.getElementById('z-hole').value = defaultHoleRadius(r.discipline);
     document.getElementById('paramsSection').style.display = '';
     document.getElementById('calSection').style.display = withRaw ? '' : 'none';
     document.getElementById('photoSection').style.display = withRaw ? '' : 'none';
@@ -637,7 +797,29 @@ async function selectSession(tr, r) {
   }
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('p-sound');
+  if (el) el.title = soundSpeedTooltip();
+});
+
 // ── 2. Parameter / Config / SHOW-Import ─────────────────────────────────
+// soundSpeedTooltip: Schallgeschwindigkeit in Luft fuer 8-26 °C in 2-Grad-
+// Schritten als Hilfe fuer SOUNDSPEED - gleiche Formel wie die Firmware
+// (Rev 4.15.0, SET DHT): c = 331,3·√(1 + T/273,15)·(1 + 0,16·x_w),
+// Wasserdampfanteil x_w aus Sättigungsdampfdruck (Magnus) bei 1013,25 hPa.
+function soundSpeedTooltip() {
+  const c = (t, rh) => {
+    const ps = 6.112 * Math.exp(17.62 * t / (243.12 + t));
+    return 331.3 * Math.sqrt(1 + t / 273.15) * (1 + 0.16 * rh * ps / 1013.25);
+  };
+  const f = v => v.toFixed(1).replace('.', ',');
+  const lines = ['Schallgeschwindigkeit in Luft (Formel wie Firmware):', 'Temp.   trocken   50 % rF'];
+  for (let t = 8; t <= 26; t += 2) {
+    lines.push(`${String(t).padStart(2, ' ')} °C   ${f(c(t, 0))}   ${f(c(t, 0.5))} m/s`);
+  }
+  return lines.join('\n');
+}
+
 function currentParams() {
   return {
     standoff_paper_mm: parseFloat(document.getElementById('p-standoffPaper').value) || 0,
@@ -645,6 +827,12 @@ function currentParams() {
     offset_x_um: parseInt(document.getElementById('p-offsetX').value) || 0,
     offset_y_um: parseInt(document.getElementById('p-offsetY').value) || 0,
     sound_mps: parseFloat(document.getElementById('p-sound').value) || 0,
+    walk_k: Math.max(0, Math.min(1, parseFloat(document.getElementById('p-walkK').value) || 0)),
+    sound_from_shot: document.getElementById('p-soundFromShot').checked,
+    capture: sessionCapture,
+    tdoa_us: parseInt(document.getElementById('p-tdoa').value) || 0,
+    walk_max_us: parseInt(document.getElementById('p-walkMax').value) || 0,
+    walk_width_rule: document.getElementById('p-walkRule').value,
     mic_offset_ns: [0,1,2,3,4,5].map(i => parseInt(document.getElementById('p-ofs'+i).value) || 0),
     bullet_shift_pct: parseInt(document.getElementById('p-bshiftPct').value) || 0,
     bullet_shift_cap_mm: parseFloat(document.getElementById('p-bshiftCap').value) || 0,
@@ -653,6 +841,7 @@ function currentParams() {
     piezo_min_us: parseInt(document.getElementById('p-piezoMin').value) || 0,
     piezo_max_us: parseInt(document.getElementById('p-piezoMax').value) || 0,
     use_piezo: document.getElementById('p-usePiezo').checked,
+    zones: readZones(),
     pos_algo: {
       corr_cluster: document.getElementById('pa-corr').checked,
       iterations: parseInt(document.getElementById('pa-iter').value) || 0,
@@ -686,6 +875,11 @@ function applyParams(p) {
   if (p.offset_x_um != null) document.getElementById('p-offsetX').value = p.offset_x_um;
   if (p.offset_y_um != null) document.getElementById('p-offsetY').value = p.offset_y_um;
   if (p.sound_mps != null) document.getElementById('p-sound').value = p.sound_mps;
+  if (p.walk_k != null) document.getElementById('p-walkK').value = p.walk_k;
+  if (p.tdoa_us != null) document.getElementById('p-tdoa').value = p.tdoa_us;
+  if (p.walk_max_us != null) document.getElementById('p-walkMax').value = p.walk_max_us || '';
+  if (p.walk_width_rule != null) document.getElementById('p-walkRule').value = p.walk_width_rule;
+  if (p.sound_from_shot != null) document.getElementById('p-soundFromShot').checked = !!p.sound_from_shot;
   if (Array.isArray(p.mic_offset_ns)) {
     p.mic_offset_ns.forEach((v,i) => { const el = document.getElementById('p-ofs'+i); if (el) el.value = v; });
   }
@@ -711,7 +905,76 @@ function applyParams(p) {
     document.getElementById('pa-lsq').checked = !!a.lsq;
     if (a.lsq_pellet_r_mm) document.getElementById('pa-lsqR').value = a.lsq_pellet_r_mm;
   }
+  if (p.zones !== undefined) writeZones(p.zones);
   onUsePiezoChange();
+}
+
+// ── Zonen-Kalibrierung (siehe sim_zones.go) ─────────────────────────────
+const ZONES = [['A', 'Loch Vorsatzscheibe'], ['B', 'neben Band'], ['C', 'Band + Vorsatz']];
+(function buildZoneTable() {
+  const tb = document.querySelector('#zoneTable tbody');
+  const num = (id, step, w) => `<td><input type="number" id="${id}" step="${step}" style="width:${w}px"></td>`;
+  tb.innerHTML = ZONES.map(([z, name]) => `<tr><td><strong>${z}</strong> <span class="hint">${name}</span></td>
+    <td><input type="checkbox" id="z-${z}-on" onchange="renderZoneBox()"></td>
+    ${num(`z-${z}-sound`, 0.1, 70)}${[0,1,2,3,4,5].map(i => num(`z-${z}-ofs${i}`, 1, 88)).join('')}
+    ${num(`z-${z}-offx`, 1, 80)}${num(`z-${z}-offy`, 1, 80)}</tr>`).join('');
+})();
+
+// Voreinstellung Lochradius nach Disziplin (LG Ø 30,5; LP Ø 59,5)
+function defaultHoleRadius(discipline) {
+  const d = (discipline || '').toLowerCase();
+  if (/pistole|\blp\b|^lp/.test(d)) return 29.75;
+  return 15.25;
+}
+
+function renderZoneBox() {
+  const on = document.getElementById('z-enabled').checked;
+  document.getElementById('zoneFields').style.display = on ? '' : 'none';
+  for (const [z] of ZONES) {
+    const set = document.getElementById(`z-${z}-on`).checked;
+    document.querySelectorAll(`#zoneTable input[id^="z-${z}-"]:not([id$="-on"])`).forEach(el => el.disabled = !set);
+  }
+}
+
+function readZones() {
+  if (!document.getElementById('z-enabled').checked) return null;
+  const v = id => document.getElementById(id).value;
+  const z = {
+    enabled: true,
+    hole_radius_mm: parseFloat(v('z-hole')) || 0,
+    band_half_mm: parseFloat(v('z-band')) || 0,
+    blend_mm: parseFloat(v('z-blend')) || 0,
+  };
+  for (const [k] of ZONES) {
+    if (!document.getElementById(`z-${k}-on`).checked) continue;
+    z[k.toLowerCase()] = {
+      sound_mps: parseFloat(v(`z-${k}-sound`)) || 0,
+      mic_offset_ns: [0,1,2,3,4,5].map(i => parseInt(v(`z-${k}-ofs${i}`)) || 0),
+      offset_x_um: parseInt(v(`z-${k}-offx`)) || 0,
+      offset_y_um: parseInt(v(`z-${k}-offy`)) || 0,
+    };
+  }
+  return z;
+}
+
+function writeZones(z) {
+  const set = (id, val) => { document.getElementById(id).value = val; };
+  document.getElementById('z-enabled').checked = !!(z && z.enabled);
+  if (z) {
+    if (z.hole_radius_mm) set('z-hole', z.hole_radius_mm);
+    set('z-band', z.band_half_mm || 45);
+    set('z-blend', z.blend_mm || 2.25);
+  }
+  for (const [k] of ZONES) {
+    const s = z && z[k.toLowerCase()];
+    document.getElementById(`z-${k}-on`).checked = !!s;
+    if (!s) continue;
+    set(`z-${k}-sound`, s.sound_mps);
+    s.mic_offset_ns.forEach((o, i) => set(`z-${k}-ofs${i}`, o));
+    set(`z-${k}-offx`, s.offset_x_um);
+    set(`z-${k}-offy`, s.offset_y_um);
+  }
+  renderZoneBox();
 }
 
 // loadConfigOptions: Liste gespeicherter Kalibrierungen als Tabelle statt
@@ -761,13 +1024,19 @@ function renderConfigTable() {
     const dt = c.created_at ? new Date(c.created_at) : null;
     const when = dt ? dt.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '–';
     const lane = c.lane_no != null ? `Stand ${c.lane_no}` : '–';
-    tr.innerHTML = `<td>${esc(c.name)}</td><td>${lane}</td><td>${when}</td>
-      <td><button class="btn-sec" style="padding:3px 10px;font-size:12px" onclick="loadConfigById('${c.id}')">Laden</button></td>`;
+    const cap = (c.params && c.params.capture) ? c.params.capture.toUpperCase() : '–';
+    const z = c.params && c.params.zones;
+    const zTxt = z && z.enabled
+      ? `<span title="Lochradius ${z.hole_radius_mm} mm">✓ ${['a', 'b', 'c'].filter(k => z[k]).map(k => k.toUpperCase()).join('/') || 'nur Grenzen'}</span>`
+      : '–';
+    tr.innerHTML = `<td>${esc(c.name)}</td><td>${lane}</td><td>${cap}</td><td>${zTxt}</td><td>${when}</td>
+      <td style="white-space:nowrap"><button class="btn-sec" style="padding:3px 10px;font-size:12px" onclick="loadConfigById('${c.id}')">Laden</button>
+        <button class="btn-sec" style="padding:3px 10px;font-size:12px;margin-left:4px;color:var(--red);border-color:var(--red)" title="Kalibrierung löschen" onclick="deleteConfigById('${c.id}')">Löschen</button></td>`;
     tbody.appendChild(tr);
   }
   if (!filtered.length) {
     const msg = savedConfigs.length ? 'Keine gespeicherten Kalibrierungen für diesen Filter.' : 'Noch keine gespeicherten Kalibrierungen.';
-    tbody.innerHTML = `<tr><td colspan="4" class="hint">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="hint">${msg}</td></tr>`;
   }
 }
 
@@ -776,10 +1045,22 @@ function setCfgLaneFilter(val) {
   renderConfigTable();
 }
 
+// deleteConfigById: gespeicherte Kalibrierung loeschen (mit Rueckfrage).
+// Eine bereits erfolgte Freigabe fuer einen Stand bleibt davon unberuehrt.
+async function deleteConfigById(id) {
+  const c = savedConfigs.find(x => x.id === id);
+  if (!c) return;
+  if (!confirm(`Kalibrierung „${c.name}“ wirklich löschen?\n\nEine bereits erfolgte Freigabe für den Stand bleibt bestehen.`)) return;
+  try {
+    await api(`/api/simulator-configs/${id}`, {method: 'DELETE'});
+    await loadConfigOptions();
+  } catch (e) { alert('Löschen fehlgeschlagen: ' + e.message); }
+}
+
 function loadConfigById(id) {
   const c = savedConfigs.find(x => x.id === id);
   if (!c) return;
-  applyParams(c.params);
+  applyParams(Object.assign({zones: null}, c.params));
   currentLoadedLaneNo = c.lane_no != null ? c.lane_no : currentLoadedLaneNo;
 }
 
@@ -800,7 +1081,18 @@ function importShow() {
   if (!txt) { status.textContent = ''; return; }
   try {
     const cfg = JSON.parse(txt);
-    if (cfg.type !== 'config') throw new Error('kein SHOW-Telegramm (type != "config")');
+    // SHOWZONES-Antwort (Firmware 4.17.0): nur die Zonen uebernehmen
+    if (cfg.type === 'zones') {
+      writeZones({
+        enabled: cfg.zones === 1, hole_radius_mm: (cfg.z_hole_um || 0) / 1000,
+        band_half_mm: (cfg.z_band_um || 45000) / 1000, blend_mm: (cfg.z_blend_um || 2250) / 1000,
+        a: cfg.a || undefined, b: cfg.b || undefined, c: cfg.c || undefined,
+      });
+      status.textContent = 'Zonen übernommen.';
+      status.style.color = 'var(--green)';
+      return;
+    }
+    if (cfg.type !== 'config') throw new Error('kein SHOW- oder SHOWZONES-Telegramm (type != "config"/"zones")');
     // Endpositions-Verfahren: Firmware ab 4.12.0 meldet es im SHOW, aeltere
     // Firmware rechnet immer nach dem alten Verfahren (alles aus).
     cfg.pos_algo = {
@@ -808,6 +1100,11 @@ function importShow() {
       weighted: false, lsq: cfg.lsq === 1,
       lsq_pellet_r_mm: cfg.lsq_pellet_r_mm != null ? cfg.lsq_pellet_r_mm : 2.25,
     };
+    // Firmware ab 4.15.0: sound_mps ist gerundet, der genaue Wert steht in
+    // sound_set_mps; walk_k (ab 4.14.0) traegt im SHOW denselben Namen.
+    if (cfg.sound_set_mps != null) cfg.sound_mps = cfg.sound_set_mps;
+    // bei DHT=1 nutzt das Geraet die gemessene Schallgeschwindigkeit
+    if (cfg.dht != null) cfg.sound_from_shot = cfg.dht === 1;
     applyParams(cfg);
     status.textContent = 'Übernommen.';
     status.style.color = 'var(--green)';
@@ -957,7 +1254,8 @@ function buildSetCommands() {
     `SET MICHALFX=${p.mic_half_x_mm}`,
     `SET OFFSETX=${p.offset_x_um}`,
     `SET OFFSETY=${p.offset_y_um}`,
-    `SET SOUNDSPEED=${p.sound_mps}`,
+    // Nachkommastelle erst ab Firmware 4.15.0 - aeltere Firmware: ganzzahlig
+    `SET SOUNDSPEED=${(+p.sound_mps).toFixed(1)}`,
   ];
   p.mic_offset_ns.forEach((v,i) => lines.push(`SET OFS${i}=${v}`));
   lines.push(`SET BSHIFTPCT=${p.bullet_shift_pct}`);
@@ -973,6 +1271,24 @@ function buildSetCommands() {
   lines.push(`SET PIEZOMIN=${p.piezo_min_us}`);
   lines.push(`SET PIEZOMAX=${p.piezo_max_us}`);
   lines.push(`SET PIEZO=${p.use_piezo ? 1 : 0}`);
+  // ab Firmware 4.14.0, nur bei aktivem MCPWM wirksam
+  if (p.walk_k > 0) lines.push(`SET WALKK=${p.walk_k.toFixed(3)}`);
+  // Zonen-Kalibrierung ab Firmware 4.17.0 (ZHOLE setzt der Stand-PC je
+  // Scheibentyp; hier zur Vollstaendigkeit der eingestellte Wert)
+  const z = p.zones;
+  if (z && z.enabled) {
+    lines.push(`SET ZHOLE=${Math.round(z.hole_radius_mm * 1000)}`);
+    lines.push(`SET ZBAND=${Math.round((z.band_half_mm || 45) * 1000)}`);
+    lines.push(`SET ZBLEND=${Math.round((z.blend_mm || 2.25) * 1000)}`);
+    for (const k of ['a', 'b', 'c']) {
+      const s = z[k];
+      lines.push(s ? `SET ZCAL=${k.toUpperCase()},${(+s.sound_mps).toFixed(1)},${s.mic_offset_ns.join(',')},${s.offset_x_um},${s.offset_y_um}`
+                   : `SET ZCAL=${k.toUpperCase()},OFF`);
+    }
+    lines.push('SET ZONES=1');
+  } else {
+    lines.push('SET ZONES=0'); // ab Firmware 4.17.0
+  }
   return lines.join('\n');
 }
 
@@ -1027,7 +1343,9 @@ async function sendTransfer() {
       + (simOnlyPosAlgo(currentParams()) ? '\n\nHinweis: „nach Rest-Fehler gewichten“ gibt es nur im Simulator – '
          + 'das Gerät rechnet ohne Gewichtung. Ergebnisse am Stand können deshalb von der Simulation abweichen.' : '')
       + '\n\nDie Einstellungen der Positionsbestimmung (CLUSTERCORR/CLUSTERITER/LSQ) übernimmt erst Firmware 4.12.0 – '
-      + 'ältere Firmware überspringt sie.')) return;
+      + 'ältere Firmware überspringt sie.'
+      + (readZones() ? '\n\nZonen-Kalibrierung: Firmware ab 4.17.0 übernimmt auch die Zonen-Sätze (Lochradius setzt der Stand-PC je Scheibe). '
+         + 'Ältere Firmware übernimmt nur den Basissatz – am Stand entspricht das Ergebnis dann „nur Basissatz“.' : ''))) return;
   try {
     const t = await api(`/api/lanes/${lane}/calibration-transfer`, {
       method: 'PUT', headers: {'Content-Type':'application/json'},
@@ -1106,6 +1424,9 @@ async function runSimulation() {
       if (!zoomFocusShot) document.getElementById('unfocusBtn').style.display = 'none';
     }
     lastShotsPerSeries = resp.shots_per_series || 10;
+    // Foto-Zuordnung an die neuen Parameter anpassen (ruft ueber
+    // renderPairs -> onFotoPositionsChanged selbst neu auf)
+    if (typeof window.fotoRematch === 'function') await window.fotoRematch(resp);
     renderSeries(lastShotsPerSeries, lastSimShots);
     renderTargetSVG(currentTargetGeometry, lastSimShots);
     if (zoomFocusShot) {
@@ -1216,7 +1537,7 @@ function renderTargetSVG(geo, shots) {
   const fontSize = Math.max((minStep === Infinity ? outerR*0.1 : minStep) * 0.58, outerR * 0.045);
   for (let i = 0; i < rings.length; i++) {
     const r = rings[i];
-    if (r.v < 1 || r.v > 9) continue;
+    if (r.v < 1 || r.v > 8) continue; // die 9 steht auf Original-Scheiben nicht (zu gedraengt)
     const outerRadius = r.d / 2;
     const innerRadius = (i+1 < rings.length) ? rings[i+1].d/2 : 0;
     const labelR = (outerRadius + innerRadius) / 2;
@@ -1305,6 +1626,29 @@ function renderTargetSVG(geo, shots) {
     og.appendChild(document.createElementNS(SVG_NS, 'title')).textContent =
       `Schuss ${s.shot_no} (Original): Ring ${s.orig.ring}`;
     shotLayer.appendChild(og);
+
+    // Lage laut Foto (falls zugeordnet): gruener Ring + Linie zur
+    // Neuberechnung
+    const fp = fotoPosOn() ? fotoPosMap().get(s.shot_no) : null;
+    if (fp) {
+      if (valid) {
+        const fl = document.createElementNS(SVG_NS, 'line');
+        fl.setAttribute('x1', s.sim.x_mm); fl.setAttribute('y1', -s.sim.y_mm);
+        fl.setAttribute('x2', fp.x); fl.setAttribute('y2', -fp.y);
+        fl.setAttribute('stroke', '#2ecc71'); fl.setAttribute('stroke-width', strokeW*0.6);
+        fl.setAttribute('opacity', 0.8);
+        shotLayer.appendChild(fl);
+      }
+      const fc = document.createElementNS(SVG_NS, 'circle');
+      fc.setAttribute('cx', fp.x); fc.setAttribute('cy', -fp.y);
+      fc.setAttribute('r', CALIBER/2);
+      fc.setAttribute('fill', 'none'); fc.setAttribute('stroke', '#2ecc71');
+      fc.setAttribute('stroke-width', Math.max(strokeW*1.2, CALIBER*0.05));
+      const dev = valid ? Math.hypot(s.sim.x_mm - fp.x, s.sim.y_mm - fp.y) : null;
+      fc.appendChild(document.createElementNS(SVG_NS, 'title')).textContent =
+        `Schuss ${s.shot_no} laut Foto` + (dev != null ? ` · Abweichung Neuberechnung ${dev.toFixed(2)} mm` : '');
+      shotLayer.appendChild(fc);
+    }
   }
 
   // Kandidaten-Schnittpunkte des aktuell im Detail betrachteten Schusses
@@ -1534,7 +1878,41 @@ function setCandCorrected(v) {
 let lastShotsPerSeries = 10;
 function updateResultStatus() {
   document.getElementById('resultStatus').textContent =
-    `${lastSimShots.length} Schuss/Schüsse${cluster9Summary(lastSimShots)}. Klick auf einen Schuss für Details.`;
+    `${lastSimShots.length} Schuss/Schüsse${cluster9Summary(lastSimShots)}${fotoSummary(lastSimShots)}. Klick auf einen Schuss für Details.`;
+}
+
+// ── Lage laut Foto (Foto-Kalibrierung, simulator-foto.js) ────────────────
+function fotoPosMap() {
+  return typeof window.fotoPositions === 'function' ? window.fotoPositions() : new Map();
+}
+function fotoPosOn() {
+  return document.getElementById('fotoPosToggle').checked;
+}
+// Abweichung Neuberechnung <-> Foto ueber alle zugeordneten Schuesse
+function fotoSummary(shots) {
+  const fp = fotoPosMap();
+  const errs = (shots || []).filter(s => s.has_raw && s.sim.pos_valid && fp.has(s.shot_no))
+    .map(s => { const p = fp.get(s.shot_no); return Math.hypot(s.sim.x_mm - p.x, s.sim.y_mm - p.y); })
+    .sort((a, b) => a - b);
+  if (!errs.length) return '';
+  const below = errs.filter(e => e < 1).length;
+  return ` · Abweichung zum Foto (${errs.length} Schuss): Median ${errs[errs.length >> 1].toFixed(2)} mm, `
+    + `max. ${errs[errs.length - 1].toFixed(2)} mm, ${Math.round(100 * below / errs.length)} % < 1 mm`;
+}
+function fotoDetailRow(s) {
+  const p = fotoPosMap().get(s.shot_no);
+  if (!p) return '';
+  const d = s.sim.pos_valid ? Math.hypot(s.sim.x_mm - p.x, s.sim.y_mm - p.y) : null;
+  return `<div class="hint" style="color:#2ecc71">Foto: x ${p.x.toFixed(2)} / y ${p.y.toFixed(2)} mm`
+    + (d != null ? ` · Abweichung Simuliert ↔ Foto ${d.toFixed(2)} mm` : '') + '</div>';
+}
+// Aufruf aus simulator-foto.js, sobald sich die Zuordnung aendert
+function onFotoPositionsChanged() {
+  document.getElementById('fotoPosToggleWrap').style.display = fotoPosMap().size ? '' : 'none';
+  if (lastSimShots && lastSimShots.length) {
+    renderTargetSVG(currentTargetGeometry, lastSimShots);
+    updateResultStatus();
+  }
 }
 
 // renderDetailExtra baut die Detail-Box aus der zuletzt geladenen Antwort
@@ -1732,7 +2110,8 @@ function showDetail(s) {
           <td>${s.sim.pos_valid ? s.sim.decimal.toFixed(1) : '–'}</td>
           <td>${s.sim.pos_valid ? 'ja' : 'nein'}</td><td>${s.sim.cluster_hits}</td></tr>
     </table>
-    ${s.sim.pos_valid ? `<div class="hint">Δ = ${dist.toFixed(2)} mm gegenüber Original</div>` : ''}
+    ${fotoDetailRow(s)}
+    ${s.sim.pos_valid ? `<div class="hint">Δ = ${dist.toFixed(2)} mm gegenüber Original${s.sim.zone ? ` · Zone ${s.sim.zone} (${(ZONES.find(z => z[0] === s.sim.zone) || [])[1] || ''})` : ''}</div>` : ''}
     ${cluster9MM(s) != null ? `<div class="hint">Schnittpunkt-Cluster Σ9 = <strong class="${cluster9Class(cluster9MM(s))}">${cluster9MM(s).toFixed(2)} mm</strong>
       (${cluster9Variant()}; ${cluster9N(s)} von 9 Schnittpunkten im Cluster-Radius, fehlende je 5 mm) – Ziel &lt; ${CLUSTER9_GOOD_MM} mm</div>` : ''}`;
 }

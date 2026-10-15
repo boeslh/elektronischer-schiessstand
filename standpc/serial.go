@@ -64,7 +64,7 @@ func runSerialReader(ctx context.Context, cfg *Config, out chan<- RawShot, link 
 
 func readLoop(ctx context.Context, port serial.Port, out chan<- RawShot, cmds *CommandManager, state *DeviceState) {
 	scanner := bufio.NewScanner(port)
-	scanner.Buffer(make([]byte, 4096), 4096)
+	scanner.Buffer(make([]byte, 4096), 1<<16) // shot-Zeilen mit air_ns + air_w_ns (Rev 4.14) koennen lang werden
 
 	for scanner.Scan() {
 		select {

@@ -581,7 +581,7 @@ function buildTarget(target) {
   ];
   for (let i = 0; i < rings.length; i++) {
     const r = rings[i];
-    if (r.v < 1 || r.v > 9) continue;
+    if (r.v < 1 || r.v > 8) continue; // die 9 steht auf Original-Scheiben nicht (zu gedraengt)
     const outerRadius = r.d / 2;
     const innerRadius = (i + 1 < rings.length) ? rings[i + 1].d / 2 : 0;
     const labelR    = (outerRadius + innerRadius) / 2;

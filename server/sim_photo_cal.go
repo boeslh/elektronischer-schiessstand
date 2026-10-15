@@ -13,7 +13,8 @@
 //
 // Optimiert werden je nach Auswahl OFS1-5, OFFSETX/Y, SOUNDSPEED,
 // STANDOFFPAPER und MICHALFX. Alle Werte werden schon WAEHREND der Suche auf
-// die Aufloesung der Firmware gerundet (SOUNDSPEED ganzzahlig, OFS/OFFSET
+// die Aufloesung der Firmware gerundet (SOUNDSPEED 0.1 m/s seit Firmware
+// 4.15.0, OFS/OFFSET
 // ganzzahlig in ns/um, Standoff/MicHalfX 0.01mm) - sonst waere das
 // optimierte Ergebnis im Simulator besser als spaeter auf dem Geraet.
 // ============================================================================
@@ -112,7 +113,7 @@ func photoCalParams(opt PhotoCalOptions) []photoCalParam {
 			name: "SOUNDSPEED",
 			get:  func(p *SimParams) float64 { return p.SoundMps },
 			set:  func(p *SimParams, v float64) { p.SoundMps = v },
-			step: 8, minStep: 1, lo: 300, hi: 400, quantize: 1,
+			step: 8, minStep: 0.1, lo: 300, hi: 400, quantize: 0.1,
 		})
 	}
 	if opt.Standoff {
@@ -302,6 +303,12 @@ func photoCalSearch(shots []PhotoCalShot, start SimParams, opt PhotoCalOptions, 
 // genommen, damit eine schlechte Ausgangskalibrierung nicht in einem
 // lokalen Minimum festhaelt.
 func PhotoCalibrate(shots []PhotoCalShot, p SimParams, opt PhotoCalOptions) (PhotoCalReport, error) {
+	return photoCalibrate(shots, p, opt, 3)
+}
+
+// photoCalibrate: wie PhotoCalibrate, minExtra = geforderte Zahl gueltiger
+// Schuesse ueber der Zahl freier Parameter.
+func photoCalibrate(shots []PhotoCalShot, p SimParams, opt PhotoCalOptions, minExtra int) (PhotoCalReport, error) {
 	params := photoCalParams(opt)
 	free := len(params)
 	if opt.Offset {
@@ -321,10 +328,10 @@ func PhotoCalibrate(shots []PhotoCalShot, p SimParams, opt PhotoCalOptions) (Pho
 	}
 	// Mindestens 3 Schuesse mehr als freie Parameter - sonst passt die
 	// Optimierung die Parameter an die Messfehler statt an die Anlage an.
-	if nValid < free+3 {
+	if nValid < free+minExtra {
 		return PhotoCalReport{}, errBadRequest(fmt.Sprintf(
 			"zu wenige gueltige zugeordnete Schuesse (%d) fuer %d freie Parameter - mindestens %d noetig",
-			nValid, free, free+3))
+			nValid, free, free+minExtra))
 	}
 
 	bestP, bestCost := photoCalSearch(shots, p, opt, params, &rep.Evaluations)
@@ -424,7 +431,9 @@ func (a *APIServer) photoCalibrateSession(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		seen[pr.ShotNo] = true
-		shots = append(shots, PhotoCalShot{ShotNo: s.ShotNo, AirNs: s.AirNs, PiezoNs: s.PiezoNs, TruthX: pr.XMM, TruthY: pr.YMM})
+		// Pulsbreiten-Korrektur aus den Parametern (WALKK) vorab anwenden; die
+		// Schallgeschwindigkeit optimiert die Foto-Kalibrierung selbst (global).
+		shots = append(shots, PhotoCalShot{ShotNo: s.ShotNo, AirNs: s.airFor(body.Params), PiezoNs: s.PiezoNs, TruthX: pr.XMM, TruthY: pr.YMM})
 	}
 	return PhotoCalibrate(shots, body.Params, body.Optimize)
 }

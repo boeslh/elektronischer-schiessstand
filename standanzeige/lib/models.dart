@@ -31,6 +31,38 @@ class Discipline {
   bool get fullyHidden => anzeige == 'verdeckt';
 }
 
+/// Schiesszeit (standpc/timing.go TimerInfo) - Zeitpunkte in Stand-PC-Zeit.
+class TimerInfo {
+  final String mode; // uhrzeit | soft | hard
+  final String switchMode; // individuell | zentral | automatisch
+  final bool separate;
+  final bool started;
+  final int probeDeadlineMs;
+  final int deadlineMs;
+  final int probeS;
+  final int totalS;
+
+  TimerInfo.fromJson(Map<String, dynamic> j)
+      : mode = _s(j['mode']).isEmpty ? 'uhrzeit' : _s(j['mode']),
+        switchMode = _s(j['switch']).isEmpty ? 'individuell' : _s(j['switch']),
+        separate = j['separate'] == true,
+        started = j['started'] == true,
+        probeDeadlineMs = _i(j['probe_deadline_ms']),
+        deadlineMs = _i(j['deadline_ms']),
+        probeS = _i(j['probe_s']),
+        totalS = _i(j['total_s']);
+
+  const TimerInfo.none()
+      : mode = 'uhrzeit',
+        switchMode = 'individuell',
+        separate = false,
+        started = false,
+        probeDeadlineMs = 0,
+        deadlineMs = 0,
+        probeS = 0,
+        totalS = 0;
+}
+
 class LaneStatus {
   final int laneNo;
   final String mode; // probe | wertung
@@ -41,6 +73,15 @@ class LaneStatus {
   final int wertungCount;
   final String notification;
   final int historyGen;
+  // Stechschuss (Server rwk_stechen.go): Durchgang (0 = keiner) und das
+  // Gesamtergebnis der Wertung
+  final int stechenNo;
+  final String baseTotal;
+  final TimerInfo timer;
+  /// Bedienung gesperrt (Standsteuerung, standpc/uilock.go)
+  final bool uiLocked;
+  /// Stand-PC-Uhr beim Senden minus Geraeteuhr (Abgleich der Countdown-Zeit)
+  final int clockSkewMs;
 
   LaneStatus.fromJson(Map<String, dynamic> j)
       : laneNo = _i(j['lane_no']),
@@ -53,7 +94,12 @@ class LaneStatus {
         eventType = _s(j['event_type']),
         wertungCount = _i(j['wertung_count']),
         notification = _s(j['notification']),
-        historyGen = _i(j['history_gen']);
+        historyGen = _i(j['history_gen']),
+        stechenNo = _i(j['stechen_no']),
+        baseTotal = _s(j['base_total']),
+        uiLocked = j['ui_locked'] == true,
+        timer = j['timer'] is Map<String, dynamic> ? TimerInfo.fromJson(j['timer']) : const TimerInfo.none(),
+        clockSkewMs = _i(j['now_ms']) > 0 ? _i(j['now_ms']) - DateTime.now().millisecondsSinceEpoch : 0;
 }
 
 class Shot {

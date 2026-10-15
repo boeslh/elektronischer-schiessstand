@@ -42,6 +42,15 @@ const (
 	// nur als Fallback, wenn SimParams.ClusterRadiusUm nicht gesetzt ist
 	// (0, z.B. alte gespeicherte Configs vor Einfuehrung dieses Parameters).
 	clusterRadiusDefaultUm int64 = 200
+
+	// Simulator-Defaults (DefaultSimParams) - abweichend von der Firmware:
+	// Cluster-Radius 4 mm statt 0,2 mm (beim Wechsel von mm auf 0.001mm
+	// verstellt; mit 0,2 mm liegen fast alle Schnittpunkte ausserhalb und
+	// Σ9/cluster_hits werden bedeutungslos) und Kugeldurchmesser-Korrektur
+	// 30 % (in der Foto-Studie 12.10.2026 bester Wert, calib_study_test.go
+	// TestStudyBulletShift).
+	simDefaultClusterRadiusUm int64 = 4000
+	simDefaultBulletShiftPct        = 30
 )
 
 // SimParams: einstellbare Kalibrierparameter, Feldnamen identisch zur
@@ -107,6 +116,134 @@ type SimParams struct {
 	// Nullwert = Verhalten bis Firmware 4.11.5, DefaultSimParams = Firmware-
 	// Default ab 4.12.0.
 	PosAlgo PosAlgoOptions `json:"pos_algo"`
+
+	// WalkK: Pulsbreiten-Korrektur (SET WALKK, Firmware Rev 4.14.0, 0 = aus) -
+	// Feldname wie im SHOW-Telegramm ("walk_k"), siehe walkCorrectedAir.
+	WalkK float64 `json:"walk_k"`
+	// SoundFromShot: statt SoundMps die zum Schusszeitpunkt aktive
+	// Schallgeschwindigkeit des Geraets verwenden (bei SET DHT=1 aus
+	// Temperatur/Luftfeuchte, Firmware Rev 4.15.0) - fuer Schuesse ohne
+	// gespeicherten Wert gilt weiter SoundMps. Wirkt bei Neuberechnung und
+	// Offset-Kalibrierung; Sigma9-Optimierung und Foto-Kalibrierung bestimmen
+	// die Schallgeschwindigkeit selbst und nutzen daher immer SoundMps.
+	SoundFromShot bool `json:"sound_from_shot,omitempty"`
+	// Capture: Erfassungsmodus ("isr"|"mcpwm") der Schuesse, aus denen die
+	// Parameter bestimmt wurden - nur Information fuer die Uebernahme an
+	// den Stand (Offsets passen nur zum selben Modus), "" = unbekannt.
+	Capture string `json:"capture,omitempty"`
+
+	// Nur fuer Schuesse mit Rohdaten-Telegramm (SET RAWLOG=1, Firmware
+	// 4.16.0, siehe sim_raw.go) - Feldnamen wie im SHOW: TDOA-Fenster fuer
+	// die Auswahl der ersten Flanke (0 = Firmware-Default 750 us), WALKMAX
+	// fuer die Pulsbreite (0 = Wert zum Schusszeitpunkt) und als Variante
+	// die Breiten-Regel ("" = Firmware: letzte fallende Flanke, "first" =
+	// erste fallende Flanke).
+	TdoaUs        int    `json:"tdoa_us,omitempty"`
+	WalkMaxUs     int    `json:"walk_max_us,omitempty"`
+	WalkWidthRule string `json:"walk_width_rule,omitempty"`
+
+	// Zones: zonenabhaengige Saetze (Loch der Vorsatzscheibe / neben dem
+	// Schussband / Band + Vorsatzscheibe), siehe sim_zones.go - nil oder
+	// nicht aktiv = ein Satz fuer die ganze Scheibe wie bisher.
+	Zones *ZoneParams `json:"zones,omitempty"`
+}
+
+// walkCorrectedAir bildet die Pulsbreiten-Korrektur der Firmware nach
+// (walkDeltas(), Rev 4.14.0): je Mikrofon t += k*(w - w_mittel), w_mittel =
+// Mittel der gueltigen Breiten aller beteiligten (ausgeloesten UND aktiven)
+// Mikrofone dieses Schusses. Mics ohne gueltige Breite (null, ISR-Betrieb)
+// bleiben unkorrigiert. Korrigiert wird nur die erste Flanke (die fuer die
+// Loesung verwendete); air wird nicht veraendert (Kopie der betroffenen
+// Kanaele). Die Firmware rechnet t = roh - OFS + round(walk) - hier wird
+// round(walk) auf die Rohzeit addiert, OFS zieht solveShotInternal ab.
+func walkCorrectedAir(air [6][]int64, w [6]*int64, k float64, enabled [6]bool) [6][]int64 {
+	if k == 0 {
+		return air
+	}
+	var sum float64
+	n := 0
+	use := func(i int) bool { return enabled[i] && len(air[i]) > 0 && w[i] != nil && *w[i] >= 0 }
+	for i := 0; i < 6; i++ {
+		if use(i) {
+			sum += float64(*w[i])
+			n++
+		}
+	}
+	if n == 0 {
+		return air
+	}
+	mean := float32(sum / float64(n))
+	out := air
+	for i := 0; i < 6; i++ {
+		if use(i) {
+			// float32 wie in der Firmware (walkDeltas rechnet in float)
+			d := float32(k) * (float32(*w[i]) - mean)
+			ch := append([]int64(nil), air[i]...)
+			ch[0] += int64(math.Round(float64(d)))
+			out[i] = ch
+		}
+	}
+	return out
+}
+
+// airFor: Rohzeiten des Schusses mit der Pulsbreiten-Korrektur aus p. Bei
+// ALGO=RIM ist die Korrektur laut Firmware schon in air_ns enthalten und
+// wird nicht ein zweites Mal angewendet.
+func (sh SimShotRaw) airFor(p SimParams) [6][]int64 {
+	// Rohdaten-Telegramm (RAWLOG): erste Flanke und Pulsbreite selbst
+	// bestimmen (sim_raw.go) - sonst die fertigen Werte aus dem shot.
+	if sh.Raw.usable() && sh.Raw.hasEdges() {
+		air, w := sh.Raw.airFromRaw(p)
+		return walkCorrectedAir(air, w, p.WalkK, p.micEnabled())
+	}
+	if p.WalkK == 0 || sh.Algo == "rim" {
+		return sh.AirNs
+	}
+	return walkCorrectedAir(sh.AirNs, sh.AirWNs, p.WalkK, p.micEnabled())
+}
+
+// soundFor: wirksame Schallgeschwindigkeit fuer diesen Schuss (siehe
+// SimParams.SoundFromShot) - 0 = p.SoundMps verwenden.
+func (sh SimShotRaw) soundFor(p SimParams) float64 {
+	if !p.SoundFromShot {
+		return 0
+	}
+	v := sh.SoundActMps
+	if v == nil && sh.Raw != nil {
+		v = sh.Raw.SoundActMps
+	}
+	if v != nil && *v >= 300 && *v <= 400 {
+		return *v
+	}
+	return 0
+}
+
+// paramsFor: p mit der fuer diesen Schuss wirksamen Schallgeschwindigkeit.
+func (sh SimShotRaw) paramsFor(p SimParams) SimParams {
+	if v := sh.soundFor(p); v > 0 {
+		p.SoundMps = v
+	}
+	return p
+}
+
+// SolveSimShot / SolveSimShotDetail: Neuberechnung eines gespeicherten
+// Schusses inkl. Pulsbreiten-Korrektur und Schallgeschwindigkeit je Schuss.
+// Mit aktiver Zonen-Kalibrierung (p.Zones) zweistufig, siehe sim_zones.go.
+func SolveSimShot(sh SimShotRaw, p SimParams) SimResult {
+	res, _, _ := SolveSimShotDetail(sh, p)
+	return res
+}
+
+func SolveSimShotDetail(sh SimShotRaw, p SimParams) (SimResult, []airCandidate, []bulletShiftMic) {
+	pp := sh.paramsFor(p)
+	if p.zonedEnabled() {
+		res, c, b, eff := solveZoned(sh.airFor(p), sh.PiezoNs, pp, p.SoundMps)
+		res.EffOffsetXUm, res.EffOffsetYUm = eff.OffsetXUm, eff.OffsetYUm
+		return res, c, b
+	}
+	res, c, b := SolveShotDetail(sh.airFor(p), sh.PiezoNs, pp)
+	res.EffOffsetXUm, res.EffOffsetYUm = p.OffsetXUm, p.OffsetYUm
+	return res, c, b
 }
 
 // usePiezo liefert p.UsePiezo mit Fallback auf den Firmware-Default (true) -
@@ -127,19 +264,16 @@ func (p SimParams) micEnabled() [6]bool {
 
 // DefaultSimParams liefert die Firmware-Werkseinstellungen (siehe .ino
 // loadConfig()-Defaults: standoff_pa=28.0, mic_half_x=115.0, sound_mps=343,
-// bshift_pct=50, bshift_cap=3.0, cluster_r=200) - AUSSER BulletShiftPct: seit
-// die Kugeldurchmesser-Korrektur in die Kalibrierung mit einfliesst (siehe
-// calCostClassicFn), hat sich in Simulator-Tests 40% statt der
-// Firmware-Werkseinstellung 50% als bester Wert erwiesen und wird deshalb
-// hier bewusst abweichend als Simulator-Default gesetzt.
+// bshift_cap=3.0) - AUSSER Kugeldurchmesser-Korrektur (30 %) und Cluster-
+// Radius (4 mm), siehe simDefaultBulletShiftPct/simDefaultClusterRadiusUm.
 func DefaultSimParams() SimParams {
 	return SimParams{
 		StandoffPaperMM:  28.0,
 		MicHalfXMm:       115.0,
 		SoundMps:         343,
-		BulletShiftPct:   40,
+		BulletShiftPct:   simDefaultBulletShiftPct,
 		BulletShiftCapMm: 3.0,
-		ClusterRadiusUm:  clusterRadiusDefaultUm,
+		ClusterRadiusUm:  simDefaultClusterRadiusUm,
 		PiezoMinUs:       100,
 		PiezoMaxUs:       1400,
 		// Endpositions-Verfahren wie Firmware-Default ab Rev 4.12.0 (SET
@@ -182,6 +316,14 @@ type SimResult struct {
 	// Kugeldurchm.-Korrektur" im Simulator.
 	ClusterSumCorrUm *int64 `json:"cluster_sum_corr_um,omitempty"`
 	ClusterSumCorrN  int    `json:"cluster_sum_corr_n,omitempty"`
+
+	// Zone: bei Zonen-Kalibrierung die Zone mit dem groessten Anteil an der
+	// Lage ("A"|"B"|"C", siehe sim_zones.go), sonst leer.
+	Zone string `json:"zone,omitempty"`
+	// EffOffsetXUm/EffOffsetYUm: die fuer die Detailangaben (Schnittpunkte)
+	// wirksame Nachkorrektur - bei Zonen die der Zone, sonst p.OffsetX/YUm.
+	EffOffsetXUm int64 `json:"-"`
+	EffOffsetYUm int64 `json:"-"`
 }
 
 // Schnittpunkt-Cluster Σ9: Summe der Abstaende der (bis zu) 9 Schnittpunkte,
@@ -729,7 +871,14 @@ const micOfsMaxNs = 20000.0
 // der Rest-Fehler nach Kugelkorrektur in mm, Strafwert 1000mm je
 // unloesbarem Schuss - siehe calCostClassicFn()).
 func CalibrateMicOffsets(airNs [][6][]int64, p SimParams) (offsetsNs [6]int64, cost float64) {
-	offsets, c := coordinateDescentCalibrate(calCostClassicFn(airNs, p))
+	return CalibrateMicOffsetsSound(airNs, nil, p)
+}
+
+// CalibrateMicOffsetsSound wie CalibrateMicOffsets, mit eigener
+// Schallgeschwindigkeit je Schuss (sounds[k] > 0, sonst p.SoundMps) - siehe
+// SimParams.SoundFromShot.
+func CalibrateMicOffsetsSound(airNs [][6][]int64, sounds []float64, p SimParams) (offsetsNs [6]int64, cost float64) {
+	offsets, c := coordinateDescentCalibrate(calCostClassicSoundFn(airNs, sounds, p))
 	for i := 0; i < 6; i++ {
 		offsetsNs[i] = int64(math.Round(float64(offsets[i])))
 	}
@@ -740,16 +889,24 @@ func CalibrateMicOffsets(airNs [][6][]int64, p SimParams) (offsetsNs [6]int64, c
 // = Summe der Stufe-1-Rest-Fehler (solveAirPosition()) ueber alle
 // Kalibrier-Schuesse mit den zu testenden Offsets VOR der Loesung abgezogen.
 func calCostClassicFn(airNs [][6][]int64, p SimParams) func([6]float32) float32 {
+	return calCostClassicSoundFn(airNs, nil, p)
+}
+
+func calCostClassicSoundFn(airNs [][6][]int64, sounds []float64, p SimParams) func([6]float32) float32 {
 	micX, micY, standoffMM, soundMmPerNs, clusterRadiusMM := solveParams(p)
 	enabled := p.micEnabled()
 
 	type calShot struct {
-		raw  [6]int64
-		seen [6]bool
+		raw   [6]int64
+		seen  [6]bool
+		sound float32 // mm/ns
 	}
 	cal := make([]calShot, 0, len(airNs))
-	for _, shot := range airNs {
-		var cs calShot
+	for k, shot := range airNs {
+		cs := calShot{sound: soundMmPerNs}
+		if k < len(sounds) && sounds[k] > 0 {
+			cs.sound = float32(sounds[k]) * 1.0e-6
+		}
 		for i := 0; i < 6; i++ {
 			if len(shot[i]) > 0 && enabled[i] {
 				cs.seen[i] = true
@@ -781,7 +938,7 @@ func calCostClassicFn(airNs [][6][]int64, p SimParams) func([6]float32) float32 
 			// falschen, aber guenstigeren lokalen Optimalpunkt statt der
 			// eingespeisten Offsets.
 			_, _, _, _, _, _, _, corrRes, ok := airPosition(corrected, cs.seen, micX, micY, standoffMM,
-				soundMmPerNs, clusterRadiusMM, p.BulletShiftPct, float32(p.BulletShiftCapMm))
+				cs.sound, clusterRadiusMM, p.BulletShiftPct, float32(p.BulletShiftCapMm))
 			if ok {
 				total += corrRes
 			} else {

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import 'display_state.dart';
 import 'menus.dart';
+import 'models.dart';
 import 'settings.dart';
 import 'target_painter.dart';
 import 'theme.dart';
@@ -140,7 +141,12 @@ class _Header extends StatelessWidget {
     final wertung = st.mode == 'wertung';
     final d = st.discipline;
     final noProbePhase = d != null && d.trialShots == 0;
-    final modeBtnEnabled = !wertung || (!((st.status?.wertungCount ?? 0) > 0) && !noProbePhase);
+    // zentrales Umschalten bzw. Stechschuss: Zustand sichtbar, umschalten nur
+    // ueber die Standsteuerung
+    final uiLocked = st.status?.uiLocked ?? false;
+    final locked = uiLocked || (st.status?.stechenNo ?? 0) > 0 || st.status?.timer.switchMode == 'zentral';
+    final probeEnabled = !locked && wertung && !((st.status?.wertungCount ?? 0) > 0) && !noProbePhase;
+    final wertungEnabled = !locked && !wertung;
     final event = st.eventHeader;
 
     final connText = switch (st.conn) {
@@ -149,24 +155,53 @@ class _Header extends StatelessWidget {
       ConnState.offline => 'Verbindung unterbrochen – reconnect…',
     };
 
+    final stechenNo = st.status?.stechenNo ?? 0;
     final buttons = <Widget>[
-      _Badge(
-        text: wertung ? 'WERTUNG' : 'PROBE',
-        fg: wertung ? C.wertungFg : C.probeFg,
-        bg: wertung ? C.wertungBg : C.probeBg,
-        size: ui.fs.status * ui.k,
-      ),
-      _HeaderButton(
-        label: wertung ? '← Probe' : '→ Wertung',
-        size: ui.fs.status * ui.k,
-        onTap: modeBtnEnabled ? () => toggleMode(context, st) : null,
-      ),
-      if (st.showPsButton) _HeaderButton(label: '🏆', size: 18 * ui.k, onTap: () => openPsMenu(context, st, ui.scale)),
-      if (st.showReleaseButton) _HeaderButton(label: '🔓', size: 18 * ui.k, onTap: () => releaseLane(context, st)),
-      _HeaderButton(label: '📤', size: 18 * ui.k, onTap: () => openErgebnisMenu(context, st, ui.scale)),
-      if (st.showDisciplineButton)
+      // Umschalter: links immer Probe (orange), rechts immer Wertung (gruen),
+      // der aktive Modus fett mit gefuelltem Hintergrund
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        if (stechenNo == 0)
+          _ModeSegment(
+            text: 'PROBE',
+            fg: C.probeFg,
+            bg: C.probeBg,
+            active: !wertung,
+            left: true,
+            right: false,
+            size: ui.fs.status * ui.k,
+            onTap: probeEnabled ? () => toggleMode(context, st) : null,
+          ),
+        _ModeSegment(
+          text: stechenNo > 0 ? 'STECHSCHUSS $stechenNo' : 'WERTUNG',
+          fg: C.wertungFg,
+          bg: C.wertungBg,
+          active: wertung,
+          left: stechenNo > 0,
+          right: true,
+          size: ui.fs.status * ui.k,
+          onTap: wertungEnabled ? () => toggleMode(context, st) : null,
+        ),
+      ]),
+      // bei gesperrter Bedienung nur noch Zoom
+      if (st.showPsButton && !uiLocked)
+        _HeaderButton(label: '🏆', size: 18 * ui.k, onTap: () => openPsMenu(context, st, ui.scale)),
+      if (st.showReleaseButton && !uiLocked)
+        _HeaderButton(label: '🚪', size: 18 * ui.k, onTap: () => releaseLane(context, st)),
+      if (!uiLocked) _HeaderButton(label: '📤', size: 18 * ui.k, onTap: () => openErgebnisMenu(context, st, ui.scale)),
+      if (st.showDisciplineButton && !uiLocked)
         _HeaderButton(label: '🎯', size: 18 * ui.k, onTap: () => openDisciplineMenu(context, st, ui.scale)),
       _HeaderButton(label: '🔍', size: 18 * ui.k, onTap: () => openZoomMenu(context, st, ui.scale)),
+      // Schloss: Bedienung moeglich (offen) oder gesperrt (zu)
+      Tooltip(
+        message: uiLocked ? 'Bedienung gesperrt (Standsteuerung)' : 'Bedienung möglich',
+        child: Opacity(
+          opacity: uiLocked ? 1 : 0.6,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4 * ui.k),
+            child: Text(uiLocked ? '🔒' : '🔓', style: TextStyle(fontSize: 18 * ui.k)),
+          ),
+        ),
+      ),
     ];
 
     final lane = GestureDetector(
@@ -219,18 +254,51 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _Badge extends StatelessWidget {
+/// Eine Haelfte des Probe|Wertung-Umschalters (wie standpc/web/index.html
+/// .seg): aktiv fett mit gefuelltem Hintergrund, sonst nur Rahmen.
+class _ModeSegment extends StatelessWidget {
   final String text;
   final Color fg, bg;
+  final bool active, left, right;
   final double size;
-  const _Badge({required this.text, required this.fg, required this.bg, required this.size});
+  final VoidCallback? onTap;
+  const _ModeSegment({
+    required this.text,
+    required this.fg,
+    required this.bg,
+    required this.active,
+    required this.left,
+    required this.right,
+    required this.size,
+    this.onTap,
+  });
   @override
-  Widget build(BuildContext context) => Container(
-        padding: EdgeInsets.symmetric(horizontal: size * 0.9, vertical: size * 0.5),
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
-        child: Text(text,
-            style: TextStyle(color: fg, fontSize: size, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-      );
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.horizontal(
+      left: left ? const Radius.circular(4) : Radius.zero,
+      right: right ? const Radius.circular(4) : Radius.zero,
+    );
+    return Opacity(
+      opacity: active ? 1 : (onTap == null ? 0.25 : 0.55),
+      child: Material(
+        color: active ? bg : Colors.transparent,
+        shape: RoundedRectangleBorder(side: BorderSide(color: fg), borderRadius: radius),
+        child: InkWell(
+          onTap: active ? null : onTap,
+          borderRadius: radius,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: size * 0.9, vertical: size * 0.45),
+            child: Text(text,
+                style: TextStyle(
+                    color: fg,
+                    fontSize: size,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+                    letterSpacing: 1.5)),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _HeaderButton extends StatelessWidget {
@@ -355,6 +423,7 @@ class _Sidebar extends StatelessWidget {
     }
 
     final total = shots.isEmpty ? '–' : st.fmtScore(st.scoreOf(shots));
+    final stechenNo = st.status?.stechenNo ?? 0;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       // letzter Schuss
@@ -371,7 +440,35 @@ class _Sidebar extends StatelessWidget {
           Text(lastInfo, textAlign: TextAlign.center, style: TextStyle(fontSize: 12 * ui.k, color: C.dim)),
         ]),
       ),
+      // Stechschuss: Gesamtergebnis der Wertung statt Gesamt/Serien des
+      // Stechschusses (wie standpc/web/index.html #stechenLine)
+      if (stechenNo > 0)
+        Container(
+          margin: EdgeInsets.all(6 * ui.k),
+          padding: EdgeInsets.symmetric(vertical: 6 * ui.k, horizontal: 10 * ui.k),
+          decoration: BoxDecoration(
+            color: const Color(0xFF3A1F1F),
+            border: Border.all(color: const Color(0xFFE05C5C)),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text('STECHSCHUSS $stechenNo',
+                  style: TextStyle(fontSize: 13 * ui.k, fontWeight: FontWeight.w800, color: const Color(0xFFFF9A9A), letterSpacing: 1)),
+              Text.rich(TextSpan(children: [
+                TextSpan(text: 'Gesamtergebnis ', style: TextStyle(fontSize: 12 * ui.k, color: C.dim)),
+                TextSpan(
+                    text: st.status!.baseTotal.isEmpty ? '–' : st.status!.baseTotal,
+                    style: TextStyle(fontSize: fe + 6 * ui.k, fontWeight: FontWeight.w700, color: C.acc)),
+              ])),
+            ],
+          ),
+        ),
       // Gesamt
+      if (stechenNo == 0)
       Container(
         padding: EdgeInsets.symmetric(vertical: 6 * ui.k, horizontal: 12 * ui.k),
         decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: C.line))),
@@ -387,7 +484,7 @@ class _Sidebar extends StatelessWidget {
         ),
       ),
       // Serien (4 Spalten, max. ~4,5 Reihen, danach scrollbar)
-      if (cells.isNotEmpty)
+      if (cells.isNotEmpty && stechenNo == 0)
         ConstrainedBox(
           constraints: BoxConstraints(maxHeight: 4.5 * (fe + 34 * ui.k)),
           child: Container(
@@ -416,6 +513,112 @@ class _Sidebar extends StatelessWidget {
           child: Table(columnWidths: const {0: FlexColumnWidth(0.7)}, children: rows),
         ),
       ),
+      // Schießzeit rechts unten (wie standpc/web/index.html #clockBox)
+      if (st.status != null) _ShotClock(status: st.status!, ui: ui),
     ]);
+  }
+}
+
+/// Schiesszeit: Uhrzeit (weiss), Soft-Countdown (gruen, wird negativ),
+/// Hard-Countdown (rot, endet bei 00:00) - Logik wie standpc/web/index.html
+/// tickClock().
+class _ShotClock extends StatefulWidget {
+  final LaneStatus status;
+  final Ui ui;
+  const _ShotClock({required this.status, required this.ui});
+
+  @override
+  State<_ShotClock> createState() => _ShotClockState();
+}
+
+class _ShotClockState extends State<_ShotClock> {
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  static String _fmt(int ms) {
+    final neg = ms < 0;
+    var s = (ms.abs() / 1000).ceil();
+    final h = s ~/ 3600;
+    s -= h * 3600;
+    final m = s ~/ 60;
+    s -= m * 60;
+    final mm = m.toString().padLeft(2, '0'), ss = s.toString().padLeft(2, '0');
+    return '${neg ? '−' : ''}${h > 0 ? '$h:$mm' : mm}:$ss';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final st = widget.status, t = st.timer, k = widget.ui.k;
+    final now = DateTime.now().millisecondsSinceEpoch + st.clockSkewMs;
+    var color = Colors.white;
+    var labelColor = C.dim;
+    var opacity = 1.0;
+    String label, text;
+    if (t.mode == 'uhrzeit') {
+      label = 'UHRZEIT';
+      final d = DateTime.fromMillisecondsSinceEpoch(now);
+      String two(int v) => v.toString().padLeft(2, '0');
+      text = '${two(d.hour)}:${two(d.minute)}:${two(d.second)}';
+    } else {
+      color = t.mode == 'hard' ? const Color(0xFFE05C5C) : const Color(0xFF3DCC6E);
+      final inProbe = t.separate && st.mode == 'probe';
+      final zentral = t.switchMode == 'zentral';
+      if (!t.started) {
+        opacity = 0.45;
+        label = '${t.separate ? (inProbe ? 'PROBEZEIT' : 'WERTUNGSZEIT') : 'SCHIESSZEIT'} · '
+            '${zentral ? 'WARTEN AUF START' : 'NICHT GESTARTET'}';
+        text = _fmt((inProbe ? t.probeS : t.totalS) * 1000);
+      } else if (zentral && (inProbe ? now >= t.probeDeadlineMs : t.deadlineMs == 0)) {
+        // Probezeit vorbei, Wertung noch nicht freigegeben
+        opacity = 0.45;
+        labelColor = const Color(0xFFE05C5C);
+        label = 'PROBEZEIT ABGELAUFEN · WARTEN AUF WERTUNG';
+        text = _fmt(t.totalS * 1000);
+      } else {
+        int left;
+        if (inProbe && now < t.probeDeadlineMs) {
+          label = 'PROBEZEIT';
+          left = t.probeDeadlineMs - now;
+        } else {
+          label = t.separate ? 'WERTUNGSZEIT' : 'SCHIESSZEIT';
+          left = t.deadlineMs - now;
+        }
+        if (left < 0) {
+          labelColor = const Color(0xFFE05C5C);
+          label = t.mode == 'hard' ? 'ZEIT ABGELAUFEN' : '$label ÜBERSCHRITTEN';
+          if (t.mode == 'hard') left = 0;
+        }
+        text = _fmt(left);
+      }
+    }
+    return Container(
+      padding: EdgeInsets.fromLTRB(12 * k, 6 * k, 12 * k, 8 * k),
+      decoration: const BoxDecoration(border: Border(top: BorderSide(color: C.line))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+        Text(label, style: TextStyle(fontSize: 11 * k, color: labelColor, letterSpacing: 1)),
+        Opacity(
+          opacity: opacity,
+          child: Text(text,
+              style: TextStyle(
+                  fontSize: widget.ui.fs.ergebnisse * k + 22 * k,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  fontFeatures: const [FontFeature.tabularFigures()])),
+        ),
+      ]),
+    );
   }
 }

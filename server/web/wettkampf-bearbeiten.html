@@ -123,6 +123,30 @@ textarea{resize:vertical;min-height:56px}
         <option value="gruppe">Gruppenwettkampf (Mannschaften / Vereine / Gaue)</option>
       </select>
 
+      <div id="cf-modus-wrap" style="display:none">
+        <label for="cf-modus">Wertungsart</label>
+        <select id="cf-modus" onchange="syncModusVisibility()">
+          <option value="mannschaft">Mannschaftswettkampf (Mannschaftsergebnis entscheidet)</option>
+          <option value="paarung">Paarungswettkampf (Heim gegen Gast je Paarung, Punkte)</option>
+        </select>
+        <div id="cf-bestof-wrap">
+          <label for="cf-bestof">Mannschaftswertung</label>
+          <select id="cf-bestof">
+            <option value="0">Alle Schützen (S/E) zählen</option>
+            <option value="2">Beste 2 Schützen</option>
+            <option value="3">Beste 3 Schützen</option>
+            <option value="4">Beste 4 Schützen</option>
+            <option value="5" selected>Beste 5 Schützen</option>
+            <option value="6">Beste 6 Schützen</option>
+            <option value="7">Beste 7 Schützen</option>
+            <option value="8">Beste 8 Schützen</option>
+            <option value="9">Beste 9 Schützen</option>
+            <option value="10">Beste 10 Schützen</option>
+          </select>
+          <div class="hint">Gilt für Auswertung, PDF und die Anzeigen (Ergebnis und Hochrechnung).</div>
+        </div>
+      </div>
+
       <div class="form-row2">
         <div>
           <label for="cf-start">Datum von</label>
@@ -138,6 +162,23 @@ textarea{resize:vertical;min-height:56px}
       <select id="cf-disc">
         <option value="">– keine –</option>
       </select>
+
+      <label for="cf-timemode">Schießzeit</label>
+      <select id="cf-timemode">
+        <option value="uhrzeit">Uhrzeit – nur die Uhrzeit wird angezeigt</option>
+        <option value="soft" selected>Soft – Zeit zählt herunter, ohne Wirkung (wird nach Ablauf negativ)</option>
+        <option value="hard">Hard – nach Ablauf der Zeit wird kein Schuss mehr gewertet</option>
+      </select>
+      <label for="cf-switchmode">Umschalten Probe → Wertung</label>
+      <select id="cf-switchmode">
+        <option value="individuell">Individuell – jeder Schütze schaltet selbst um</option>
+        <option value="zentral">Zentral – Zeitstart und Umschalten über die Standsteuerung</option>
+        <option value="automatisch">Automatisch – nach Ablauf der Probezeit</option>
+      </select>
+      <div class="hint">Die Zeiten kommen aus der Disziplin. Bei einer Gesamtzeit für Probe und Wertung schaltet immer
+        jeder Schütze selbst um. Die Zeit läuft ab „Zeit starten“ in der Standsteuerung, sonst ab dem Start der Probe –
+        bei „Zentral“ nur ab „Zeit starten“; nach Ablauf der Probezeit ist dann bis zur Wertungsfreigabe kein Schuss möglich.
+        Vorbelegung für neue Wettkämpfe unter Einstellungen.</div>
 
       <label for="cf-location">Ort / Halle</label>
       <input type="text" id="cf-location" placeholder="z.B. Schützenheim Musterstadt">
@@ -195,7 +236,9 @@ textarea{resize:vertical;min-height:56px}
         <button type="button" class="btn-new" style="margin-top:6px;font-size:.72rem;padding:4px 10px" onclick="quickCreateTeam('gast')">+ Neue Mannschaft</button>
       </div>
     </div>
-    <button class="btn-new" style="margin-top:10px" onclick="saveRundeParticipants()">Mannschaften übernehmen</button>
+    <button class="btn-new" id="dt-runde-save" style="margin-top:10px" onclick="saveRundeParticipants()">Mannschaften festlegen</button>
+    <button class="btn-import" id="dt-runde-import" style="display:none;margin-top:10px;padding:6px 14px" onclick="importBothTeams()"
+            title="Alle Mitglieder beider Mannschaften als Starter eintragen (bereits eingetragene bleiben unverändert)">⬇ Starter beider Mannschaften übernehmen</button>
     <div id="dt-runde-msg" class="msg"></div>
   </div>
 
@@ -341,6 +384,24 @@ function fillForm(c) {
   document.getElementById('cf-status').value   = c.status || 'planned';
   document.getElementById('cf-notes').value    = c.notes || '';
   document.getElementById('cf-active').checked = c.active;
+  document.getElementById('cf-modus').value    = c.runde_modus || 'mannschaft';
+  document.getElementById('cf-bestof').value   = String(c.best_of != null ? c.best_of : 5);
+  document.getElementById('cf-timemode').value = c.time_mode || 'soft';
+  document.getElementById('cf-switchmode').value = c.switch_mode || 'individuell';
+  syncModusVisibility();
+}
+
+function syncModusVisibility() {
+  document.getElementById('cf-modus-wrap').style.display =
+    document.getElementById('cf-type').value === 'runde' ? 'block' : 'none';
+  // beste N nur bei der Mannschaftswertung (Paarung: Punkte je Paarung)
+  document.getElementById('cf-bestof-wrap').style.display =
+    document.getElementById('cf-modus').value === 'paarung' ? 'none' : 'block';
+}
+document.getElementById('cf-type').addEventListener('change', syncModusVisibility);
+
+function isPaarung() {
+  return activeComp && activeComp.type === 'runde' && activeComp.runde_modus === 'paarung';
 }
 
 function updateHeader() {
@@ -356,6 +417,7 @@ function updateHeader() {
     `<span class="badge badge-${c.status}" style="margin-right:6px">${STATUS_LABEL[c.status]||c.status}</span>`+
     (date ? `${date}&nbsp;&nbsp;` : '')+
     (c.discipline_name ? `${esc(c.discipline_name)}&nbsp;&nbsp;` : '')+
+    (c.type === 'runde' && c.runde_modus === 'paarung' ? `<span class="badge badge-runde" style="margin-right:6px">Paarungen</span>` : '')+
     (c.liga ? `${esc(c.liga)}&nbsp;&nbsp;` : '')+
     (c.location ? `📍 ${esc(c.location)}` : '');
 }
@@ -383,12 +445,17 @@ async function saveCompetition(e) {
     status:        document.getElementById('cf-status').value,
     notes:         document.getElementById('cf-notes').value.trim(),
     active:        document.getElementById('cf-active').checked,
+    runde_modus:   document.getElementById('cf-modus').value,
+    best_of:       parseInt(document.getElementById('cf-bestof').value),
+    time_mode:     document.getElementById('cf-timemode').value,
+    switch_mode:   document.getElementById('cf-switchmode').value,
   };
   try {
     if (compID) {
       await api(`/competitions/${compID}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
       await loadCompetition();
       updateHeader();
+      if (activeComp.type === 'runde') renderStarters();
       showMsg('cf-msg', 'Gespeichert.', 'ok');
     } else {
       const res = await api('/competitions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
@@ -444,6 +511,9 @@ async function loadParticipants() {
   if (!activeComp || activeComp.type === 'einzel') { participants = []; return; }
   participants = await api(`/competitions/${activeComp.id}/participants`) || [];
   renderParticipants();
+  // Starter-Sektion haengt bei Rundenwettkaempfen von Heim/Gast ab (Knoepfe
+  // "Mannschaft übernehmen" je Mannschaft) - sonst erst nach Neuladen sichtbar
+  if (activeComp.type === 'runde') renderStarters();
 }
 
 function renderParticipants() {
@@ -475,7 +545,26 @@ function renderRundeParticipants() {
   }
 
   document.getElementById('dt-runde-form').style.display = (heim && gast) ? 'none' : 'grid';
-  document.getElementById('dt-runde').querySelector('.btn-new').style.display = (heim && gast) ? 'none' : '';
+  document.getElementById('dt-runde-save').style.display = (heim && gast) ? 'none' : '';
+  document.getElementById('dt-runde-import').style.display = (heim && gast) ? '' : 'none';
+}
+
+// Starter beider Mannschaften (Heim und Gast) uebernehmen
+async function importBothTeams() {
+  let total = 0;
+  try {
+    for (const p of participants) {
+      const res = await api(`/competitions/${activeComp.id}/starters/import-team`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({team_id: p.team_id}),
+      });
+      total += res.added || 0;
+    }
+    showMsg('dt-runde-msg', total > 0 ? `${total} Starter aus beiden Mannschaften übernommen.`
+      : 'Alle Mitglieder beider Mannschaften sind bereits als Starter eingetragen.', 'ok');
+    await loadStarters();
+    await loadCompetition();
+  } catch(err) { showMsg('dt-runde-msg', 'Fehler: '+err.message, 'err'); }
 }
 
 async function saveRundeParticipants() {
@@ -498,6 +587,10 @@ async function saveRundeParticipants() {
     showMsg('dt-runde-msg', 'Mannschaften gespeichert.', 'ok');
     await loadParticipants();
     await loadCompetition();
+    // gleich anbieten, die Starter aus beiden Mannschaften zu uebernehmen
+    if (!starters.length && confirm('Mannschaften festgelegt. Sollen gleich alle Mitglieder beider Mannschaften als Starter übernommen werden?')) {
+      await importBothTeams();
+    }
   } catch(err) { showMsg('dt-runde-msg', 'Fehler: '+err.message, 'err'); }
 }
 
@@ -620,7 +713,7 @@ function renderStarters() {
 
   if (activeComp.type === 'runde' && participants.length > 0) {
     simpleRow.style.display = 'none';
-    content.innerHTML = '';
+    content.innerHTML = isPaarung() ? pairOverviewHTML() : '';
     for (const p of participants) {
       const label = p.sort_order === 0 ? 'Heim' : 'Gast';
       const teamStarters = starters.filter(s => s.team_id === p.team_id);
@@ -643,13 +736,70 @@ function renderStarters() {
                  oninput="searchStarter('${p.team_id}')" style="flex:1">
         </div>
         <div id="results-team-${p.team_id}" class="search-results" style="display:none"></div>
-        ${starterTable(teamStarters)}`;
+        ${starterTable(teamStarters, p.team_id)}`;
       content.appendChild(sec);
     }
   } else {
     simpleRow.style.display = 'flex';
     content.innerHTML = starterTable(starters);
   }
+}
+
+// Paarungswettkampf: Uebersicht Heim gegen Gast je Paarung.
+function pairOverviewHTML() {
+  const heim = participants.find(p => p.sort_order === 0), gast = participants.find(p => p.sort_order !== 0);
+  if (!heim || !gast) return '';
+  const name = st => st ? `<strong>${esc(st.last_name)}</strong>, ${esc(st.first_name)}` : '<span style="color:var(--dim)">– offen –</span>';
+  const find = (team, n) => starters.find(s => s.team_id === team && s.pair_no === n);
+  let rows = '';
+  for (let n = 1; n <= 5; n++) {
+    const h = find(heim.team_id, n), g = find(gast.team_id, n);
+    if (!h && !g && n > 4) continue;
+    rows += `<tr><td style="text-align:center;color:var(--dim)">${n}</td><td>${name(h)}</td>
+      <td style="text-align:center;color:var(--dim)">gegen</td><td>${name(g)}</td></tr>`;
+  }
+  const unp = starters.filter(s => s.role !== 'AK' && !s.pair_no &&
+    (s.team_id === heim.team_id || s.team_id === gast.team_id)).length;
+  return `<div class="team-section">
+    <div class="team-section-hdr"><span>Paarungen</span>
+      <div style="display:flex;align-items:center;gap:12px">
+        ${unp ? `<small style="color:var(--warn)">${unp} gewertete Starter ohne Paarung</small>` : ''}
+        <button class="btn-import" onclick="autoPairs()" title="Stammschützen ohne Paarung in Listenreihenfolge auf freie Paarungen verteilen">⇅ Automatisch zuordnen</button>
+      </div></div>
+    <table><thead><tr><th>Paarung</th><th>Heim: ${esc(heim.label)}</th><th></th><th>Gast: ${esc(gast.label)}</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <p class="hint" style="margin-top:6px">Je Paarung bringt das bessere Ergebnis einen Punkt. Bei 4 Paarungen und Punktgleichstand
+      zählt das Mannschaftsergebnis als weiterer Punkt. Bei Gleichstand in einer Paarung entscheiden Stechschüsse.</p>
+  </div>`;
+}
+
+async function setPair(starterID, val) {
+  const pair_no = val ? parseInt(val) : null;
+  try {
+    await api(`/competitions/${activeComp.id}/starters/${starterID}/pair`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pair_no}),
+    });
+    await loadStarters();
+  } catch(err) { showMsg('dt-starter-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function autoPairs() {
+  try {
+    for (const p of participants) {
+      const list = starters.filter(s => s.team_id === p.team_id);
+      const used = new Set(list.filter(s => s.pair_no).map(s => s.pair_no));
+      const free = [1,2,3,4,5].filter(n => !used.has(n));
+      const todo = list.filter(s => !s.pair_no && s.role === 'S');
+      for (const st of todo) {
+        const n = free.shift();
+        if (!n) break;
+        await api(`/competitions/${activeComp.id}/starters/${st.id}/pair`, {
+          method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pair_no: n}),
+        });
+      }
+    }
+    await loadStarters();
+  } catch(err) { showMsg('dt-starter-msg', 'Fehler: '+err.message, 'err'); }
 }
 
 function starterTable(list) {
@@ -671,6 +821,9 @@ function starterTable(list) {
         <button class="role-btn ${st.role==='E'?'active-E':''}" onclick="setRole('${st.id}','E')" title="Ersatzschütze – auch gewertet, in Tabelle markiert">E</button>
         <button class="role-btn ${st.role==='AK'?'active-AK':''}" onclick="setRole('${st.id}','AK')" title="Außer Konkurrenz – nicht gewertet">AK</button>
       </td>
+      ${isPaarung() ? `<td><select onchange="setPair('${st.id}', this.value)" title="Paarung (Heim gegen Gast)" ${isAK?'disabled':''}>
+          <option value="">–</option>${[1,2,3,4,5].map(n => `<option value="${n}" ${st.pair_no===n?'selected':''}>${n}</option>`).join('')}
+        </select></td>` : ''}
       <td class="row-actions">
         <button class="btn-status" onclick="openManualResult('${st.id}','${esc(st.last_name+', '+st.first_name)}')" title="Ergebnis manuell erfassen (z.B. anderswo vorgeschossen)">✎</button>
         <button class="btn-del" onclick="removeStarter('${st.id}','${esc(st.last_name+', '+st.first_name)}')">–</button>
@@ -678,7 +831,7 @@ function starterTable(list) {
     </tr>`;
   }).join('');
   return `<table>
-    <thead><tr><th>Nr.</th><th>Name</th><th>Verein</th><th>Rolle</th><th></th></tr></thead>
+    <thead><tr><th>Nr.</th><th>Name</th><th>Verein</th><th>Rolle</th>${isPaarung() ? '<th>Paarung</th>' : ''}<th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -922,6 +1075,12 @@ async function importTeam(teamID, teamName) {
     await Promise.all([loadParticipants(), loadStarters()]);
   } else {
     document.getElementById('new-hint').style.display = 'block';
+    // Vorbelegung aus den Einstellungen
+    try {
+      const d = await fetch('/api/settings/wettkampf-defaults').then(r => r.json());
+      if (d.time_mode) document.getElementById('cf-timemode').value = d.time_mode;
+      if (d.switch_mode) document.getElementById('cf-switchmode').value = d.switch_mode;
+    } catch (e) { /* Standardwerte im Formular */ }
   }
 })();
 </script>

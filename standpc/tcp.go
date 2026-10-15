@@ -92,7 +92,7 @@ func runTCPReader(ctx context.Context, cfg *Config, out chan<- RawShot, link *De
 			}()
 
 			scanner := bufio.NewScanner(c)
-			scanner.Buffer(make([]byte, 4096), 4096)
+			scanner.Buffer(make([]byte, 4096), 1<<16) // shot-Zeilen mit air_ns + air_w_ns (Rev 4.14) koennen lang werden
 			for scanner.Scan() {
 				line := scanner.Bytes()
 				// Signaturpruefung nur, wenn ein PSK konfiguriert ist (siehe

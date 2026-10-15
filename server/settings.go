@@ -250,3 +250,37 @@ func (a *APIServer) pushStandpcAdminPasswordHash(w http.ResponseWriter, r *http.
 	}
 	return results, nil
 }
+
+// ----------------------------------------------------------------------------
+// Vorgaben fuer neue Wettkaempfe: Zeithandling (uhrzeit/soft/hard) und
+// Umschalten Probe -> Wertung (individuell/zentral/automatisch), siehe
+// migrations/084 und 085.
+// ----------------------------------------------------------------------------
+
+type WettkampfDefaults struct {
+	TimeMode   string `json:"time_mode"`
+	SwitchMode string `json:"switch_mode"`
+}
+
+func (a *APIServer) getWettkampfDefaults(w http.ResponseWriter, r *http.Request) (any, error) {
+	var d WettkampfDefaults
+	err := a.store.pool.QueryRow(r.Context(),
+		`SELECT default_time_mode, default_switch_mode FROM app_settings WHERE id=1`).Scan(&d.TimeMode, &d.SwitchMode)
+	return d, err
+}
+
+func (a *APIServer) putWettkampfDefaults(w http.ResponseWriter, r *http.Request) (any, error) {
+	body, err := decodeBody[WettkampfDefaults](r)
+	if err != nil {
+		return nil, err
+	}
+	tm, sm := timeMode(body.TimeMode), switchMode(body.SwitchMode)
+	if tm == "" || sm == "" {
+		return nil, errBadRequest("ungueltige Vorgabe")
+	}
+	if _, err := a.store.pool.Exec(r.Context(),
+		`UPDATE app_settings SET default_time_mode=$1, default_switch_mode=$2 WHERE id=1`, tm, sm); err != nil {
+		return nil, err
+	}
+	return WettkampfDefaults{tm, sm}, nil
+}

@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
 )
@@ -22,8 +23,19 @@ func dispatchLine(line []byte, out chan<- RawShot, cmds *CommandManager, state *
 	}
 
 	var hdr telegramHeader
+	truncated := false
+	if bytes.HasPrefix(line, []byte(`{"type":"config"`)) && !json.Valid(line) {
+		// Firmware 4.16.0 schneidet das config-Telegramm nach ~900 Zeichen ab
+		// (Puffergrenze) - die vollstaendigen Felder retten, siehe salvageJSON.
+		if fixed := salvageJSON(line); fixed != nil {
+			log.Printf("WARNUNG: config-Telegramm von der Firmware abgeschnitten (%d Zeichen) - vollstaendige Felder uebernommen", len(line))
+			line, truncated = fixed, true
+		}
+	}
 	if err := json.Unmarshal(line, &hdr); err != nil {
-		log.Printf("Telegramm unparsbar: %.80s", line)
+		// vollstaendig protokollieren (bis 4000 Zeichen) - eine abgeschnittene
+		// Zeile laesst sich sonst nicht als Firmware-Fehler nachweisen
+		log.Printf("Telegramm unparsbar (%d Zeichen, %v): %.4000s", len(line), err, line)
 		return
 	}
 
@@ -40,6 +52,9 @@ func dispatchLine(line []byte, out chan<- RawShot, cmds *CommandManager, state *
 			log.Printf("Telegramm unparsbar: %.80s", line)
 			return
 		}
+		if state != nil {
+			raw.Ctx = state.ShotContext()
+		}
 		// Beide Telegrammtypen bekommen seit Firmware Rev 4.6.1 eine
 		// fortlaufende "seq" und durchlaufen dieselbe Pipeline (Log/DB) -
 		// reject wird dort als Rejected markiert und landet nicht in der
@@ -48,6 +63,21 @@ func dispatchLine(line []byte, out chan<- RawShot, cmds *CommandManager, state *
 		case out <- raw:
 		default:
 			log.Printf("WARNUNG: Pipeline voll, Telegramm #%d verworfen!", raw.Seq)
+		}
+	case "raw":
+		// SET RAWLOG=1 (Firmware Rev 4.16.0): folgt direkt auf den shot mit
+		// derselben seq - pairRawTelegrams haengt es dort an.
+		var h struct {
+			Seq int `json:"seq"`
+		}
+		if err := json.Unmarshal(line, &h); err != nil {
+			log.Printf("raw-Telegramm unparsbar: %.80s", line)
+			return
+		}
+		select {
+		case out <- RawShot{Type: "raw", Seq: h.Seq, RawEdges: append(json.RawMessage(nil), line...)}:
+		default:
+			log.Printf("WARNUNG: Pipeline voll, raw-Telegramm #%d verworfen!", h.Seq)
 		}
 	case "status":
 		var st StatusTelegram
@@ -58,12 +88,21 @@ func dispatchLine(line []byte, out chan<- RawShot, cmds *CommandManager, state *
 	case "config":
 		var cfg ConfigTelegram
 		if err := json.Unmarshal(line, &cfg); err == nil && state != nil {
+			cfg.Truncated = truncated
 			state.SetConfig(cfg)
-			if state.onConfig != nil {
+			// Eine abgeschnittene Konfiguration nicht sichern: fehlende Felder
+			// stuenden sonst mit 0 im Verlauf und koennten so wiederhergestellt
+			// werden.
+			if state.onConfig != nil && !truncated {
 				go state.onConfig(cfg)
 			}
 		}
 		log.Printf("ESP32: %s", line)
+	case "zones":
+		var z ZonesTelegram
+		if err := json.Unmarshal(line, &z); err == nil && state != nil {
+			state.SetZones(z)
+		}
 	case "confignet":
 		var cn ConfignetTelegram
 		if err := json.Unmarshal(line, &cn); err == nil && state != nil {
@@ -88,4 +127,23 @@ func dispatchLine(line []byte, out chan<- RawShot, cmds *CommandManager, state *
 	default:
 		log.Printf("ESP32 unbekannt: %.80s", line)
 	}
+}
+
+// salvageJSON macht aus einem abgeschnittenen JSON-Objekt ein gueltiges,
+// indem es das unvollstaendige letzte Feld verwirft und das Objekt schliesst.
+// nil, wenn das nicht gelingt.
+func salvageJSON(line []byte) []byte {
+	end := len(line)
+	for tries := 0; tries < 8; tries++ {
+		i := bytes.LastIndex(line[:end], []byte(`,"`))
+		if i <= 0 {
+			return nil
+		}
+		cand := append(append([]byte(nil), line[:i]...), '}')
+		if json.Valid(cand) {
+			return cand
+		}
+		end = i
+	}
+	return nil
 }

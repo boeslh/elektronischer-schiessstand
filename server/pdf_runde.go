@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/go-pdf/fpdf"
 )
@@ -209,6 +210,11 @@ func buildRundenwettkampfPDF(comp Competition, entries []RundenwettkampfEntry, b
 		pdf.Ln(6)
 	}
 
+	// ── Paarungen (Paarungswettkampf) ──────────────────────────────────
+	if comp.RundeModus == "paarung" {
+		drawPaarungPDF(pdf, tr, computePaarung(entries, false), fmtVal)
+	}
+
 	// ── Detail je Mannschaft ────────────────────────────────────────────
 	// Kein Verein je Zeile: eine Mannschaft tritt immer fuer genau einen
 	// Verein an, der deshalb einmal unter dem Mannschaftsnamen steht statt
@@ -275,14 +281,20 @@ func (a *APIServer) getRundenwettkampfPDF(w http.ResponseWriter, r *http.Request
 		http.Error(w, "event_id erforderlich", http.StatusBadRequest)
 		return
 	}
-	bestOf := 0
-	fmt.Sscanf(r.URL.Query().Get("best_of"), "%d", &bestOf)
-
 	ctx := r.Context()
 	comp, err := a.store.GetCompetition(ctx, eventID)
 	if err != nil {
 		http.Error(w, "Wettkampf nicht gefunden", http.StatusNotFound)
 		return
+	}
+	// Wertung (beste N) aus dem Wettkampf; best_of im Aufruf nur noch fuer
+	// gespeicherte Auswertungen mit abweichender Vorgabe
+	bestOf := 0
+	if comp.BestOf != nil {
+		bestOf = *comp.BestOf
+	}
+	if v := r.URL.Query().Get("best_of"); v != "" {
+		fmt.Sscanf(v, "%d", &bestOf)
 	}
 	entries, err := a.store.ListRundenwettkampfResults(ctx, eventID)
 	if err != nil {
@@ -321,4 +333,134 @@ func pdfFilenameSafe(name string) string {
 		return "auswertung"
 	}
 	return string(out)
+}
+
+// drawPaarungPDF: Tabelle der Paarungen mit Punkten und Endstand.
+func drawPaarungPDF(pdf *fpdf.Fpdf, tr func(string) string, pr paarungResult, fmtVal func(RundenwettkampfEntry) string) {
+	if len(pr.Pairs) == 0 {
+		return
+	}
+	pdf.SetFont("Helvetica", "B", 12)
+	pdf.CellFormat(0, 8, tr("Paarungswertung"), "", 1, "L", false, 0, "")
+	left, _, right, _ := pdf.GetMargins()
+	pageW, _ := pdf.GetPageSize()
+	nameW := (pageW - left - right - 14 - 2*22 - 2*14) / 2
+	widths := []float64{14, nameW, 22, 14, 14, 22, nameW}
+	headers := []string{"Paar.", pr.HeimName, "Ergebnis", "Pkt", "Pkt", "Ergebnis", pr.GastName}
+	pdf.SetFont("Helvetica", "B", 10)
+	pdf.SetFillColor(235, 235, 235)
+	for i, h := range headers {
+		pdf.CellFormat(widths[i], 7, truncateToWidth(pdf, tr, h, widths[i]-2), "1", 0, "C", true, 0, "")
+	}
+	pdf.Ln(-1)
+	pdf.SetFont("Helvetica", "", 10)
+	name := func(e *RundenwettkampfEntry) string {
+		if e == nil {
+			return "–"
+		}
+		return e.LastName + ", " + e.FirstName
+	}
+	val := func(e *RundenwettkampfEntry) string {
+		if e == nil {
+			return "–"
+		}
+		return fmtVal(*e)
+	}
+	pt := func(p paarungPair, side int) string {
+		if p.Stechen {
+			return "St."
+		}
+		if p.Winner == side {
+			if p.ByStechen {
+				return "1 (St.)"
+			}
+			return "1"
+		}
+		if p.Winner >= 0 {
+			return "0"
+		}
+		return ""
+	}
+	for _, p := range pr.Pairs {
+		pdf.CellFormat(widths[0], 6.5, tr(fmt.Sprintf("%d", p.No)), "1", 0, "C", false, 0, "")
+		pdf.CellFormat(widths[1], 6.5, truncateToWidth(pdf, tr, name(p.Heim), widths[1]-2), "1", 0, "L", false, 0, "")
+		pdf.CellFormat(widths[2], 6.5, tr(val(p.Heim)), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(widths[3], 6.5, tr(pt(p, 0)), "1", 0, "C", false, 0, "")
+		pdf.CellFormat(widths[4], 6.5, tr(pt(p, 1)), "1", 0, "C", false, 0, "")
+		pdf.CellFormat(widths[5], 6.5, tr(val(p.Gast)), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(widths[6], 6.5, truncateToWidth(pdf, tr, name(p.Gast), widths[6]-2), "1", 0, "L", false, 0, "")
+		pdf.Ln(-1)
+	}
+	fmtT := func(v float64) string {
+		if pr.IsDecimal {
+			return fmt.Sprintf("%.1f", v)
+		}
+		return fmt.Sprintf("%.0f", v)
+	}
+	tp := func(side int) string {
+		if pr.TotalPoint == side {
+			return "1"
+		}
+		if pr.TotalPoint >= 0 {
+			return "0"
+		}
+		return ""
+	}
+	pdf.SetFont("Helvetica", "B", 10)
+	pdf.CellFormat(widths[0]+widths[1], 6.5, tr("Mannschaftsergebnis"), "1", 0, "L", false, 0, "")
+	pdf.CellFormat(widths[2], 6.5, tr(fmtT(pr.HeimTotal)), "1", 0, "R", false, 0, "")
+	pdf.CellFormat(widths[3], 6.5, tr(tp(0)), "1", 0, "C", false, 0, "")
+	pdf.CellFormat(widths[4], 6.5, tr(tp(1)), "1", 0, "C", false, 0, "")
+	pdf.CellFormat(widths[5], 6.5, tr(fmtT(pr.GastTotal)), "1", 0, "R", false, 0, "")
+	pdf.CellFormat(widths[6], 6.5, "", "1", 0, "L", false, 0, "")
+	pdf.Ln(-1)
+	pdf.Ln(2)
+	pdf.SetFont("Helvetica", "B", 12)
+	result := fmt.Sprintf("Endstand %d : %d", pr.HeimPoints, pr.GastPoints)
+	switch pr.Winner {
+	case 0:
+		result += " – Sieger: " + pr.HeimName
+	case 1:
+		result += " – Sieger: " + pr.GastName
+	default:
+		result += " – noch nicht entschieden"
+	}
+	pdf.CellFormat(0, 7, tr(result), "", 1, "L", false, 0, "")
+	if pr.TotalPoint < 0 && len(pr.Pairs)%2 == 0 && pr.HeimPoints == pr.GastPoints {
+		pdf.SetFont("Helvetica", "", 9)
+		pdf.CellFormat(0, 5, tr("Bei Punktgleichstand zählt das Mannschaftsergebnis als weiterer Punkt."), "", 1, "L", false, 0, "")
+	}
+	stechenTxt := func(e *RundenwettkampfEntry) string {
+		if e == nil {
+			return ""
+		}
+		var parts []string
+		for _, s := range e.Stechen {
+			switch {
+			case !s.Shot:
+				parts = append(parts, "…")
+			case pr.IsDecimal || s.No > stechenRingRounds:
+				parts = append(parts, fmt.Sprintf("%.1f", s.Decimal))
+			default:
+				parts = append(parts, fmt.Sprintf("%d", s.Ring))
+			}
+		}
+		return strings.Join(parts, " / ")
+	}
+	note := false
+	for _, p := range pr.Pairs {
+		if !p.Stechen && !p.ByStechen {
+			continue
+		}
+		pdf.SetFont("Helvetica", "", 9)
+		if !note {
+			pdf.CellFormat(0, 5, tr("St. = Gleichstand, Entscheidung durch Stechschüsse (ab dem 4. Stechschuss Zehntel)."), "", 1, "L", false, 0, "")
+			note = true
+		}
+		if p.Heim != nil && p.Gast != nil && (len(p.Heim.Stechen) > 0 || len(p.Gast.Stechen) > 0) {
+			pdf.CellFormat(0, 5, tr(fmt.Sprintf("Paarung %d – Stechschüsse: %s %s : %s %s", p.No,
+				p.Heim.LastName, stechenTxt(p.Heim), stechenTxt(p.Gast), p.Gast.LastName)), "", 1, "L", false, 0, "")
+		}
+	}
+	pdf.Ln(6)
 }

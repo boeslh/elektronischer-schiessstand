@@ -55,6 +55,16 @@ func (ws *WebServer) onDeviceConfig(c ConfigTelegram) {
 	if ws.cfg.ServerURL == "" || c.MAC == "" {
 		return
 	}
+	// Zonen-Saetze (Firmware Rev 4.17.0) stehen nicht im config, sondern
+	// in der SHOWZONES-Antwort - nicht waehrend einer Kalibrierung abfragen
+	if c.Zones != nil && c.ZoneSets == nil {
+		if cal := ws.deviceState.Snapshot().Cal; cal == nil || (cal.State != "waiting" && cal.State != "start") {
+			var z ZonesTelegram
+			if err := ws.queryTelegram("SHOWZONES", "zones", &z); err == nil {
+				c.ZoneSets = &z
+			}
+		}
+	}
 	settings := deviceConfigSettings(&c)
 	key, _ := json.Marshal(struct {
 		MAC string

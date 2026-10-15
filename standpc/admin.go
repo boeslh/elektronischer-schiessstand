@@ -16,7 +16,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -47,7 +50,7 @@ var adminConfigKeys = []adminConfigKey{
 	{"WINDOW", "1-50 (ms)", "1", false, "Mindest-Sammelfenster"},
 	{"DEBUG", "0-3", "0", false, "3 = zusaetzliche Diagnosefelder"},
 	{"OUTLIER", "0-500000 (0.001mm)", "5000", false, "Schwelle fuer pos_res_um in clean-Bewertung (nur ALGO=CLASSIC)"},
-	{"RADIUS", "0-500000 (0.001mm)", "200", false, "Umkreis fuer cluster_hits (nur ALGO=CLASSIC)"},
+	{"RADIUS", "0-500000 (0.001mm)", "4000", false, "Umkreis fuer cluster_hits (nur ALGO=CLASSIC)"},
 	{"MINCLUSTER", "0-20", "2", false, "Mindest-cluster_hits fuer clean (nur ALGO=CLASSIC)"},
 	{"MAXPRECISION", "0-500000 (0.001mm)", "2000", false, "Max. precision_um fuer clean (nur ALGO=CLASSIC)"},
 	{"MINMICS", "3-6", "5", false, "Mindestzahl Mics, sonst reject"},
@@ -57,7 +60,7 @@ var adminConfigKeys = []adminConfigKey{
 	{"MAXSIGMA", "0.0-50.0 (mm)", "2.0", false, "'clean'-Schwelle fuer ALGO=RIM (Gegenstueck zu MAXPRECISION/RADIUS/MINCLUSTER)"},
 	{"STANDOFFPAPER", "5.0-100.0 (mm)", "28.0", false, "Mic-Standoff (rechtwinklig zur Scheibe)"},
 	{"MICHALFX", "5.0-300.0 (mm)", "115.0", false, "horizontaler Mic-Abstand zur Mittellinie"},
-	{"BSHIFTPCT", "0-100 (%)", "50", false, "Kugeldurchmesser-Korrektur, 0=aus"},
+	{"BSHIFTPCT", "0-100 (%)", "30", false, "Kugeldurchmesser-Korrektur, 0=aus"},
 	{"BSHIFTCAP", "0.0-20.0 (mm)", "3.0", false, "Kappung der Korrektur je Mikrofon"},
 	{"CLUSTERCORR", "0|1", "1", false, "Endposition aus allen kugeldurchmesser-korrigierten Schnittpunkten mitteln (ab Firmware 4.12.0)"},
 	{"CLUSTERITER", "0-10", "5", false, "Nachzentrier-Durchgaenge des Clusters (ab Firmware 4.12.0)"},
@@ -68,7 +71,20 @@ var adminConfigKeys = []adminConfigKey{
 	{"PIEZOMAX", "0-5000 (us)", "1400", false, "Ausreisser-Obergrenze, beide Modi"},
 	{"OFFSETX", "-50000..50000 (0.001mm)", "0", false, "konstanter Nachkorrektur-Offset x"},
 	{"OFFSETY", "-50000..50000 (0.001mm)", "0", false, "konstanter Nachkorrektur-Offset y"},
-	{"SOUNDSPEED", "300-400 (m/s)", "343", false, "rein manuell, wird von CAL START nicht veraendert"},
+	{"SOUNDSPEED", "300.0-400.0 (m/s)", "342.5", false, "Schallgeschwindigkeit bei DHT=0 bzw. ohne gueltige Messung - Nachkommastelle ab Firmware 4.15.0, rein manuell, wird von CAL START nicht veraendert"},
+	{"DHT", "0|1", "0", false, "Schallgeschwindigkeit aus Temperatur/Luftfeuchte des DHT22 an GPIO15 (ab Firmware 4.15.0)"},
+	{"CAPTURE", "ISR|MCPWM", "ISR", true, "Zeitstempel der Mics: ISR = GPIO-Interrupt, MCPWM = Hardware-Capture (GPIO23 unbeschaltet lassen). Wirkt erst nach Neustart; danach CAL RESET + neue Kalibrierung, da die Offsets zum Erfassungsmodus gehoeren (ab Firmware 4.13.0)"},
+	{"WALKK", "0.0-1.0", "0.0", false, "Pulsbreiten-Korrektur t += WALKK*(Breite - Mittel), 0 = aus, nur bei aktivem MCPWM wirksam (ab Firmware 4.14.0)"},
+	{"WALKCAL", "0|1", "0", false, "CAL START bestimmt WALKK mit (ab Firmware 4.14.0)"},
+	{"WALKMAX", "5-500 (us)", "150", false, "groesste plausible Pulsbreite, laengere gelten als ungueltig (ab Firmware 4.14.0)"},
+	{"ZONES", "0|1", "0", false, "Zonen-Kalibrierung: je Bereich der Scheibe eigener Satz (Loch der Vorsatzscheibe / neben dem Band / Band + Vorsatz), Saetze kommen per Freigabe aus dem Simulator (ab Firmware 4.17.0)"},
+	{"ZHOLE", "0-60000 (0.001mm)", "0", false, "Radius des Lochs der Vorsatzscheibe - setzt der Stand-PC beim Scheibenwechsel automatisch (LG 15250, LP 29750) (ab Firmware 4.17.0)"},
+	{"ZBAND", "0-100000 (0.001mm)", "45000", false, "halbe Breite des Schussbands (ab Firmware 4.17.0)"},
+	{"ZBLEND", "0-10000 (0.001mm)", "2250", false, "Ueberblendung an den Zonengrenzen (ab Firmware 4.17.0)"},
+	{"ZCALA", "<m/s>,<ofs0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone A (Loch der Vorsatzscheibe) - normalerweise per Freigabe aus dem Simulator (ab Firmware 4.17.0)"},
+	{"ZCALB", "<m/s>,<ofs0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone B (neben dem Schussband) (ab Firmware 4.17.0)"},
+	{"ZCALC", "<m/s>,<ofs0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone C (Schussband + Vorsatzscheibe) (ab Firmware 4.17.0)"},
+	{"RAWLOG", "0|1", "0", false, "zu jedem gueltigen Schuss alle Rohdaten (Flanken + Parameter) senden - der Simulator kann den Schuss dann exakt nachrechnen (ab Firmware 4.16.0)"},
 	{"OFS0", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 0 (Referenz, normalerweise 0) - sonst per CAL START/Kalibrierung vom Server"},
 	{"OFS1", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 1 - sonst per CAL START/Kalibrierung vom Server"},
 	{"OFS2", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 2 - sonst per CAL START/Kalibrierung vom Server"},
@@ -117,6 +133,8 @@ func (ws *WebServer) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/api/cal/restore", ws.requireAdmin(ws.handleAdminCalRestore))
 	mux.HandleFunc("GET /admin/api/transfer", ws.requireAdmin(ws.handleAdminTransfer))
 	mux.HandleFunc("POST /admin/api/transfer/apply", ws.requireAdmin(ws.handleAdminTransferApply))
+	mux.HandleFunc("GET /admin/api/transfer/configs", ws.requireAdmin(ws.handleAdminTransferConfigs))
+	mux.HandleFunc("POST /admin/api/transfer/select", ws.requireAdmin(ws.handleAdminTransferSelect))
 	mux.HandleFunc("GET /admin/api/config-history", ws.requireAdmin(ws.handleAdminConfigHistory))
 	mux.HandleFunc("GET /admin/api/config-restore", ws.requireAdmin(ws.handleAdminConfigRestoreCheck))
 	mux.HandleFunc("POST /admin/api/config-restore/apply", ws.requireAdmin(ws.handleAdminConfigRestoreApply))
@@ -225,6 +243,10 @@ func (ws *WebServer) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	for _, cmd := range []string{"STATUS", "SHOW", "SHOWNET", "CAL STATUS"} {
 		ws.cmds.SendCommand(cmd, 0)
 	}
+	// Zonen-Saetze (Firmware 4.17.0) - nur wenn das Geraet Zonen kennt
+	if c := ws.deviceState.Snapshot().Config; c != nil && c.Zones != nil {
+		ws.cmds.SendCommand("SHOWZONES", 0)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ws.deviceState.Snapshot())
 }
@@ -266,7 +288,7 @@ func (ws *WebServer) handleAdminSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ungueltiger Body", http.StatusBadRequest)
 		return
 	}
-	ws.sendAdminCommand(w, fmt.Sprintf("SET %s=%s", body.Key, body.Value))
+	ws.sendAdminCommand(w, setCommand(body.Key, body.Value))
 	go ws.requestConfigSnapshot() // Aenderung im Konfigurationsverlauf festhalten
 }
 
@@ -352,21 +374,85 @@ func (ws *WebServer) handleAdminCalRestore(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cmd := fmt.Sprintf("CAL IMPORT OFS0=%d,OFS1=%d,OFS2=%d,OFS3=%d,OFS4=%d,OFS5=%d,SOUNDSPEED=%d",
-		cal.OffsetsNs[0], cal.OffsetsNs[1], cal.OffsetsNs[2],
-		cal.OffsetsNs[3], cal.OffsetsNs[4], cal.OffsetsNs[5], cal.SoundMps)
-	if err := ws.sendChecked(cmd); err != nil {
+	// Erfassungsmodus: Offsets aus dem ISR-Betrieb passen nicht zu MCPWM und
+	// umgekehrt (Firmware Rev 4.13.0) - nur auf ein Geraet im selben Modus
+	// zurueckspielen.
+	var st StatusTelegram
+	if err := ws.queryTelegram("STATUS", "status", &st); err != nil {
+		http.Error(w, "Gerätestatus nicht lesbar: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if msg := captureMismatch(cal.Capture, st.Capture); msg != "" {
+		when := ""
+		if cal.UpdatedAt != nil {
+			when = " vom " + cal.UpdatedAt.Local().Format("02.01.2006 15:04")
+		}
+		msg = "Gesicherte Gerätekalibrierung" + when + ": " + msg +
+			" Eine im Simulator bestimmte Kalibrierung bitte über „Kalibrierung vom Simulator übernehmen“ → „Freigabe prüfen“ auf das Gerät bringen."
+		// 412 statt 409: 409 ist fuer die Rueckfrage "Sicherung des Stands
+		// uebernehmen?" belegt (admin.html calRestore)
+		http.Error(w, msg, http.StatusPreconditionFailed)
+		return
+	}
+	cfg := ws.deviceState.Snapshot().Config
+	if err := ws.sendChecked(calImportCommand(cal.OffsetsNs, cal.soundSet(), cfg)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	// WALKK kennt CAL IMPORT nicht - separat setzen (nur wenn gesichert und
+	// vom Geraet unterstuetzt).
+	if cal.WalkK != nil && cfg != nil && cfg.WalkK != nil {
+		if err := ws.sendChecked(fmt.Sprintf("SET WALKK=%.3f", *cal.WalkK)); err != nil {
+			http.Error(w, "Offsets übernommen, WALKK fehlgeschlagen: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
 	if source == "lane" && cal.MAC != mac {
-		ws.uploadCalibrationBackup(CalTelegram{MAC: mac, OffsetsNs: cal.OffsetsNs, SoundMps: cal.SoundMps})
+		capture := ""
+		if cal.Capture != nil {
+			capture = *cal.Capture
+		}
+		ws.uploadCalibrationBackup(CalTelegram{MAC: mac, OffsetsNs: cal.OffsetsNs, SoundMps: cal.SoundMps,
+			SoundSetMps: cal.SoundSetMps, WalkK: cal.WalkK, capture: capture})
 	}
 	go ws.requestConfigSnapshot()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "source": source, "backup_mac": cal.MAC, "mac": mac})
 }
 
-// handleAdminAction: ACTION LIGHT=ON|OFF|AUTO, ACTION TARGETCHANGE.
+// calImportCommand baut den CAL-IMPORT-Befehl. SOUNDSPEED mit Nachkommastelle
+// erst ab Firmware 4.15.0 (erkennbar an sound_set_mps im SHOW), sonst
+// ganzzahlig gerundet.
+func calImportCommand(ofs [6]int, sound float64, cfg *ConfigTelegram) string {
+	ss := fmt.Sprintf("%d", int(math.Round(sound)))
+	if cfg != nil && cfg.SoundSetMps != nil {
+		ss = strconv.FormatFloat(math.Round(sound*10)/10, 'f', 1, 64)
+	}
+	return fmt.Sprintf("CAL IMPORT OFS0=%d,OFS1=%d,OFS2=%d,OFS3=%d,OFS4=%d,OFS5=%d,SOUNDSPEED=%s",
+		ofs[0], ofs[1], ofs[2], ofs[3], ofs[4], ofs[5], ss)
+}
+
+// captureMismatch: Fehlermeldung, wenn eine Kalibrierung in einem anderen
+// Erfassungsmodus (ISR/MCPWM) bestimmt wurde, als das Geraet gerade
+// verwendet - "" wenn passend oder einer der beiden Modi unbekannt ist
+// (Sicherung bzw. Firmware vor Rev 4.13.0 = ISR-Betrieb).
+func captureMismatch(calCapture *string, deviceCapture string) string {
+	cc := "isr"
+	if calCapture != nil && *calCapture != "" {
+		cc = strings.ToLower(*calCapture)
+	}
+	dc := strings.ToLower(deviceCapture)
+	if dc == "" {
+		dc = "isr"
+	}
+	if cc == dc {
+		return ""
+	}
+	return fmt.Sprintf("Die Kalibrierung wurde im Erfassungsmodus %s bestimmt, das Gerät arbeitet aber mit %s. "+
+		"Die Mikrofon-Offsets passen nicht zueinander - bitte neu kalibrieren (CAL START oder im Simulator) oder den Erfassungsmodus angleichen.",
+		strings.ToUpper(cc), strings.ToUpper(dc))
+}
+
+// handleAdminAction: ACTION LIGHT=ON|OFF|AUTO, ACTION TARGETCHANGE, REBOOT.
 func (ws *WebServer) handleAdminAction(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Cmd string `json:"cmd"`
@@ -378,6 +464,10 @@ func (ws *WebServer) handleAdminAction(w http.ResponseWriter, r *http.Request) {
 	switch body.Cmd {
 	case "LIGHT=ON", "LIGHT=OFF", "LIGHT=AUTO", "TARGETCHANGE":
 		ws.sendAdminCommand(w, "ACTION "+body.Cmd)
+	case "REBOOT":
+		// Neustart des ESP32 - noetig, damit SET CAPTURE bzw. Netzwerk-
+		// Aenderungen wirksam werden (reboot_required in der SET-Antwort).
+		ws.sendAdminCommand(w, "REBOOT")
 	default:
 		http.Error(w, "unbekannte Aktion", http.StatusBadRequest)
 	}

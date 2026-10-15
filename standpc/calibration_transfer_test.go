@@ -17,10 +17,23 @@ func transferTestConfig() *ConfigTelegram {
 	}
 }
 
+// transferTestConfig415: wie transferTestConfig, aber mit den Feldern ab
+// Firmware Rev 4.13-4.15 (CAPTURE, WALKK/WALKCAL/WALKMAX, sound_set_mps, DHT).
+func transferTestConfig415() *ConfigTelegram {
+	c := transferTestConfig()
+	wk, wc, wm, ss, dht, rl := 0.5, 0, 150, 342.5, 1, 1
+	c.Capture, c.WalkK, c.WalkCal, c.WalkMaxUs, c.SoundSetMps, c.Dht = "mcpwm", &wk, &wc, &wm, &ss, &dht
+	c.RawLog = &rl
+	zon, zh := 1, 15250
+	c.Zones, c.ZHoleUm = &zon, &zh
+	c.ZoneSets = &ZonesTelegram{Zones: 1, ZHoleUm: 15250, ZBandUm: 45000, ZBlendUm: 2250}
+	return c
+}
+
 // Dieselbe Schluesselliste/Formatierung wie server/calibration_transfer.go
 // firmwareSettings() fuer DefaultSimParams mit den obigen Offsets.
 func unchangedSettings() []firmwareSetting {
-	kv := "STANDOFFPAPER=28.00 MICHALFX=115.00 OFFSETX=0 OFFSETY=0 SOUNDSPEED=343 " +
+	kv := "STANDOFFPAPER=28.00 MICHALFX=115.00 OFFSETX=0 OFFSETY=0 SOUNDSPEED=343.0 " +
 		"OFS0=0 OFS1=100 OFS2=200 OFS3=300 OFS4=400 OFS5=500 BSHIFTPCT=50 BSHIFTCAP=3.00 RADIUS=200 " +
 		"CLUSTERCORR=1 CLUSTERITER=5 LSQ=0 LSQPELLETR=2.25 " +
 		"MICEN0=1 MICEN1=1 MICEN2=1 MICEN3=1 MICEN4=1 MICEN5=1 ALGO=CLASSIC " +
@@ -156,5 +169,40 @@ func TestDiffTransfer_OldFirmwareSkipsNewKeys(t *testing.T) {
 	}
 	if cmds := transferCommands(items); len(cmds) != 0 {
 		t.Errorf("keine Befehle erwartet, bekommen %v", cmds)
+	}
+}
+
+// SOUNDSPEED mit Nachkommastelle (Firmware 4.15): Vergleich gegen den genauen
+// sound_set_mps - und fuer aeltere Firmware ganzzahlig gerundet.
+func TestDiffTransfer_SoundSpeedDecimal(t *testing.T) {
+	set := []firmwareSetting{{"SOUNDSPEED", "342.5"}}
+	if it := diffTransfer(transferTestConfig415(), set)[0]; it.Changed || it.Current != "342.5" {
+		t.Errorf("4.15: %+v, erwartet unveraendert 342.5", it)
+	}
+	if it := diffTransfer(transferTestConfig415(), []firmwareSetting{{"SOUNDSPEED", "343.2"}})[0]; !it.Changed {
+		t.Errorf("4.15: 343.2 gegen 342.5 muss als Aenderung gelten: %+v", it)
+	}
+	// alte Firmware (sound_mps=343, kein sound_set_mps): 342.5 -> "343"
+	if it := diffTransfer(transferTestConfig(), set)[0]; it.Changed || it.Target != "343" {
+		t.Errorf("alt: %+v, erwartet Ziel 343 und unveraendert", it)
+	}
+	cmds := transferCommands(diffTransfer(transferTestConfig415(), []firmwareSetting{{"SOUNDSPEED", "343.7"}, {"OFS0", "0"}}))
+	if len(cmds) != 1 || cmds[0] != "CAL IMPORT SOUNDSPEED=343.7,OFS0=0" {
+		t.Errorf("Befehle: %v", cmds)
+	}
+}
+
+// WALKK/CAPTURE kennt erst neuere Firmware - auf alter wird nichts geschrieben.
+func TestDiffTransfer_NewKeysOptional(t *testing.T) {
+	set := []firmwareSetting{{"WALKK", "0.500"}, {"CAPTURE", "MCPWM"}}
+	for _, it := range diffTransfer(transferTestConfig(), set) {
+		if it.Changed || !it.Unsupported {
+			t.Errorf("alt: %+v, erwartet unsupported", it)
+		}
+	}
+	for _, it := range diffTransfer(transferTestConfig415(), set) {
+		if it.Changed || it.Unsupported {
+			t.Errorf("4.15: %+v, erwartet unveraendert", it)
+		}
 	}
 }

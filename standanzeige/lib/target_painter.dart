@@ -8,7 +8,9 @@ import 'package:flutter/material.dart';
 import 'models.dart';
 
 const double kCaliber = 4.5; // Kaliberdurchmesser mm (4,5 mm Diabolo)
-const double _shotStrokeW = kCaliber * 0.05;
+// Schussrand: halbe Staerke (frueher 0,05), in der Farbe des Schusses und
+// deckend - wie standpc/web/index.html
+const double _shotStrokeW = kCaliber * 0.025;
 const double _shotR = kCaliber / 2 - _shotStrokeW / 2;
 
 class ZoomOption {
@@ -135,10 +137,10 @@ class TargetPainter extends CustomPainter {
       }
     }
 
-    // 5. Ringbeschriftung 1-9 an 4 Positionen
+    // 5. Ringbeschriftung 1-8 an 4 Positionen
     for (var i = 0; i < rings.length; i++) {
       final r = rings[i];
-      if (r.v < 1 || r.v > 9) continue;
+      if (r.v < 1 || r.v > 8) continue; // die 9 steht auf Original-Scheiben nicht (zu gedraengt)
       final innerR = i + 1 < rings.length ? rings[i + 1].d / 2 : 0.0;
       final labelR = (r.d / 2 + innerR) / 2;
       final color = r.filled ? const Color(0xFFBBBBBB) : const Color(0xFF555555);
@@ -166,7 +168,7 @@ class TargetPainter extends CustomPainter {
             Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = _shotStrokeW
-              ..color = const Color(0xFF1A1A1A).withValues(alpha: groupOpacity));
+              ..color = fill.withValues(alpha: groupOpacity));
         final lum = (0.299 * (fill.r * 255) + 0.587 * (fill.g * 255) + 0.114 * (fill.b * 255)) / 255;
         final txt = (lum > 0.5 ? Colors.black : Colors.white).withValues(alpha: groupOpacity);
         _text(canvas, '${serStart + i + 1}', c, kCaliber * 0.42, txt, FontWeight.bold);

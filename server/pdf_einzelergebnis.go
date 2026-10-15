@@ -265,7 +265,8 @@ func drawTargetGraphic(pdf *fpdf.Fpdf, geo TargetGeometry, caliberMM float64, cx
 			innerD = rings[i+1].D
 		}
 		bandW := (rg.D - innerD) / 2 * scale
-		if rg.V >= 10 || bandW < 1.2 || (rg.D+innerD)/4*scale > boxHalf {
+		// keine 9 (wie auf Original-Scheiben, zu gedraengt) und keine 10
+		if rg.V >= 9 || bandW < 1.2 || (rg.D+innerD)/4*scale > boxHalf {
 			continue
 		}
 		midR := (rg.D + innerD) / 4 * scale
