@@ -35,6 +35,13 @@
   .ea-grid input,.ea-grid select,#ea-printer{width:100%;background:#0e1218;border:1px solid var(--line);
     border-radius:6px;color:var(--text);font-size:14px;padding:8px 12px}
   .ea-grid input:focus,.ea-grid select:focus{outline:none;border-color:var(--acc)}
+  .on-in{width:100%;background:#0e1218;border:1px solid var(--line);color:var(--text);border-radius:4px;padding:7px 10px;font-size:13px;font-family:inherit}
+  .on-row{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  .on-table{width:100%;border-collapse:collapse;font-size:12px}
+  .on-table th,.on-table td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  .on-table th{color:var(--dim);font-weight:600}
+  .on-err{color:#e05c5c}.on-ok{color:#4ab8a0}
+  .on-table button{padding:3px 8px;font-size:11px;margin:1px}
   #wd-time,#wd-switch{width:100%;max-width:560px;background:#0e1218;border:1px solid var(--line);color:var(--text);border-radius:4px;padding:7px 10px;font-size:13px}
   .ea-sub{font-size:12px;font-weight:600;color:var(--text);margin:6px 0 12px}
 
@@ -138,6 +145,48 @@
     </div>
     <button class="btn-save" onclick="saveWkDefaults()">Speichern</button>
     <div id="msg-wkdefaults" class="msg"></div>
+  </div>
+
+  <div class="section" id="online-section">
+    <h2>Online-Veröffentlichung (Internet)</h2>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:12px">
+      Preisschießen und Rundenwettkämpfe auf einem Online-Server im Internet anzeigen. Die Verbindung baut
+      dieser Server selbst auf (verschlüsselt per HTTPS, angemeldet mit dem API-Schlüssel des Vereins).
+      Übertragen werden nur die Anzeigedaten: Startnummer, Name und Verein der Teilnehmer mit Ergebnissen
+      bzw. die Starter eines Rundenwettkampfs mit Ergebnissen und Treffern – keine Stammdaten.
+    </p>
+    <div class="field">
+      <label for="on-url">Adresse des Online-Servers</label>
+      <input type="url" id="on-url" class="on-in" placeholder="https://anzeige.example.de">
+    </div>
+    <div class="field">
+      <label for="on-key">API-Schlüssel des Vereins</label>
+      <input type="password" id="on-key" class="on-in" placeholder="ssk_…" autocomplete="off">
+      <div class="desc" id="on-key-hint">Der Schlüssel wird auf dem Online-Server in der Verwaltung erzeugt.</div>
+    </div>
+    <div class="field">
+      <label for="on-ca">Eigenes CA-Zertifikat (optional, PEM)</label>
+      <textarea id="on-ca" class="on-in" rows="3" placeholder="-----BEGIN CERTIFICATE----- … nur bei selbst signiertem Zertifikat des Online-Servers"></textarea>
+    </div>
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">
+      <input type="checkbox" id="on-enabled" style="width:16px;height:16px"> Übertragung eingeschaltet
+    </label>
+    <button class="btn-save" onclick="saveOnline()">Speichern</button>
+    <button class="btn-save" style="background:var(--line);color:var(--text)" onclick="testOnline()">Verbindung testen</button>
+    <div id="msg-online" class="msg"></div>
+
+    <h3 style="font-size:13px;margin:18px 0 8px">Veröffentlichungen</h3>
+    <div class="on-row">
+      <select id="on-cand" class="on-in" style="flex:1"></select>
+      <select id="on-int" class="on-in" style="width:auto"></select>
+      <button class="btn-save" onclick="addOnlinePub()">Hinzufügen</button>
+    </div>
+    <table class="on-table">
+      <thead><tr><th>Art</th><th>Name</th><th>Takt</th><th>Letzte Übertragung</th><th>Status</th><th></th></tr></thead>
+      <tbody id="on-pubs"></tbody>
+    </table>
+    <div class="desc" style="margin-top:6px">„Entfernen“ beendet nur die Übertragung – die Daten bleiben auf dem Online-Server
+      (Historie) und werden dort in der Verwaltung gelöscht. Preisschießen-Listen werden nach jeder Neuberechnung übertragen.</div>
   </div>
 
   <div class="section">
@@ -306,8 +355,112 @@ async function saveWkDefaults() {
   } catch (e) { showMsgEl('msg-wkdefaults', 'Fehler: ' + e.message, 'err'); }
 }
 
+// ── Online-Veröffentlichung ────────────────────────────────────────────────
+const ON_INT = {rwk: [[3,'3 s'],[5,'5 s']], preisschiessen: [[60,'1 min'],[120,'2 min'],[300,'5 min']]};
+let onCands = [];
+
+async function onApi(path, opts) {
+  const r = await fetch('/api/online' + path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+const onEsc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function onTime(t) { return t ? new Date(t).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'medium'}) : '–'; }
+
+async function loadOnline() {
+  try {
+    const s = await onApi('/settings');
+    document.getElementById('on-url').value = s.url || '';
+    document.getElementById('on-ca').value = s.ca_pem || '';
+    document.getElementById('on-enabled').checked = !!s.enabled;
+    document.getElementById('on-key').placeholder = s.has_key ? 'gespeichert (' + s.key_hint + ') – leer lassen = unverändert' : 'ssk_…';
+  } catch (e) {
+    document.getElementById('online-section').style.display = 'none'; // nur Admin
+    return;
+  }
+  await loadOnlinePubs();
+}
+
+async function loadOnlinePubs(withCands = true) {
+  if (withCands) {
+  onCands = await onApi('/candidates').catch(() => []);
+  const sel = document.getElementById('on-cand');
+  sel.innerHTML = onCands.map((c, i) => `<option value="${i}">${c.kind === 'rwk' ? 'Rundenwettkampf' : 'Preisschießen'}: ${onEsc(c.title)}</option>`).join('')
+    || '<option value="">– nichts weiter verfügbar –</option>';
+  sel.onchange = fillOnInt; fillOnInt();
+  }
+  const pubs = await onApi('/publications').catch(() => []);
+  document.getElementById('on-pubs').innerHTML = pubs.map(p => {
+    const ints = ON_INT[p.kind].map(([v, l]) => `<option value="${v}" ${v === p.interval_s ? 'selected' : ''}>${l}</option>`).join('');
+    const st = !p.enabled ? '<span style="color:var(--dim)">angehalten</span>'
+      : p.last_error ? `<span class="on-err">Fehler: ${onEsc(p.last_error)}</span>`
+      : p.last_success_at ? '<span class="on-ok">übertragen</span>' : '<span style="color:var(--dim)">ausstehend</span>';
+    return `<tr><td>${p.kind === 'rwk' ? 'RWK' : 'Preisschießen'}</td>
+      <td>${p.online_url ? `<a href="${onEsc(p.online_url)}" target="_blank" rel="noopener" style="color:var(--acc)">${onEsc(p.title)}</a>` : onEsc(p.title)}<br><span style="color:var(--dim)">${onEsc(p.datum)}</span></td>
+      <td><select class="on-in" style="width:auto;padding:3px" onchange="updOnlinePub('${p.id}', ${p.enabled}, this.value)">${ints}</select></td>
+      <td>${onTime(p.last_success_at)}</td><td>${st}</td>
+      <td style="white-space:nowrap">
+        <button onclick="updOnlinePub('${p.id}', ${!p.enabled}, ${p.interval_s})">${p.enabled ? 'Anhalten' : 'Fortsetzen'}</button>
+        <button onclick="updOnlinePub('${p.id}', true, ${p.interval_s}, true)" title="sofort übertragen">Jetzt</button>
+        <button onclick="window.open('/api/online/publications/${p.id}/vorschau')" title="anzeigen, was übertragen wird">Daten</button>
+        <button onclick="delOnlinePub('${p.id}', '${onEsc(p.title).replace(/'/g, '')}')">Entfernen</button></td></tr>`;
+  }).join('') || '<tr><td colspan="6" style="color:var(--dim)">Noch keine Veröffentlichungen.</td></tr>';
+}
+
+function fillOnInt() {
+  const c = onCands[document.getElementById('on-cand').value];
+  document.getElementById('on-int').innerHTML = c ? ON_INT[c.kind].map(([v, l]) => `<option value="${v}">${l}</option>`).join('') : '';
+  if (c && c.kind === 'preisschiessen') document.getElementById('on-int').value = '120';
+}
+
+async function saveOnline() {
+  try {
+    await onApi('/settings', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+      url: document.getElementById('on-url').value.trim(), api_key: document.getElementById('on-key').value.trim(),
+      ca_pem: document.getElementById('on-ca').value, enabled: document.getElementById('on-enabled').checked})});
+    document.getElementById('on-key').value = '';
+    showMsgEl('msg-online', 'Gespeichert.', 'ok');
+    loadOnline();
+  } catch (e) { showMsgEl('msg-online', 'Fehler: ' + e.message, 'err'); }
+}
+
+async function testOnline() {
+  try {
+    const r = await onApi('/test', {method: 'POST'});
+    showMsgEl('msg-online', `Verbindung in Ordnung – angemeldet als Verein „${r.verein}“ (${r.url}).`, 'ok');
+  } catch (e) { showMsgEl('msg-online', 'Verbindung fehlgeschlagen: ' + e.message, 'err'); }
+}
+
+async function addOnlinePub() {
+  const c = onCands[document.getElementById('on-cand').value];
+  if (!c) return;
+  try {
+    await onApi('/publications', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({kind: c.kind, source_id: c.id, interval_s: parseInt(document.getElementById('on-int').value)})});
+    loadOnlinePubs();
+  } catch (e) { showMsgEl('msg-online', 'Fehler: ' + e.message, 'err'); }
+}
+
+async function updOnlinePub(id, enabled, interval, now) {
+  try {
+    await onApi('/publications/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled, interval_s: parseInt(interval), now: !!now})});
+    loadOnlinePubs();
+  } catch (e) { showMsgEl('msg-online', 'Fehler: ' + e.message, 'err'); }
+}
+
+async function delOnlinePub(id, title) {
+  if (!confirm(`Übertragung von „${title}“ beenden?\nDie Daten bleiben auf dem Online-Server.`)) return;
+  try { await onApi('/publications/' + id, {method: 'DELETE'}); loadOnlinePubs(); }
+  catch (e) { showMsgEl('msg-online', 'Fehler: ' + e.message, 'err'); }
+}
+
+setInterval(() => { if (document.getElementById('online-section').style.display !== 'none') loadOnlinePubs(false); }, 10000);
+
 load();
 loadWkDefaults();
+loadOnline();
 loadLaneURLs();
 loadDevMode();
 loadAusgabe();

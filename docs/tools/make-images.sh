@@ -15,6 +15,9 @@ REPO="$(dirname "$DOCS")"
 echo "==> Web-Oberflaechen"
 "$DOCS/.venv/bin/python" "$DOCS/tools/screenshots.py"
 
+echo "==> Kommunikationsdiagramm (Bild + draw.io)"
+"$DOCS/.venv/bin/python" "$DOCS/tools/kommunikation_diagramm.py"
+
 echo "==> Beispiel-Einzelergebnis (PDF, erfundene Daten)"
 TMP="$(mktemp -d)"
 ( cd "$REPO/server" && DOKU_PDF_OUT="$TMP/beispiel.pdf" /usr/local/go/bin/go test -run TestDokuBeispielPDF -count=1 . >/dev/null )

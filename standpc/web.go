@@ -173,7 +173,7 @@ func (ws *WebServer) Run(ctx context.Context) {
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	// Heartbeat: alle 5 s den Live-Zustand an den Server senden,
+	// Heartbeat: alle 3 s den Live-Zustand an den Server senden,
 	// auch wenn kein Schuss faellt und kein Modus gewechselt wird.
 	if ws.cfg.ServerURL != "" {
 		go func() {

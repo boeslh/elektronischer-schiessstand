@@ -135,6 +135,13 @@ def server_pages(ctx, ids):
 
     goto(p, SERVER + "/lanes", 1500)
     shot(p, "standsteuerung")
+    # zwei belegte Staende markieren -> Aktionsleiste fuer gemeinsame Aktionen
+    marks = p.locator(".lane:has(.state.sighting, .state.match, .state.assigned) .mark")
+    for i in range(min(2, marks.count())):
+        marks.nth(i).click()
+        p.wait_for_timeout(200)
+    p.wait_for_timeout(400)
+    shot(p, "standsteuerung-aktionen", clip_h=620)
 
     goto(p, SERVER + "/stammdaten")
     click_text(p, "Mitglieder")
@@ -147,6 +154,11 @@ def server_pages(ctx, ids):
 
     goto(p, SERVER + "/wettkampf")
     shot(p, "wettkaempfe")
+
+    if ids.get("runde"):
+        goto(p, SERVER + f"/wettkampf-bearbeiten?id={ids['runde']}", 1500)
+        p.locator(".card").first.screenshot(path=str(OUT / "wettkampf-bearbeiten.png"))
+        print("   wettkampf-bearbeiten.png")
 
     goto(p, SERVER + "/standaktion")
     shot(p, "standaktion")
@@ -249,6 +261,16 @@ def ergebnis_ansicht(ctx, ids):
     p.close()
 
 
+def anzeigen_live(ctx, ids):
+    # Live-Anzeigen des Rundenwettkampfs (Scheibenansicht, RWK-Dynamisch)
+    p = ctx.new_page()
+    for key, name in (("anz_runde", "anzeige-runde-scheiben"), ("anz_rwkdyn", "anzeige-rwk-dynamisch")):
+        if ids.get(key):
+            goto(p, PREISANZEIGE + f"/anzeige/{ids[key]}", 2500)
+            shot(p, name, crop=False)
+    p.close()
+
+
 def preisanzeige(ctx, ids):
     p = ctx.new_page()
     goto(p, PREISANZEIGE + "/")
@@ -264,8 +286,13 @@ def preisanzeige(ctx, ids):
 # ---- Stand-PC-Anzeige: Status/Schuesse/Preisschiessen werden simuliert ----
 
 def _stand_status(shooter="Huber, Anna", mode="wertung"):
+    import time
+    now = int(time.time() * 1000)
+    # Schiesszeit Soft (Gesamtzeit 45 min, noch gut 23 min) fuer die Uhr rechts unten
+    timer = {"mode": "soft", "switch": "individuell", "separate": False, "started": True,
+             "deadline_ms": now + (23 * 60 + 41) * 1000, "total_s": 2700}
     return {"lane_no": 4, "mode": mode, "shooter": shooter, "wertung_count": 23, "history_gen": 1,
-            "dev_mode": False, "discipline_name": "LGA-30",
+            "dev_mode": False, "discipline_name": "LGA-30", "timer": timer, "now_ms": now, "ui_locked": False,
             "discipline": {"name": "LGA-30", "target_no": 1, "trial_shots": 100, "scoring_shots": 30,
                            "shots_per_series": 10, "decimal_scoring": True}}
 
@@ -382,6 +409,7 @@ SCENES = {
     "preisschiessen": preisschiessen_pages,
     "vereinsabend": vereinsabend_pages,
     "ergebnisansicht": ergebnis_ansicht,
+    "anzeigen": anzeigen_live,
     "preisanzeige": preisanzeige,
     "standpc": stand_pc,
     "wertmaschine": wertmaschine,
@@ -406,6 +434,9 @@ def main():
                        "WHERE d.decimal_scoring AND (SELECT count(*) FROM shots s WHERE s.session_id=se.id "
                        "AND s.kind='match')=30 ORDER BY se.started_at DESC LIMIT 1"),
     }
+    ids["runde"] = sql("SELECT id FROM events WHERE type='runde' ORDER BY starts_on DESC NULLS LAST LIMIT 1")
+    ids["anz_runde"] = sql("SELECT id FROM anzeige_config WHERE type='runde' ORDER BY id LIMIT 1")
+    ids["anz_rwkdyn"] = sql("SELECT id FROM anzeige_config WHERE type='rwk_dynamisch' ORDER BY id LIMIT 1")
     ids["teilnehmer"] = sql("SELECT t.id FROM ps_teilnehmer t WHERE t.preisschiessen_id='%s' "
                             "ORDER BY t.teilnehmer_nr LIMIT 1" % ids["ps"])
     ids["raw_date"] = sql("SELECT se.started_at::date FROM sessions se WHERE EXISTS (SELECT 1 FROM shots s "

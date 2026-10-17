@@ -1,0 +1,9 @@
+{
+  "postgres_dsn": "postgres://schiessstand_online:PASSWORT@127.0.0.1/schiessstand_online",
+  "listen_addr": ":443",
+  "acme_domains": ["anzeige.example.de"],
+  "acme_email": "admin@example.de",
+  "acme_cache_dir": "/var/lib/schiessstand-online/acme",
+  "acme_http_listen": ":80",
+  "site_title": "Schießstand online"
+}

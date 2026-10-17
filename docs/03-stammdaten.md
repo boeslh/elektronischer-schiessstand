@@ -32,6 +32,11 @@ Je Disziplin:
 - **Scheibe** (z. B. LG 10 m ISSF, LP 10 m ISSF)
 - **Wertungsschüsse** und **Probeschüsse** (∞ = unbegrenzt)
 - **Schüsse je Serie**
+- **Schießzeit:** entweder eine **Gesamtzeit für Probe und Wertung** oder
+  **getrennte Zeiten** für Probe und Wertung (in Minuten, halbe Minuten
+  möglich; leer = keine Zeit). Wie die Zeit wirkt (nur Uhrzeit, Countdown
+  oder harte Grenze) und wie umgeschaltet wird, legt der
+  [Wettkampf](06-ergebnisse.md#schießzeit-und-umschalten-probe--wertung) fest.
 - **Zehntelwertung** (Kennzeichen **Z**) oder ganze Ringe
 - **Anzeige** am Stand: voll, teilverdeckt (Kennzeichen **TV**: keine Werte)
   oder verdeckt (Kennzeichen **V**: auch kein Trefferbild)

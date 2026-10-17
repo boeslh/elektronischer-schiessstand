@@ -13,9 +13,11 @@ Dauerbetrieb am Stand ausgelegt:
   ab. Probleme mit dem Neuladen in manchen Browsern entfallen.
 - **Quer- und Hochformat:** im Querformat Scheibe links und Ergebnisse
   rechts, im Hochformat Scheibe oben und Ergebnisse darunter.
-- Alle Menüs wie im Browser: Probe/Wertung, Preisschießen, Stand freigeben,
-  Ergebnis mitnehmen, Disziplin, Zoom. Den Testmodus (Schuss per Klick) gibt
-  es in der App nicht.
+- Alle Menüs wie im Browser: Umschalter Probe | Wertung, Preisschießen,
+  Stand freigeben (🚪), Ergebnis mitnehmen, Disziplin, Zoom, dazu das Schloss
+  für die gesperrte Bedienung, die Schießzeit rechts unten und die Anzeige
+  des Stechschusses. Den Testmodus (Schuss per Klick) gibt es in der App
+  nicht.
 
 ![Standanzeige-App auf einem Tablet (quer)](bilder/app-tablet.png)
 

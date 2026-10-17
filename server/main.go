@@ -92,6 +92,7 @@ func main() {
 
 	live := NewLiveHub()
 	go live.RunListener(ctx, *dsn) // pg LISTEN shot_fired -> SSE
+	go NewOnlineSync(store).Run(ctx) // Online-Anzeige im Internet (online_sync.go)
 	go RunAuswertungScheduler(ctx, store.pool)
 
 	wertmaschinePSK, err := hex.DecodeString(*wertmaschinePSKHex)

@@ -32,6 +32,9 @@ tr:last-child td{border-bottom:none}
 /* ── Form ── */
 label{display:block;font-size:.78rem;color:var(--dim);margin-bottom:4px;margin-top:10px}
 label:first-of-type{margin-top:0}
+/* Felder in eingeblendeten Unterbereichen (Wertungsart, Mannschaftswertung) mit normalem Abstand */
+#cf-modus-wrap label,#cf-bestof-wrap label{margin-top:10px}
+#cf-modus-wrap .hint,#cf-timemode ~ .hint{margin-top:4px}
 input[type=text],input[type=date],input[type=search],select,textarea{
   width:100%;background:#0e1218;border:1px solid var(--line);border-radius:6px;
   color:var(--text);font-size:.85rem;padding:7px 10px;transition:border-color .15s

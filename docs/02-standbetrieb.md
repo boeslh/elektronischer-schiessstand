@@ -21,6 +21,38 @@ Funktionen:
 - **Wartungs-Schütze** (nur Admin): Stand ohne echten Schützen belegen, z. B.
   für Probeschüsse zur Kalibrierung. Diese Ergebnisse erscheinen nicht in der
   normalen Ergebnisliste.
+- **Preisschießmodus beenden:** Ein Stand im Preisschießen (Selbstbedienung)
+  lässt sich über seine Karte wieder freigeben; eine laufende Scheibe wird
+  dabei beendet.
+
+Ein Klick auf eine Karte öffnet die Detailansicht des Stands mit allen
+Schüssen und den Knöpfen zum Steuern, darunter **⏱ Zeit starten** und
+**🔒 Bedienung sperren** (siehe unten).
+
+### Gemeinsame Standaktionen
+
+Über das Kästchen oben rechts auf jeder Karte lassen sich Stände
+**markieren**. Sobald mindestens ein Stand markiert ist, erscheint eine
+Aktionsleiste, deren Aktionen für alle markierten Stände gleichzeitig gelten:
+
+![Standsteuerung mit markierten Ständen](bilder/standsteuerung-aktionen.png)
+
+| Aktion | Wirkung |
+|---|---|
+| **⏱ Zeit starten** | Die Schießzeit läuft ab jetzt (siehe [Schießzeit](06-ergebnisse.md#schießzeit-und-umschalten-probe--wertung)) |
+| **Probe / Wertung** | Stände in die Probe bzw. die Wertung schalten – beim zentralen Umschalten der einzige Weg |
+| **Stände freigeben** | Sitzungen beenden; Stände im Preisschießmodus werden dabei aus der Selbstbedienung geholt |
+| **🔒 Bedienung sperren / 🔓 freigeben** | Bedienung an der Schützenanzeige sperren bzw. wieder erlauben |
+| **⚔ Stechschuss** | nächster Stechschuss einer unentschiedenen Paarung (genau zwei Stände markieren, siehe [Stechschüsse](06-ergebnisse.md#stechschüsse)) |
+
+Gesperrte Stände tragen auf ihrer Karte ein 🔒 neben der Standnummer. Die
+Sperre gehört zum Stand und bleibt auch beim Schützenwechsel bestehen, bis
+sie aufgehoben wird.
+
+Steht in einem laufenden Paarungswettkampf eine Paarung nach allen
+Wertungsschüssen gleich, erscheint oben der Kasten **„Stechen
+erforderlich“** mit den Ständen der beiden Schützen und den Knöpfen
+**Stände markieren** und **Stechschuss n starten**.
 
 ## Anzeige am Stand
 
@@ -31,21 +63,51 @@ Liste aller Schüsse. Die Anzeige läuft im Browser des Stand-PC oder als
 
 ![Anzeige am Stand](bilder/standpc-anzeige.png)
 
-*Kopfzeile: Name, Disziplin, Modus (Probe/Wertung), Knöpfe für die Menüs;
-rechts der Verbindungsstatus und die Standnummer.*
+*Kopfzeile: Name, Disziplin, Umschalter Probe | Wertung, Knöpfe für die
+Menüs und das Schloss; rechts der Verbindungsstatus und die Standnummer.
+Rechts unten läuft die Schießzeit.*
 
 | Knopf | Funktion |
 |---|---|
-| **→ Wertung / ← Probe** | Wechsel zwischen Probe- und Wertungsschüssen (zurück zu Probe nur vor dem ersten Wertungsschuss) |
+| **PROBE \| WERTUNG** | Umschalter: links immer Probe (orange), rechts immer Wertung (grün). Der aktive Modus ist fett mit gefülltem Hintergrund, der andere wird angetippt. Zurück zur Probe nur vor dem ersten Wertungsschuss; bei zentralem Umschalten nur über die Standsteuerung |
 | 🏆 | Preisschießen-Menü (nur im Preisschießen) |
-| 🔓 | Stand freigeben (beendet die Sitzung, Schüsse bleiben gespeichert) |
+| 🚪 | Stand freigeben (beendet die Sitzung, Schüsse bleiben gespeichert) |
 | 📤 | Ergebnis mitnehmen: E-Mail, Ausdruck, QR-Code |
 | 🎯 | Disziplin wählen (nur ohne zugewiesenen Schützen) |
 | 🔍 | Zoom |
+| 🔓 / 🔒 | zeigt, ob die Bedienung möglich (offen) oder in der Standsteuerung gesperrt ist (zu) |
+
+Ist die **Bedienung gesperrt**, bleibt nur der Zoom: Freigeben, Ergebnis
+mitnehmen, Disziplin und Preisschießen-Menü sind ausgeblendet, der
+Umschalter zeigt den Modus nur an. Der Stand-PC lehnt diese Aktionen auch
+selbst ab.
 
 Treffer werden farbig dargestellt (Zehner rot, Neuner gelb, sonst blau; die
-vorherigen Schüsse der Serie grau). Bei verdeckten Disziplinen zeigt die
-Anzeige keine Werte bzw. kein Trefferbild.
+vorherigen Schüsse der Serie grau), mit einem schmalen, deckenden Rand in der
+Farbe des Schusses. Bei verdeckten Disziplinen zeigt die Anzeige keine Werte
+bzw. kein Trefferbild.
+
+### Schießzeit
+
+Rechts unten zeigt die Anzeige die Schießzeit, je nach Einstellung des
+Wettkampfs (siehe [Schießzeit](06-ergebnisse.md#schießzeit-und-umschalten-probe--wertung)):
+
+- **Uhrzeit** (weiß): nur die aktuelle Uhrzeit.
+- **Soft** (grün): Countdown ohne Wirkung; nach Ablauf läuft er negativ
+  weiter („überschritten“).
+- **Hard** (rot): Countdown; nach Ablauf steht „Zeit abgelaufen 00:00“, und
+  jeder weitere Schuss wird als ungültig gespeichert.
+
+Bei getrennten Zeiten steht dort erst „Probezeit“, dann „Wertungszeit“. Vor
+dem Start erscheint die volle Zeit abgeblendet („nicht gestartet“ bzw. beim
+zentralen Umschalten „warten auf Start“). Nicht gewertete Schüsse kündigt die
+Anzeige mit einem Hinweis an.
+
+### Stechschuss
+
+Bei einem Stechschuss beginnt die Scheibe leer und zeigt nur diesen Schuss.
+Der Umschalter zeigt „STECHSCHUSS n“, ein roter Hinweis nennt den Durchgang
+und das unveränderte Gesamtergebnis der Wertung.
 
 ### Zoom
 

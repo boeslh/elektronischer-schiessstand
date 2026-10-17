@@ -9,6 +9,8 @@ Zentrale Einstellungen für die gesamte Anlage:
 | **Anzeige** | Einträge pro Seite in langen Listen |
 | **Schießstände** | welche Standnummern in der Standsteuerung erscheinen |
 | **StandPC-Verbindungen** | Adresse jedes Stand-PC (meldet sich normalerweise automatisch an) |
+| **Online-Veröffentlichung (Internet)** | Adresse und API-Schlüssel des Online-Servers, Liste der übertragenen Preisschießen und Rundenwettkämpfe, siehe [Online-Anzeige](11-online.md) |
+| **Wettkampf-Vorgaben (Schießzeit)** | Vorbelegung neuer Wettkämpfe: Zeithandling (Uhrzeit/Soft/Hard) und Umschalten Probe → Wertung (Individuell/Zentral/Automatisch), siehe [Schießzeit](06-ergebnisse.md#schießzeit-und-umschalten-probe--wertung) |
 | **Entwicklermodus** | Schüsse per Mausklick auf die Scheibe auslösen (nur für Tests) |
 | **Schriftgrößen (Stand-PC)** | Schriftgrößen der Standanzeige je Bereich, Versand an alle Stände |
 | **Admin-Passwort (Stand-PC)** | Passwort für die Admin-Oberfläche der Stand-PCs, Versand an alle Stände |

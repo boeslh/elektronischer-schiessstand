@@ -8,14 +8,16 @@ eigene Dokumente.
 | Kapitel | Inhalt |
 |---|---|
 | [1. Systemüberblick](01-ueberblick.md) | Aufbau der Anlage, Startseite, Rollen |
-| [2. Standbetrieb](02-standbetrieb.md) | Standsteuerung, Anzeige am Stand, Ergebnis mitnehmen, Standaktion |
+| [2. Standbetrieb](02-standbetrieb.md) | Standsteuerung mit gemeinsamen Standaktionen, Anzeige am Stand, Schießzeit, Ergebnis mitnehmen, Standaktion |
 | [3. Stammdaten und Disziplinen](03-stammdaten.md) | Gaue, Vereine, Mitglieder, Mannschaften, Sportklassen, Disziplinen |
 | [4. Preisschießen](04-preisschiessen.md) | Anmeldung, Kasse, Teilnehmer, Stände, Auswertung, Gewinne, Verwaltung |
 | [5. Vereinsabend](05-vereinsabend.md) | Schießsaison mit Tages- und Saisonwertung, Anwesenheit |
-| [6. Ergebnisse, Wettkämpfe und Anzeigen](06-ergebnisse.md) | Ergebnisliste, Trefferbild, PDF, Wettkämpfe, Auswertung, Anzeigebildschirme |
-| [7. Technik und Kalibrierung](07-technik.md) | Simulator, Gerätekonfiguration, Wertmaschine |
+| [6. Ergebnisse, Wettkämpfe und Anzeigen](06-ergebnisse.md) | Ergebnisliste, Trefferbild, PDF, Wettkämpfe (Rundenwettkampf, Paarungen, Stechschüsse, Schießzeit), Auswertung, Anzeigebildschirme |
+| [7. Technik und Kalibrierung](07-technik.md) | Simulator, Zonen- und Foto-Kalibrierung, Gerätekonfiguration, Wertmaschine |
 | [8. Systemverwaltung](08-verwaltung.md) | Einstellungen, Benutzerverwaltung, Import/Export, Archiv, Entwicklung |
 | [9. Apps](09-apps.md) | Standanzeige-App (Android), App „My Shootings“ |
+| [10. Kommunikation der Komponenten](10-kommunikation.md) | Ports, Datenbankzugriffe, Kommunikation eines Stands (ESP32, Stand-PC, Server), Auslösen von Aktionen, Datenflüsse, Absicherung; Diagramm auch als draw.io-Datei |
+| [11. Online-Anzeige im Internet](11-online.md) | Preisschießen und Rundenwettkämpfe mehrerer Vereine im Internet: Einrichtung, übertragene Daten, Verwaltung, Sicherheit |
 
 ## Hinweise
 
@@ -23,7 +25,7 @@ eigene Dokumente.
   Kontaktdaten in den Screenshots sind erfunden. Die Bilder wurden aus dem
   Entwicklungssystem erzeugt; personenbezogene Daten werden dabei
   automatisch durch Pseudonyme ersetzt.
-- **Stand der Bilder:** Oktober 2026 (Server-Version mit Migration 077).
+- **Stand der Bilder:** 15. Oktober 2026 (Server-Version mit Migration 087).
   Kleine Abweichungen zur aktuellen Oberfläche sind möglich.
 
 ## PDF erzeugen

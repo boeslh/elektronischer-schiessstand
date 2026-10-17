@@ -1,11 +1,15 @@
 // ============================================================================
 // preisanzeige – eigenständiger Anzeige-Prozess für Preisschiessen-Auswertungen
 //
-// Liest NUR den von server/preisschiessen_wertungen.go periodisch berechneten
-// Ergebnis-Cache (ps_wertung_ergebnisse) sowie die Anzeige-Konfiguration
-// (ps_anzeige_config) - führt selbst nie eine Berechnung aus. Dadurch ist
-// häufiges Polling (mehrere Anzeige-Bildschirme, Reload alle paar Sekunden)
-// unbedenklich, siehe Design-Kontext in .claude/plans/hidden-booping-duckling.md.
+// Liest die Datenbank nur (schreibt nie): fuer Preisschiessen den von
+// server/preisschiessen_wertungen.go periodisch berechneten Ergebnis-Cache
+// (ps_wertung_ergebnisse) und die Anzeige-Konfiguration (ps_anzeige_config),
+// fuer die Anzeige-Slots (anzeige_config: Standanzeige, Rundenwettkampf,
+// RWK-Dynamisch) zusaetzlich die laufenden Sessions/Schuesse - fuehrt selbst
+// keine Preisschiessen-Wertung aus. Dadurch ist haeufiges Polling (mehrere
+// Anzeige-Bildschirme, Abruf alle paar Sekunden) unbedenklich, siehe
+// Design-Kontext in .claude/plans/hidden-booping-duckling.md und
+// docs/10-kommunikation.md.
 //
 // Ein laufender Prozess bedient ALLE Preisschießen der DB gleichzeitig,
 // ausgewählt über den Pfad (/ps/{id}/..., siehe site.go registerSiteRoutes) -

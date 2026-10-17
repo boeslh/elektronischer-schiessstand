@@ -18,18 +18,58 @@ Ablauf in vier Schritten:
    Wartungs-Schützen lassen sich gezielt filtern.
 2. **Kalibrierparameter** – Abstand Papier–Sensoren (Standoff),
    Mikrofonabstand, Offsets, Schallgeschwindigkeit, Kugeldurchmesser-
-   Korrektur, Verfahren zur Positionsbestimmung, Piezo-Bestätigung,
-   Mikrofon-Offsets und genutzte Mikrofone. Kalibrierungen lassen sich unter
-   einem Namen speichern und wieder laden (gefiltert nach Stand).
+   Korrektur (Standard 30 %), Cluster-Radius (Standard 4000 µm), Verfahren
+   zur Positionsbestimmung, Piezo-Bestätigung, Mikrofon-Offsets und genutzte
+   Mikrofone. Kalibrierungen lassen sich unter einem Namen speichern, wieder
+   laden und löschen; die Liste ist nach Stand gefiltert und zeigt je
+   Kalibrierung den Erfassungsmodus und ob sie Zonen enthält.
 3. **Kalibrierung** – Mikrofon-Offsets aus ausgewählten Schüssen berechnen;
    optional **Foto-Kalibrierung** über ein Foto der beschossenen
-   Papierscheibe.
+   Papierscheibe (Abschnitt 3b).
 4. **Ergebnis** – Original und Neuberechnung im direkten Vergleich, inklusive
-   Qualitätsmaß (Streuung der Schnittpunkte).
+   Qualitätsmaß (Streuung der Schnittpunkte) und – nach einer
+   Foto-Kalibrierung – der Lage laut Foto je Schuss.
+
+### Zonen-Kalibrierung
+
+Der Knall eines Treffers klingt je nach getroffenen Papierlagen
+unterschiedlich: im Loch der Vorsatzscheibe (nur das Schussband), neben dem
+Schussband (nur die Vorsatzscheibe) oder auf beiden. Ein einziger
+Parametersatz lässt deshalb je Bereich systematische Abweichungen. Die
+**Zonen-Kalibrierung** verwendet je Bereich einen eigenen Satz aus
+Schallgeschwindigkeit, Mikrofon-Offsets und Nachkorrektur:
+
+| Zone | Bereich |
+|---|---|
+| **A** | im Loch der Vorsatzscheibe (LG Ø 30,5 mm, LP Ø 59,5 mm) |
+| **B** | neben dem Schussband (Bandbreite ca. 90 mm) |
+| **C** | Schussband und Vorsatzscheibe |
+
+An den Zonengrenzen wird zwischen den Sätzen übergeblendet. Die Firmware
+rechnet ab Version 4.17.0 identisch zum Simulator; ältere Firmware übernimmt
+nur den Basissatz.
+
+### Foto-Kalibrierung
+
+Grundlage ist ein Foto der beschossenen Papierscheibe. Der Maßstab kommt aus
+dem Innenkreis der Scheibe, die Schrauben dienen nur zum Entzerren und
+Ausrichten. Schusslöcher werden auch im schwarzen Bereich erkannt und lassen
+sich von Hand ergänzen oder ausschließen.
+
+**One-Click-Kalibrierung (Zonen):** ordnet die Löcher den Schüssen zu,
+kalibriert den Basissatz an allen Schüssen und je Zone einen eigenen Satz,
+trägt alles in Abschnitt 2 ein und speichert es als Kalibrierung
+„Foto-Zonen …“. Ausreißer (mehr als 10 mm) werden dabei nicht verwendet.
+
+### Übernahme an den Stand
 
 Passt eine Einstellung, wird sie mit **Zur Übernahme freigeben** an einen
-Stand geschickt. Der Stand-PC übernimmt sie auf die Messplatine, sobald dort
-jemand die Übernahme bestätigt.
+Stand geschickt (einschließlich der Zonen-Sätze). Der Stand-PC übernimmt sie
+auf die Messplatine, sobald dort jemand die Übernahme bestätigt. In der
+Admin-Oberfläche des Stand-PC kann statt der zuletzt freigegebenen auch jede
+andere für diesen Stand gespeicherte Kalibrierung gewählt werden. Ist die
+Anmeldung im Simulator abgelaufen, fragt die Seite das Passwort erneut ab,
+ohne die Eingaben zu verlieren.
 
 ## Gerätekonfiguration
 
@@ -45,7 +85,10 @@ Wunsch nur die Unterschiede).
 
 Jeder Stand-PC hat unter `/admin` eine eigene, passwortgeschützte
 Oberfläche für Kalibrierung und Konfiguration direkt am Stand (mit
-Live-Anzeige der Messwerte). Das Passwort wird zentral in den
+Live-Anzeige der Messwerte). Sie ist in die Reiter **Übersicht**,
+**Kalibrierung**, **Konfiguration** und **Netzwerk** gegliedert; die
+Einstellungen der Messplatine sind in aufklappbaren Gruppen geordnet,
+die Zonen-Sätze werden angezeigt. Das Passwort wird zentral in den
 [Einstellungen](08-verwaltung.md#einstellungen) gesetzt und an alle Stände
 verteilt.
 
