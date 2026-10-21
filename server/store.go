@@ -97,6 +97,10 @@ type Discipline struct {
 	Name           string `json:"name"`
 	RuleNo         string `json:"rule_no,omitempty"`
 	MatchShotCount int    `json:"match_shot_count"`
+	// Scheibe + Wertungsart, damit die Standsteuerung z.B. fuer den
+	// Wartungs-Schuetzen nach LG/LP-Scheibe auswaehlen kann
+	TargetName  string `json:"target_name,omitempty"`
+	ScoringMode string `json:"scoring_mode,omitempty"`
 }
 
 type SessionInfo struct {
@@ -294,8 +298,11 @@ func (s *Store) CreateShooter(ctx context.Context, last, first, passNo string) (
 
 func (s *Store) ListDisciplines(ctx context.Context) ([]Discipline, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, COALESCE(rule_no,''), match_shot_count
-		FROM disciplines WHERE active ORDER BY name`)
+		SELECT d.id, d.name, COALESCE(d.rule_no,''), d.match_shot_count,
+		       COALESCE(t.name,''), d.scoring_mode
+		FROM disciplines d
+		LEFT JOIN targets t ON t.id = d.target_id
+		WHERE d.active ORDER BY d.name`)
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +310,8 @@ func (s *Store) ListDisciplines(ctx context.Context) ([]Discipline, error) {
 	var out []Discipline
 	for rows.Next() {
 		var d Discipline
-		if err := rows.Scan(&d.ID, &d.Name, &d.RuleNo, &d.MatchShotCount); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.RuleNo, &d.MatchShotCount,
+			&d.TargetName, &d.ScoringMode); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

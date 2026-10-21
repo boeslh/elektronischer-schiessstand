@@ -223,7 +223,8 @@
         Die Schüsse werden samt Rohdaten auf dem Server gespeichert, erscheinen nicht in
         der Ergebnisübersicht und stehen anschließend im Simulator für die Kalibrierung bereit.</div>
       <div class="row">
-        <select id="maintDiscSel"></select>
+        <label>Scheibe <select id="maintTargetSel" onchange="fillMaintDiscSel()"></select></label>
+        <label>Disziplin <select id="maintDiscSel"></select></label>
         <button class="warn" onclick="assignMaintenance()">Mit Wartungs-Schützen belegen</button>
       </div>
     </div>
@@ -545,8 +546,31 @@ function updateMaintVisibility() {
   document.getElementById('maintBox').style.display = isAdmin() ? 'block' : 'none';
 }
 
+// Wartungs-Auswahl: erst die Scheibe (LG/LP ...), dann die elektronischen
+// Disziplinen auf dieser Scheibe - Papier-/Teilnahme-Disziplinen (z.B.
+// "Anwesenheit") sind fuer die Kalibrierung sinnlos und werden ausgeblendet.
+function maintDisciplines() {
+  return disciplines.filter(d => (d.scoring_mode || 'elektronisch') === 'elektronisch');
+}
+function fillMaintTargetSel() {
+  const sel = document.getElementById('maintTargetSel');
+  const targets = [...new Set(maintDisciplines().map(d => d.target_name || '–'))].sort();
+  sel.innerHTML = targets.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  fillMaintDiscSel();
+}
+function fillMaintDiscSel() {
+  const t = document.getElementById('maintTargetSel').value;
+  document.getElementById('maintDiscSel').innerHTML = maintDisciplines()
+    .filter(d => (d.target_name || '–') === t)
+    .map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('');
+}
+
 async function assignMaintenance() {
-  if (!confirm(`Stand ${current.lane_no} mit dem Wartungs-Schützen belegen?`)) return;
+  const discSel = document.getElementById('maintDiscSel');
+  if (!discSel.value) { alert('Keine elektronische Disziplin für diese Scheibe vorhanden.'); return; }
+  const target = document.getElementById('maintTargetSel').value;
+  if (!confirm(`Stand ${current.lane_no} mit dem Wartungs-Schützen belegen?\n` +
+               `Scheibe: ${target}, Disziplin: ${discSel.selectedOptions[0].textContent}`)) return;
   try {
     await api(`/lanes/${current.lane_no}/assign-maintenance`,
       {method:'POST', headers:{'Content-Type':'application/json'},
@@ -818,14 +842,13 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 (async () => {
   disciplines = await api('/disciplines') || [];
-  for (const selId of ['discSel', 'maintDiscSel']) {
-    const sel = document.getElementById(selId);
-    for (const d of disciplines) {
-      const o = document.createElement('option');
-      o.value = d.id; o.textContent = d.name;
-      sel.appendChild(o);
-    }
+  const sel = document.getElementById('discSel');
+  for (const d of disciplines) {
+    const o = document.createElement('option');
+    o.value = d.id; o.textContent = d.name;
+    sel.appendChild(o);
   }
+  fillMaintTargetSel();
   await loadShooters('');
   await refreshLanes();
   await loadWKCompetitions();

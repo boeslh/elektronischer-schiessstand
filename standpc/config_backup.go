@@ -38,6 +38,11 @@ const configBackupInterval = 10 * time.Minute
 func deviceConfigSettings(c *ConfigTelegram) map[string]string {
 	out := make(map[string]string, len(adminConfigKeys))
 	for _, k := range adminConfigKeys {
+		// ZHOLE setzt der Stand-PC je Scheibe selbst (zone_hole.go) - kein
+		// Teil der gesicherten Konfiguration (wechselt bei LG/LP)
+		if k.Key == "ZHOLE" {
+			continue
+		}
 		if v, ok := currentSettingValue(c, k.Key); ok {
 			out[k.Key] = v
 		}

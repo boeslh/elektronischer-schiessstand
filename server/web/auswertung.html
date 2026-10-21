@@ -285,6 +285,13 @@
 </main>
 
 <script>
+// Ganzring-Summe; bei manuell erfassten Serien/Gesamtwerten in Zehntel-
+// Disziplinen gibt es keinen Ringwert (aus einer Zehntelsumme laesst er sich
+// nicht ableiten) - dann "–" statt einer irrefuehrenden 0.
+function ringsOrDash(e) {
+  return (!e.total_rings && e.total_decimal > 0) ? '–' : String(e.total_rings);
+}
+
 // ── Tab-Navigation ───────────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -591,7 +598,7 @@ function renderRunde(entries, bestOf) {
         ? (hasResult ? `<span class="rings-val">${e.total_decimal.toFixed(1)}</span>` : '<span class="no-result">—</span>')
         : (hasResult ? `<span class="rings-val">${e.total_rings}</span>` : '<span class="no-result">—</span>');
       const subCell = isDecimal
-        ? (hasResult ? `<span style="color:var(--dim);font-size:11px">(${e.total_rings})</span>` : '')
+        ? (hasResult ? `<span style="color:var(--dim);font-size:11px">(${ringsOrDash(e)})</span>` : '')
         : (hasResult && e.total_decimal > 0 ? `<span style="color:var(--dim);font-size:11px">${e.total_decimal.toFixed(1)}</span>` : '');
 
       return `<tr class="${isAK ? 'ak' : ''}">
@@ -855,8 +862,8 @@ function renderGruppe(data, bestOf, wertungSel) {
   }
   function fmtSubVal(e) {
     if (!e.shot_count) return '';
-    if (isTeiler)  return `<span style="color:var(--dim);font-size:11px">${e.total_rings}</span>`;
-    if (isDecimal) return `<span style="color:var(--dim);font-size:11px">(${e.total_rings})</span>`;
+    if (isTeiler)  return `<span style="color:var(--dim);font-size:11px">${ringsOrDash(e)}</span>`;
+    if (isDecimal) return `<span style="color:var(--dim);font-size:11px">(${ringsOrDash(e)})</span>`;
     return e.total_decimal > 0 ? `<span style="color:var(--dim);font-size:11px">${e.total_decimal.toFixed(1)}</span>` : '';
   }
   function fmtTotal(total) {

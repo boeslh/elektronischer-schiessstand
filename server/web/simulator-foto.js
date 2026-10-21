@@ -1340,7 +1340,7 @@ function renderResult() {
     ${warn.map(w => `<div style="color:#ffb347;margin-top:6px">⚠ ${w}</div>`).join('')}
     <div class="row-actions" style="margin-top:10px">
       <button class="btn" id="foto-apply">Parameter übernehmen</button>
-      <span class="hint">übernimmt die Werte in Abschnitt 2 - danach wie gewohnt neu berechnen und als SET-Befehle exportieren.</span>
+      <span class="hint">übernimmt die Werte in die Grundwerte (Abschnitt 2) – danach neu berechnen, speichern und freigeben in Abschnitt 5.</span>
     </div>`;
   $('foto-apply').onclick = () => {
     applyParams(r.params);
@@ -1367,7 +1367,7 @@ async function oneClickCalibrate() {
   }
   const pairs = F.pairs.filter(p => p.include).map(p => ({shot_no: p.shot_no, x_mm: p.x_mm, y_mm: p.y_mm}));
   let hole = parseFloat(document.getElementById('z-hole').value);
-  if (!(hole > 0)) { hole = defaultHoleRadius(currentDiscipline); document.getElementById('z-hole').value = hole; }
+  if (!(hole > 0)) { hole = holeRadiusForTarget(); document.getElementById('z-hole').value = hole; }
   const zones = {
     hole_radius_mm: hole,
     band_half_mm: parseFloat(document.getElementById('z-band').value) || 45,
@@ -1388,7 +1388,7 @@ async function oneClickCalibrate() {
   const inRange = shotRange();
   const shotNos = (typeof lastSessionShots !== 'undefined' ? lastSessionShots : [])
     .filter(s => s.has_raw && inRange(s)).map(s => s.shot_no);
-  say(`Kalibriere: ${F.holes.length} Löcher, ${shotNos.length} Schüsse (Zuordnung + Basissatz + Zonen)…`);
+  say(`Kalibriere: ${F.holes.length} Löcher, ${shotNos.length} Schüsse (Zuordnung + Grundwerte + Zonen)…`);
   let r;
   try {
     r = await api(`/api/sessions/${currentSessionId}/photo-calibrate-zones`, {
@@ -1422,8 +1422,8 @@ async function oneClickCalibrate() {
     await api('/api/simulator-configs', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name, lane_no: currentLoadedLaneNo, params: currentParams()})});
     await loadConfigOptions();
-    say(`Übernommen und als Kalibrierung „${name}“ gespeichert. Für den Stand unten unter „Übertragung an den Stand“ freigeben `
-      + '(Firmware ab 4.17.0 übernimmt auch die Zonen-Sätze, ältere nur den Basissatz).');
+    say(`Übernommen (Grundwerte und Zonen) und als Kalibrierung „${name}“ gespeichert. `
+      + 'Prüfen mit „Messwerte gegen das Foto prüfen“, dann in Abschnitt 5 an den Stand freigeben.');
   } catch (e) { say('Übernommen, aber Speichern fehlgeschlagen: ' + e.message, true); }
 }
 
@@ -1442,7 +1442,7 @@ function renderZoneResult() {
   const weak = r.zones.filter(z => z.shots < 6).map(z => z.zone);
   const bad = (r.shots || []).filter(x => x.after_err_mm != null && x.after_err_mm > 3);
   box.innerHTML = `
-    <div><strong>One-Click-Kalibrierung:</strong> vorher ${st(r.before)} → nur Basissatz ${st(r.base_only)} →
+    <div><strong>One-Click-Kalibrierung:</strong> vorher ${st(r.before)} → nur Grundwerte ${st(r.base_only)} →
       <strong>mit Zonen ${st(r.after)}</strong></div>
     <table style="margin-top:6px;width:auto"><thead><tr><th>Zone</th><th>Schüsse</th><th>angepasst</th><th>vorher</th><th>nachher</th>
       <th title="Jeder Schuss der Zone einmal weggelassen, mit den übrigen kalibriert und an ihm gemessen (Fehler bei 5 mm gekappt) – Maß für die Übertragbarkeit auf neue Schüsse">Kreuzprüfung</th><th>Schall</th></tr></thead>
@@ -1457,9 +1457,9 @@ function renderZoneResult() {
 // Varianten = Abweichungen von den aktuellen Parametern (Abschnitt 2); jede
 // neue Simulator-Option laesst sich hier als weitere Zeile ergaenzen.
 const VARIANTS = [
-  {id: 'old', name: 'Verfahren bis Firmware 4.11.5', on: true,
+  {id: 'old', name: 'ohne Nachzentrieren und Korrektur aller Schnittpunkte', on: true,
    patch: p => ({pos_algo: {...p.pos_algo, corr_cluster: false, iterations: 0, weighted: false, lsq: false}})},
-  {id: 'fw412', name: 'Firmware-Standard ab 4.12 (CLUSTERCORR, 5 Durchgänge)', on: true,
+  {id: 'fw412', name: 'Standardverfahren (CLUSTERCORR, 5 Durchgänge)', on: true,
    patch: p => ({pos_algo: {...p.pos_algo, corr_cluster: true, iterations: 5, weighted: false, lsq: false}})},
   {id: 'lsq', name: '+ Ausgleichsrechnung (LSQ)', on: true,
    patch: p => ({pos_algo: {...p.pos_algo, corr_cluster: true, iterations: 5, lsq: true}})},

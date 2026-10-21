@@ -92,6 +92,27 @@
   .delta-up{color:#e04040}
   .delta-down{color:#3dcc6e}
 
+  /* aufklappbare Gruppen */
+  details.grp{border:1px solid var(--line);border-radius:6px;margin:0 0 10px;background:rgba(0,0,0,.12)}
+  details.grp > summary{cursor:pointer;padding:8px 12px;font-weight:600;font-size:13px;list-style:none;
+                        display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  details.grp > summary::-webkit-details-marker{display:none}
+  details.grp > summary::before{content:'▸';color:var(--acc);display:inline-block;width:12px;transition:transform .15s}
+  details.grp[open] > summary::before{transform:rotate(90deg)}
+  details.grp > summary:hover{color:var(--acc)}
+  .grp-sum{font-weight:400;font-size:12px;color:var(--dim)}
+  .grp-body{padding:4px 12px 12px}
+  .overview{font-size:13px;line-height:1.5}
+  .ov-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px 24px}
+  .overview h4{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--acc);margin:4px 0 6px}
+  .overview ol{padding-left:18px;margin-bottom:6px}
+  .overview li{margin-bottom:4px}
+  .ov-table{font-size:12px}
+  .ov-table th,.ov-table td{padding:4px 6px;vertical-align:top;cursor:default}
+  .ov-table tr{cursor:default}
+  .ov-warn{color:#e8a030;font-size:12px;margin-top:6px}
+  .zone-warn{color:#e8a030!important}
+  .oneclick-box{margin-top:10px;padding:10px 12px;border:1px solid var(--acc);border-radius:6px;background:rgba(123,167,255,.06)}
   #detailBox{background:var(--bg);border:1px solid var(--line);border-radius:6px;
              padding:12px 14px;font-size:13px;margin-top:10px;display:none}
   #detailBox table{margin-top:8px}
@@ -168,26 +189,61 @@
 </section>
 
 <section id="paramsSection" style="display:none">
-  <h2>2. Kalibrierparameter</h2>
+  <h2>2. Parametersatz</h2>
 
-  <div class="row-actions">
-    <div class="filter-group">
-      <label>Name zum Speichern</label>
-      <input type="text" id="cfgName" placeholder="z.B. Stand 1 Winter" style="min-width:220px">
+  <details class="grp" id="grp-overview" data-default="open">
+    <summary>So hängen Parameter und Kalibrierungen zusammen</summary>
+    <div class="grp-body overview">
+      <div class="ov-cols">
+        <div>
+          <h4>Wie ein Treffer berechnet wird</h4>
+          <ol>
+            <li>Mit den <b>Grundwerten</b> (Geometrie, Schallgeschwindigkeit, OFS0–OFS5, Nachkorrektur OFFSETX/Y)
+              und dem <b>Auswerteverfahren</b> wird die Lage bestimmt.</li>
+            <li>Sind <b>Zonen</b> eingeschaltet, legt diese Lage die Zone fest (A im Loch der Vorsatzscheibe,
+              B neben dem Schussband, C Band + Vorsatzscheibe). Der Treffer wird mit dem Satz dieser Zone neu
+              gerechnet: Schallgeschwindigkeit, OFS0–OFS5 und OFFSETX/Y der Zone <b>ersetzen</b> die Grundwerte,
+              Geometrie und Auswerteverfahren gelten weiter. Zonen ohne eigenen Satz rechnen mit den Grundwerten;
+              an den Grenzen wird überblendet.</li>
+          </ol>
+          <p>Die OFS-Werte der Grundwerte gelten also immer ohne Zonen – mit Zonen für die erste Lagebestimmung
+            und in Zonen ohne eigenen Satz.</p>
+        </div>
+        <div>
+          <h4>Woher die Werte kommen</h4>
+          <table class="ov-table">
+            <tr><th>Weg</th><th>setzt</th><th>Maßstab</th></tr>
+            <tr><td><b>One-Click-Kalibrierung</b> (Abschnitt 3, empfohlen)</td><td>Grundwerte <b>und</b> Zonen A/B/C, speichert die Kalibrierung</td><td>Foto = wahre Trefferlage</td></tr>
+            <tr><td>Foto: nur Grundwerte optimieren</td><td>die angehakten Grundwerte</td><td>Foto, ohne Zonen</td></tr>
+            <tr><td>Rest-Fehler (Abschnitt 4)</td><td>nur OFS1–OFS5</td><td>widerspruchsfreie Laufzeiten, ohne Zonen</td></tr>
+            <tr><td>Σ9 (Abschnitt 4)</td><td>OFS1–OFS5 + gewählte Parameter</td><td>enge Schnittpunkte (nicht die wahre Lage), ohne Zonen</td></tr>
+            <tr><td>Laden, SHOW-Import, Eingabe</td><td>alles bzw. einzelne Felder</td><td>–</td></tr>
+          </table>
+          <p class="ov-warn">Die Wege ohne Zonen ändern nur die Grundwerte. Sind Zonen eingeschaltet, bleiben deren Sätze
+            stehen und passen danach ggf. nicht mehr – dann die One-Click-Kalibrierung wiederholen oder die Zonen ausschalten.</p>
+        </div>
+        <div>
+          <h4>Wohin die Werte gehen</h4>
+          <p><b>Neu berechnen</b> zeigt die Wirkung auf die Schüsse (Abschnitt 6).
+            <b>Speichern</b> legt den kompletten Satz als Kalibrierung ab (Abschnitt 5, Laden oben unter
+            „Gespeicherte Kalibrierungen“). <b>Zur Übernahme freigeben</b> schickt ihn an einen Stand; dort wird er in der
+            Admin-Oberfläche des Stand-PC geprüft und auf das Gerät geschrieben – Grundwerte, Auswerteverfahren und Zonen.</p>
+        </div>
+      </div>
     </div>
-    <button class="btn-sec" onclick="saveConfig()">Speichern</button>
-    <span class="hint" id="cfgSaveLaneHint"></span>
-  </div>
+  </details>
 
+  <details class="grp" id="grp-saved">
+    <summary>Gespeicherte Kalibrierungen laden <span class="grp-sum" id="sum-saved"></span></summary>
+    <div class="grp-body">
   <div class="filter-group" style="margin-bottom:6px">
     <label>Gespeicherte Kalibrierungen (nach Stand, neueste zuerst)</label>
     <span style="margin-left:14px">Filter: <select id="cfgLaneFilter" onchange="setCfgLaneFilter(this.value)"></select></span>
   </div>
   <table id="cfgTable" style="margin-bottom:14px">
-    <thead><tr><th>Name</th><th>Stand</th><th title="Erfassungsmodus der Schüsse, aus denen die Kalibrierung bestimmt wurde - die Offsets passen nur zu einem Gerät im selben Modus">Erfassung</th><th title="Zonen-Kalibrierung (je Bereich eigener Satz, Firmware ab 4.17.0)">Zonen</th><th>Gespeichert am</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Stand</th><th title="Erfassungsmodus der Schüsse, aus denen die Kalibrierung bestimmt wurde - die Offsets passen nur zu einem Gerät im selben Modus">Erfassung</th><th title="Zonen-Kalibrierung (je Bereich eigener Satz)">Zonen</th><th>Gespeichert am</th><th></th></tr></thead>
     <tbody id="cfgTbody"></tbody>
   </table>
-
   <div class="row-actions">
     <div class="filter-group" style="flex:1;min-width:400px">
       <label>SHOW-Ausgabe der Firmware einfügen (optional)</label>
@@ -197,70 +253,19 @@
     <button class="btn-sec" onclick="importShow()">Übernehmen</button>
   </div>
   <div id="showStatus" class="hint"></div>
+    </div>
+  </details>
 
+  <details class="grp" id="grp-base" data-default="open">
+    <summary>Grundwerte – gelten für jeden Treffer <span class="grp-sum" id="sum-base"></span></summary>
+    <div class="grp-body">
   <div class="params-grid" id="classicParams">
     <div class="filter-group"><label>Standoff (mm)</label><input type="number" id="p-standoffPaper" step="0.1" value="28.0"></div>
     <div class="filter-group"><label>Mic-Halbabstand X (mm)</label><input type="number" id="p-micHalfX" step="0.1" value="115.0"></div>
-    <div class="filter-group"><label>Offset X (0.001mm)</label><input type="number" id="p-offsetX" step="1" value="0"></div>
-    <div class="filter-group"><label>Offset Y (0.001mm)</label><input type="number" id="p-offsetY" step="1" value="0"></div>
     <div class="filter-group"><label>Schallgeschw. (m/s)</label><input type="number" id="p-sound" step="0.1" value="343"></div>
-    <div class="filter-group" title="SET WALKK (Firmware ab 4.14.0): Pulsbreiten-Korrektur t += WALKK·(Breite − Mittel). Wirkt nur auf Schüsse mit gespeicherten Pulsbreiten (MCPWM-Erfassung); 0 = aus.">
-      <label>Pulsbreiten-Korr. WALKK</label><input type="number" id="p-walkK" step="0.01" min="0" max="1" value="0"></div>
-    <div class="filter-group"><label>Kugeldurchm.-Korrektur (%)</label><input type="number" id="p-bshiftPct" step="1" min="0" max="100" value="30"></div>
-    <div class="filter-group"><label>Korrektur-Kappung (mm)</label><input type="number" id="p-bshiftCap" step="0.1" min="0" value="3.0"></div>
-    <div class="filter-group"><label>Cluster-Radius (0.001mm)</label><input type="number" id="p-clusterRadius" step="1" min="0" max="500000" value="4000"></div>
+    <div class="filter-group"><label title="Nachkorrektur: verschiebt jede berechnete Lage">Offset X (0.001mm)</label><input type="number" id="p-offsetX" step="1" value="0"></div>
+    <div class="filter-group"><label title="Nachkorrektur: verschiebt jede berechnete Lage">Offset Y (0.001mm)</label><input type="number" id="p-offsetY" step="1" value="0"></div>
   </div>
-
-  <div id="rawParamsBox" style="display:none;margin:8px 0 0;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
-    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Rohdaten (Firmware ab 4.16.0, SET RAWLOG=1)</div>
-    <div class="hint" id="rawParamsHint" style="margin-bottom:6px"></div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;align-items:center">
-      <label title="SET TDOA: Fenster ab der ersten Flanke, in dem je Mikrofon die erste steigende Flanke gesucht wird (Firmware-Default 750 µs)">
-        TDOA-Fenster <input type="number" id="p-tdoa" min="100" max="5000" step="10" value="750" style="width:70px"> µs</label>
-      <label title="SET WALKMAX: größte plausible Pulsbreite; leer = Wert zum Schusszeitpunkt">
-        WALKMAX <input type="number" id="p-walkMax" min="5" max="500" step="1" placeholder="vom Schuss" style="width:80px"> µs</label>
-      <label title="Firmware: letzte fallende Flanke vor der nächsten steigenden. Variante nur im Simulator.">
-        Pulsbreite bis <select id="p-walkRule"><option value="">letzte fallende Flanke (Firmware)</option><option value="first">erste fallende Flanke (Variante)</option></select></label>
-      <button class="btn-sec" type="button" onclick="applyShotParams()" title="Offsets, aktive Mikrofone, WALKK, WALKMAX und Schallgeschwindigkeit so einstellen, wie sie beim Schuss am Gerät aktiv waren">Parameter vom Schusszeitpunkt übernehmen</button>
-    </div>
-  </div>
-
-  <div style="margin:6px 0 0;font-size:12px">
-    <label title="Firmware ab 4.15.0 mit DHT22: je Schuss die damals aktive Schallgeschwindigkeit aus Temperatur/Luftfeuchte verwenden. Gilt für Neuberechnen und Kalibrierung; Σ9- und Foto-Kalibrierung bestimmen die Schallgeschwindigkeit selbst und nutzen den Wert oben.">
-      <input type="checkbox" id="p-soundFromShot"> Schallgeschwindigkeit je Schuss verwenden (gespeicherter Gerätewert, z.B. aus DHT22-Messung) – sonst gilt der Wert oben</label>
-  </div>
-
-  <div id="posAlgoBox" style="margin:10px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
-    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Positionsbestimmung (Endposition aus den Schnittpunkten)</div>
-    <div class="hint" style="margin-bottom:6px">Ab Firmware 4.12.0 auf dem Gerät per SET CLUSTERCORR / CLUSTERITER / LSQ / LSQPELLETR
-      einstellbar und in „Zur Übernahme freigeben“ enthalten (Standard: korrigiert mitteln, 5 Durchgänge).
-      Alles aus = Verfahren bis Firmware 4.11.5. „nach Rest-Fehler gewichten“ gibt es nur im Simulator.
-      Wirken auf Neuberechnen, Σ9-Kalibrierung und Foto-Kalibrierung; Mehraufwand am ESP32 gegenüber 4.11.5 in Klammern.</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;align-items:center">
-      <label title="Alle Schnittpunkte kugeldurchmesser-korrigiert auswählen und mitteln (Firmware: nur die beste Kombination korrigiert, alle anderen roh)">
-        <input type="checkbox" id="pa-corr" checked> alle Schnittpunkte korrigiert mitteln – CLUSTERCORR (+60 %)</label>
-      <label title="Cluster um den jeweils neuen Mittelpunkt erneut auswählen (Mean-Shift)">
-        Nachzentrieren <input type="number" id="pa-iter" min="0" max="10" step="1" value="5" style="width:50px"> Durchgänge – CLUSTERITER (+5 % je)</label>
-      <label title="Mittelung gewichtet mit 1/(Rest-Fehler² + 0,25²) - konsistente Mikrofon-Kombinationen zählen mehr">
-        <input type="checkbox" id="pa-weighted"> nach Rest-Fehler gewichten (nur Simulator)</label>
-      <label title="Endposition per Ausgleichsrechnung über alle Mikrofone gleichzeitig verfeinern (Schall vom Lochrand, grob abweichendes Mikrofon wird verworfen). Ersetzt die Kugeldurchmesser-Korrektur.">
-        <input type="checkbox" id="pa-lsq"> Ausgleichsrechnung über alle Mics – LSQ (+30–90 %)</label>
-      <label>Lochrand-Radius (LSQPELLETR) <input type="number" id="pa-lsqR" min="0" max="5" step="0.05" value="2.25" style="width:60px"> mm</label>
-    </div>
-  </div>
-
-  <!-- Piezo-Bestaetigung: seit dem realen Vorfall mit Luftschall-
-       Fehlmessungen benachbarter Staende (siehe SimParams.UsePiezo-
-       Kommentar) standardmaessig Pflicht, hier aber abschaltbar. -->
-  <div class="params-grid" id="piezoParams">
-    <div class="filter-group">
-      <label><input type="checkbox" id="p-usePiezo" checked onchange="onUsePiezoChange()"> Piezo-Bestätigung erforderlich (SET PIEZO)</label>
-    </div>
-    <div class="filter-group"><label>Piezo-Verzögerung min. (us)</label><input type="number" id="p-piezoMin" step="1" min="0" max="5000" value="100"></div>
-    <div class="filter-group"><label>Piezo-Verzögerung max. (us)</label><input type="number" id="p-piezoMax" step="1" min="0" max="5000" value="1400"></div>
-  </div>
-  <div class="hint" id="usePiezoHint" style="margin:2px 0 10px"></div>
-
   <div class="filter-group" style="margin-bottom:6px"><label>Mikrofon-Timing-Offsets OFS0–OFS5 (ns)</label></div>
   <div class="ofs-grid">
     <div class="filter-group"><input type="number" id="p-ofs0" step="1" value="0"></div>
@@ -270,26 +275,24 @@
     <div class="filter-group"><input type="number" id="p-ofs4" step="1" value="0"></div>
     <div class="filter-group"><input type="number" id="p-ofs5" step="1" value="0"></div>
   </div>
-
-  <div class="filter-group" style="margin-bottom:6px"><label>Berücksichtigte Mikrofone (MICEN0–MICEN5)</label></div>
-  <div class="ofs-grid" style="margin-bottom:14px">
-    <label class="mic-en"><input type="checkbox" id="p-micen0" checked> Mic0</label>
-    <label class="mic-en"><input type="checkbox" id="p-micen1" checked> Mic1</label>
-    <label class="mic-en"><input type="checkbox" id="p-micen2" checked> Mic2</label>
-    <label class="mic-en"><input type="checkbox" id="p-micen3" checked> Mic3</label>
-    <label class="mic-en"><input type="checkbox" id="p-micen4" checked> Mic4</label>
-    <label class="mic-en"><input type="checkbox" id="p-micen5" checked> Mic5</label>
+  <div style="margin:6px 0 0;font-size:12px">
+    <label title="Mit DHT22: je Schuss die damals aktive Schallgeschwindigkeit aus Temperatur/Luftfeuchte verwenden. Gilt für Neuberechnen und Kalibrierung; Σ9- und Foto-Kalibrierung bestimmen die Schallgeschwindigkeit selbst und nutzen den Wert oben.">
+      <input type="checkbox" id="p-soundFromShot"> Schallgeschwindigkeit je Schuss verwenden (gespeicherter Gerätewert, z.B. aus DHT22-Messung) – sonst gilt der Wert oben</label>
   </div>
+    </div>
+  </details>
 
-  <!-- Zonen-Kalibrierung (sim_zones.go): je Bereich der Scheibe eigener Satz
-       aus Schallgeschwindigkeit, Offsets und Nachkorrektur. -->
-  <div id="zoneBox" style="margin:0 0 14px;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
-    <label title="Der Knall ist je nach getroffenen Papierlagen unterschiedlich laut - je Bereich ein eigener Parametersatz. Erst die Lage mit den Werten oben bestimmen, dann mit dem Satz der Zone neu rechnen (an den Grenzen überblendet).">
-      <input type="checkbox" id="z-enabled" onchange="renderZoneBox()"> <strong>Zonen-Kalibrierung</strong>
-      <span class="hint">(ab Firmware 4.17.0 auch am Gerät – Übertragung mit „Zur Übernahme freigeben“; ältere Firmware übernimmt nur den Basissatz oben)</span></label>
+  <details class="grp" id="grp-zones">
+    <summary>Zonen – eigene Werte je Bereich der Scheibe <span class="grp-sum" id="sum-zones"></span></summary>
+    <div class="grp-body">
+  <div id="zoneBox">
+    <label title="Der Knall ist je nach getroffenen Papierlagen unterschiedlich laut - je Bereich ein eigener Parametersatz.">
+      <input type="checkbox" id="z-enabled" onchange="renderZoneBox()"> <strong>Zonen-Kalibrierung verwenden</strong></label>
+    <div class="hint">Erst die Lage mit den Grundwerten bestimmen, dann mit dem Satz der Zone neu rechnen (an den Grenzen überblendet).
+      Die Sätze bestimmt die One-Click-Kalibrierung in Abschnitt 3.</div>
     <div id="zoneFields" style="display:none;margin-top:8px">
       <div class="params-grid">
-        <div class="filter-group"><label title="Radius des Lochs in der Vorsatzscheibe: dort wird nur das Schussband getroffen. LG: 15,25 mm (Ø 30,5), LP: 29,75 mm (Ø 59,5).">Lochradius Vorsatzscheibe (mm)</label>
+        <div class="filter-group"><label title="Radius des Lochs in der Vorsatzscheibe: dort wird nur das Schussband getroffen. Wird wie am Stand automatisch aus der Scheibe gesetzt – LG: 15,25 mm (Ø 30,5), LP: 29,75 mm (Ø 59,5).">Lochradius Vorsatzscheibe (mm, aus der Scheibe)</label>
           <input type="number" id="z-hole" step="0.05" min="0" max="60"></div>
         <div class="filter-group"><label title="Halbe Breite des Schussbands (Band ca. 90 mm breit)">halbe Bandbreite (mm)</label>
           <input type="number" id="z-band" step="0.5" min="0" max="100" value="45"></div>
@@ -303,12 +306,206 @@
       <div class="hint">A = im Loch der Vorsatzscheibe (nur Band) · B = neben dem Schussband (nur Vorsatzscheibe) · C = Band + Vorsatzscheibe. Ohne eigenen Satz gelten die Werte oben.</div>
     </div>
   </div>
+    </div>
+  </details>
 
-  <button class="btn" onclick="runSimulation()">Neu berechnen</button>
+  <details class="grp" id="grp-algo">
+    <summary>Auswerteverfahren <span class="grp-sum" id="sum-algo"></span></summary>
+    <div class="grp-body">
+  <div class="hint" style="margin-bottom:8px">Wie aus den Laufzeiten die Lage wird – gilt in allen Zonen gleich. Werden von den
+    Kalibrierungen nur verändert, wenn ausdrücklich gewählt (Σ9-Grenzen, Foto „Standoff“/„Mic-Halbabstand“ gehören zu den Grundwerten).</div>
+  <div class="params-grid">
+    <div class="filter-group"><label>Kugeldurchm.-Korrektur (%)</label><input type="number" id="p-bshiftPct" step="1" min="0" max="100" value="30"></div>
+    <div class="filter-group"><label>Korrektur-Kappung (mm)</label><input type="number" id="p-bshiftCap" step="0.1" min="0" value="3.0"></div>
+    <div class="filter-group"><label>Cluster-Radius (0.001mm)</label><input type="number" id="p-clusterRadius" step="1" min="0" max="500000" value="4000"></div>
+    <div class="filter-group" title="SET WALKK: Pulsbreiten-Korrektur t += WALKK·(Breite − Mittel). Wirkt nur auf Schüsse mit gespeicherten Pulsbreiten (MCPWM-Erfassung); 0 = aus.">
+      <label>Pulsbreiten-Korr. WALKK</label><input type="number" id="p-walkK" step="0.01" min="0" max="1" value="0"></div>
+  </div>
+  <div id="posAlgoBox" style="margin:10px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Positionsbestimmung (Endposition aus den Schnittpunkten)</div>
+    <div class="hint" style="margin-bottom:6px">Am Gerät SET CLUSTERCORR / CLUSTERITER / LSQ / LSQPELLETR, in „Zur Übernahme freigeben“
+      enthalten (Standard: korrigiert mitteln, 5 Durchgänge). „nach Rest-Fehler gewichten“ gibt es nur im Simulator.
+      Wirken auf Neuberechnen und alle Kalibrierungen; zusätzliche Rechenzeit am Gerät in Klammern.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;align-items:center">
+      <label title="Alle Schnittpunkte kugeldurchmesser-korrigiert auswählen und mitteln (Firmware: nur die beste Kombination korrigiert, alle anderen roh)">
+        <input type="checkbox" id="pa-corr" checked> alle Schnittpunkte korrigiert mitteln – CLUSTERCORR (+60 %)</label>
+      <label title="Cluster um den jeweils neuen Mittelpunkt erneut auswählen (Mean-Shift)">
+        Nachzentrieren <input type="number" id="pa-iter" min="0" max="10" step="1" value="5" style="width:50px"> Durchgänge – CLUSTERITER (+5 % je)</label>
+      <label title="Mittelung gewichtet mit 1/(Rest-Fehler² + 0,25²) - konsistente Mikrofon-Kombinationen zählen mehr">
+        <input type="checkbox" id="pa-weighted"> nach Rest-Fehler gewichten (nur Simulator)</label>
+      <label title="Endposition per Ausgleichsrechnung über alle Mikrofone gleichzeitig verfeinern (Schall vom Lochrand, grob abweichendes Mikrofon wird verworfen). Ersetzt die Kugeldurchmesser-Korrektur.">
+        <input type="checkbox" id="pa-lsq"> Ausgleichsrechnung über alle Mics – LSQ (+30–90 %)</label>
+      <label>Lochrand-Radius (LSQPELLETR) <input type="number" id="pa-lsqR" min="0" max="5" step="0.05" value="2.25" style="width:60px"> mm</label>
+    </div>
+  </div>
+  <div class="filter-group" style="margin-bottom:6px"><label>Berücksichtigte Mikrofone (MICEN0–MICEN5)</label></div>
+  <div class="ofs-grid" style="margin-bottom:14px">
+    <label class="mic-en"><input type="checkbox" id="p-micen0" checked> Mic0</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen1" checked> Mic1</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen2" checked> Mic2</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen3" checked> Mic3</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen4" checked> Mic4</label>
+    <label class="mic-en"><input type="checkbox" id="p-micen5" checked> Mic5</label>
+  </div>
+  <!-- Piezo-Bestaetigung: seit dem realen Vorfall mit Luftschall-
+       Fehlmessungen benachbarter Staende (siehe SimParams.UsePiezo-
+       Kommentar) standardmaessig Pflicht, hier aber abschaltbar. -->
+  <div class="params-grid" id="piezoParams">
+    <div class="filter-group">
+      <label><input type="checkbox" id="p-usePiezo" checked onchange="onUsePiezoChange()"> Piezo-Bestätigung erforderlich (SET PIEZO)</label>
+    </div>
+    <div class="filter-group"><label>Piezo-Verzögerung min. (us)</label><input type="number" id="p-piezoMin" step="1" min="0" max="5000" value="100"></div>
+    <div class="filter-group"><label>Piezo-Verzögerung max. (us)</label><input type="number" id="p-piezoMax" step="1" min="0" max="5000" value="1400"></div>
+  </div>
+  <div class="hint" id="usePiezoHint" style="margin:2px 0 10px"></div>
+  <div id="rawParamsBox" style="display:none;margin:8px 0 0;padding:8px 10px;border:1px dashed var(--line);border-radius:6px">
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Rohdaten (SET RAWLOG=1)</div>
+    <div class="hint" id="rawParamsHint" style="margin-bottom:6px"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;align-items:center">
+      <label title="SET TDOA: Fenster ab der ersten Flanke, in dem je Mikrofon die erste steigende Flanke gesucht wird (Firmware-Default 750 µs)">
+        TDOA-Fenster <input type="number" id="p-tdoa" min="100" max="5000" step="10" value="750" style="width:70px"> µs</label>
+      <label title="SET WALKMAX: größte plausible Pulsbreite; leer = Wert zum Schusszeitpunkt">
+        WALKMAX <input type="number" id="p-walkMax" min="5" max="500" step="1" placeholder="vom Schuss" style="width:80px"> µs</label>
+      <label title="Firmware: letzte fallende Flanke vor der nächsten steigenden. Variante nur im Simulator.">
+        Pulsbreite bis <select id="p-walkRule"><option value="">letzte fallende Flanke (Firmware)</option><option value="first">erste fallende Flanke (Variante)</option></select></label>
+      <button class="btn-sec" type="button" onclick="applyShotParams()" title="Offsets, aktive Mikrofone, WALKK, WALKMAX und Schallgeschwindigkeit so einstellen, wie sie beim Schuss am Gerät aktiv waren">Parameter vom Schusszeitpunkt übernehmen</button>
+    </div>
+  </div>
+    </div>
+  </details>
+
+  <div class="row-actions" style="margin-top:12px">
+    <button class="btn" onclick="runSimulation()">Neu berechnen</button>
+    <span class="hint">rechnet alle Schüsse mit dem eingestellten Parametersatz neu – Ergebnis in Abschnitt 6</span>
+  </div>
+</section>
+
+<section id="photoSection" style="display:none">
+  <h2>3. Kalibrieren mit Foto (empfohlen)</h2>
+  <details class="grp" id="grp-fotohelp">
+    <summary>Ablauf und Hinweise zum Foto</summary>
+    <div class="grp-body hint" style="line-height:1.5">
+      Die tatsächlichen Einschusslöcher werden auf einem Foto der beschossenen Scheibe markiert und gelten als wahre
+      Trefferlage. Maßstab ist der Durchmesser des schwarzen Innenkreises; die 4 Befestigungsschrauben (Ecken eines
+      Rechtecks) entzerren eine schräge Aufnahme und richten die Achsen aus.<br>
+      <strong>Kalibrierschüsse</strong> über die ganze Scheibe verteilen (auch ins Loch der Vorsatzscheibe und neben das
+      Schussband, damit jede Zone genug Schüsse hat), möglichst 10+ Schuss je Bereich, Treffer mindestens ca. 5 mm
+      auseinander. Foto möglichst frontal und formatfüllend, Scheibe nicht bewegen. Löcher früherer Versuche dürfen
+      bleiben – bei mehreren Versuchen in einer Sitzung den Schussbereich angeben.<br>
+      Schritte: <b>1.</b> Foto laden · <b>2.</b> Schrauben, Innenkreis und Löcher markieren · <b>3.</b> One-Click-Kalibrierung ·
+      <b>4.</b> mit „Messwerte prüfen“ kontrollieren · <b>5.</b> in Abschnitt 5 an den Stand freigeben.
+    </div>
+  </details>
+  <div class="foto-controls">
+    <div class="filter-group"><label>Foto</label><input type="file" id="foto-file" accept="image/*"
+      title="Das Foto wird zur Scheibe auf dem Server gespeichert und beim nächsten Laden der Scheibe automatisch geöffnet - ein neues Foto ersetzt das vorhandene."></div>
+    <div class="filter-group"><label>Ø Innenkreis (mm)</label>
+      <input type="number" id="foto-diameter" value="59.5" step="0.1" min="5" max="200" style="width:90px" list="foto-diam-list">
+      <datalist id="foto-diam-list"><option value="59.5">LP 10m</option><option value="30.5">LG 10m</option></datalist></div>
+    <div class="filter-group"><label title="Mittenabstand der Befestigungsschrauben - nur noch zur Kontrolle: der Maßstab kommt aus dem Innenkreis, die Schrauben entzerren die Aufnahme und richten die Achsen aus.">Schraubenabstand B × H (mm, Kontrolle)</label>
+      <div style="display:flex;gap:4px;align-items:center">
+        <input type="number" id="foto-screwW" step="0.01" value="141.5" placeholder="aus Kreis" style="width:95px"> ×
+        <input type="number" id="foto-screwH" step="0.01" value="141.5" placeholder="aus Kreis" style="width:95px"></div></div>
+  </div>
+  <div id="foto-stored" class="hint" style="margin:4px 0"></div>
+  <div id="foto-work" style="display:none">
+    <div class="row-actions" id="foto-modes" style="margin:10px 0 6px;flex-wrap:wrap">
+      <button class="btn-sec" data-mode="screws">1. Schrauben</button>
+      <button class="btn-sec" data-mode="circle">2. Innenkreis</button>
+      <button class="btn-sec" data-mode="holes">3. Einschusslöcher</button>
+      <button class="btn-sec" data-mode="pan">Nur verschieben</button>
+      <span style="width:12px"></span>
+      <button class="btn-sec" id="foto-autoholes">Löcher automatisch suchen</button>
+      <button class="btn-sec" id="foto-fit">Ansicht einpassen</button>
+      <button class="btn-sec" id="foto-reset">Markierungen löschen</button>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)"
+             title="Schraubenmitte automatisch bestimmen - Schatten können das Ergebnis verfälschen, im Zweifel lieber genau klicken">
+        <input type="checkbox" id="foto-snap-screws"> Schrauben einrasten</label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)">
+        <input type="checkbox" id="foto-snap-holes" checked> Löcher einrasten</label>
+    </div>
+    <div id="foto-status" class="hint" style="margin-bottom:6px;min-height:18px"></div>
+    <div style="width:100%;border:1px solid var(--line);border-radius:6px;overflow:hidden">
+      <canvas id="foto-canvas" style="display:block;cursor:crosshair;touch-action:none"></canvas>
+    </div>
+    <div id="foto-geo" class="hint" style="margin-top:6px"></div>
+    <div class="hint" style="margin-top:4px">Legende: gelb = Schrauben, grün = erkannter Innenkreis mit Achsen und
+      10-mm-Ringen (Kontrolle der Entzerrung), Kreis grün/rot = Loch mit/ohne Zuordnung, blau = Neuberechnung mit
+      aktuellen Parametern, violett = nach Optimierung.</div>
+
+
+    <div class="row-actions" style="margin-top:12px;align-items:center">
+      <span class="hint">Schüsse Nr.</span>
+      <input type="number" id="foto-shot-from" min="1" placeholder="von" style="width:70px">
+      <span class="hint">–</span>
+      <input type="number" id="foto-shot-to" min="1" placeholder="bis" style="width:70px">
+      <span class="hint" style="margin-left:8px">max. Zuordnungsabstand</span>
+      <input type="number" id="foto-maxdist" value="15" min="1" max="60" step="1" style="width:70px"> <span class="hint">mm</span>
+      <button class="btn" id="foto-match">Löcher den Schüssen zuordnen</button>
+    </div>
+    <div class="oneclick-box">
+      <div class="row-actions" style="align-items:center;flex-wrap:wrap">
+        <button class="btn" id="foto-oneclick"
+          title="Löcher zuordnen (falls noch nicht geschehen), Grundwerte an allen Schüssen und je Zone einen eigenen Satz kalibrieren, alles in Abschnitt 2 eintragen und als Kalibrierung speichern.">One-Click-Kalibrierung (Grundwerte + Zonen)</button>
+        <span class="hint">ordnet die Löcher zu, kalibriert die Grundwerte und je Zone A/B/C einen eigenen Satz, schaltet die Zonen ein,
+          trägt alles in Abschnitt 2 ein und speichert es als Kalibrierung. Lochradius und Bandbreite kommen aus „Zonen“ in Abschnitt 2.</span>
+      </div>
+      <div class="hint" style="margin:8px 0 4px">Grundwerte, die dabei mitoptimiert werden (Startwerte = Abschnitt 2; gilt auch für den Einzelschritt unten):</div>
+      <div class="row-actions" style="flex-wrap:wrap;gap:14px">
+        <label><input type="checkbox" id="foto-opt-ofs" checked> Mikrofon-Offsets OFS1–5</label>
+        <label><input type="checkbox" id="foto-opt-offset" checked> Nachkorrektur OFFSETX/Y</label>
+        <label><input type="checkbox" id="foto-opt-sound"> Schallgeschwindigkeit</label>
+        <label><input type="checkbox" id="foto-opt-standoff"> Standoff Papier</label>
+        <label><input type="checkbox" id="foto-opt-michalfx"> Mikrofon-Halbabstand X</label>
+      </div>
+      <span id="foto-oneclick-status" class="hint" style="display:block"></span>
+    </div>
+    <div id="foto-zoneresult" style="display:none;margin-top:10px"></div>
+    <div id="foto-pairs" style="margin-top:8px;max-height:320px;overflow:auto"></div>
+
+    <div id="foto-optbox" style="display:none;margin-top:12px">
+      <details class="grp" id="grp-fotoopt">
+        <summary>Einzelschritt: nur Grundwerte am Foto optimieren (ohne Zonen)</summary>
+        <div class="grp-body">
+          <div class="hint zone-warn" style="display:none">Zonen sind eingeschaltet: dieser Schritt ändert nur die Grundwerte,
+            die Zonen-Sätze bleiben unverändert.</div>
+      <div class="hint" style="margin-bottom:6px">Optimiert nur die oben angehakten Grundwerte gegen das Foto – ohne Zonen,
+        ohne zu speichern. Nützlich zum Vergleich mit der One-Click-Kalibrierung.</div>
+      <div class="row-actions" style="margin-top:8px">
+        <button class="btn" id="foto-optimize">Parameter optimieren</button>
+        <span id="foto-optstatus" class="hint"></span>
+      </div>
+      <div id="foto-result" style="display:none;margin-top:10px"></div>
+        </div>
+      </details>
+    </div>
+    <div id="foto-verifybox" style="display:none;margin-top:12px">
+      <details class="grp" id="grp-fotoverify" data-default="open">
+        <summary>Messwerte gegen das Foto prüfen</summary>
+        <div class="grp-body">
+      <div class="hint" style="margin-bottom:6px">Die zugeordneten Löcher gelten als wahre Trefferlage. Verglichen werden die vom Gerät gemeldete Position,
+        das neu berechnete Schusszentrum (Parametersatz aus Abschnitt 2), die einzelnen Schnittpunkte (Messpunkte) und die Rohzeiten je Mikrofon.
+        Zusätzlich lassen sich Varianten der Parameter bzw. des Verfahrens auf dieselben Schüsse rechnen.</div>
+      <div class="row-actions" id="foto-variants" style="flex-wrap:wrap;gap:6px 14px;font-size:12px"></div>
+      <div class="row-actions" style="margin-top:8px">
+        <button class="btn" id="foto-verify">Prüfen</button>
+        <label style="font-size:12px"><input type="checkbox" id="foto-allpoints"> Messpunkte aller Schüsse im Foto zeigen</label>
+        <span id="foto-verifystatus" class="hint"></span>
+      </div>
+      <div id="foto-verify-result" style="margin-top:10px"></div>
+        </div>
+      </details>
+    </div>
+  </div>
 </section>
 
 <section id="calSection" style="display:none">
-  <h2>3. Kalibrierung (Mikrofon-Offsets aus ausgewählten Schüssen berechnen)</h2>
+  <h2>4. Kalibrieren ohne Foto</h2>
+  <details class="grp" id="grp-calnofoto">
+    <summary>Rest-Fehler (wie CAL START) oder Schnittpunkt-Cluster Σ9 – nur Grundwerte, ohne Zonen</summary>
+    <div class="grp-body">
+  <div class="hint zone-warn" style="display:none;margin-bottom:8px">Zonen sind eingeschaltet: diese Kalibrierung ändert nur die
+    Grundwerte, die Zonen-Sätze bleiben unverändert.</div>
   <div class="hint" style="margin-bottom:8px">
     Schüsse zum Anklicken auswählen (mind. 3, nur Schüsse mit Rohdaten möglich) - entspricht
     „CAL START" der Firmware, nur mit frei wählbaren statt automatisch nächsten N Schüssen.
@@ -355,14 +552,24 @@
     <span id="calStatus" class="hint"></span>
   </div>
   <div id="calResult" class="hint" style="margin-top:8px;display:none"></div>
-
-  <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
-    <div class="hint" style="margin-bottom:6px">
-      Alle aktuell eingestellten Parameter (inkl. OFS0–5, egal ob kalibriert oder manuell
-      eingegeben) als SET-Befehle für die serielle Konsole des ESP32:
     </div>
-    <div class="row-actions" style="margin-bottom:10px;align-items:center;flex-wrap:wrap">
-      <span class="hint">An Stand</span>
+  </details>
+</section>
+
+<section id="xferSection" style="display:none">
+  <h2>5. Speichern und an den Stand übertragen</h2>
+  <div class="row-actions">
+    <div class="filter-group">
+      <label>Name zum Speichern</label>
+      <input type="text" id="cfgName" placeholder="z.B. Stand 1 Winter" style="min-width:220px">
+    </div>
+    <button class="btn-sec" onclick="saveConfig()">Speichern</button>
+    <span class="hint" id="cfgSaveLaneHint"></span>
+  </div>
+  <div class="hint" style="margin:-2px 0 12px">Speichert den kompletten Parametersatz (Grundwerte, Auswerteverfahren, Zonen) –
+    laden über „Gespeicherte Kalibrierungen“ in Abschnitt 2.</div>
+  <div class="row-actions" style="margin-bottom:10px;align-items:center;flex-wrap:wrap">
+    <span class="hint">An Stand</span>
       <input type="number" id="xfer-lane" min="1" max="999" style="width:70px" oninput="loadTransferStatus()">
       <input type="text" id="xfer-note" placeholder="Notiz (optional, z.B. Foto-Kalibrierung 26.09.)" style="width:280px">
       <button class="btn" onclick="sendTransfer()">Zur Übernahme freigeben</button>
@@ -386,107 +593,6 @@
         <span id="esp32CopyStatus" class="hint"></span>
       </div>
     </div>
-  </div>
-</section>
-
-<section id="photoSection" style="display:none">
-  <h2>3b. Foto-Kalibrierung (optional)</h2>
-  <div class="hint" style="margin-bottom:10px;line-height:1.5">
-    Alternative zur Kalibrierung oben: Die tatsächlichen Einschusspositionen werden aus einem Foto der
-    beschossenen Scheibe bestimmt und die Parameter so optimiert, dass die Neuberechnung darauf fällt.
-    Referenz ist der Durchmesser des schwarzen Innenkreises; die 4 Befestigungsschrauben (als Ecken eines
-    Rechtecks) korrigieren eine schräge Aufnahme.<br>
-    <strong>Kalibrierschüsse</strong> auf den hellen Bereich abgeben (rund um den Innenkreis verteilt, möglichst
-    10+ Schuss, Treffer mindestens ca. 5 mm auseinander) – Treffer im schwarzen Band sind auf dem Foto nicht sichtbar.
-    Dann das Foto möglichst frontal und formatfüllend aufnehmen, Scheibe nicht bewegen. Löcher früherer Versuche
-    dürfen auf der Scheibe bleiben: sie werden keinem Schuss zugeordnet (bei mehreren Versuchen in einer Sitzung
-    den Schussbereich angeben).
-  </div>
-  <div class="foto-controls">
-    <div class="filter-group"><label>Foto</label><input type="file" id="foto-file" accept="image/*"
-      title="Das Foto wird zur Scheibe auf dem Server gespeichert und beim nächsten Laden der Scheibe automatisch geöffnet - ein neues Foto ersetzt das vorhandene."></div>
-    <div class="filter-group"><label>Ø Innenkreis (mm)</label>
-      <input type="number" id="foto-diameter" value="59.5" step="0.1" min="5" max="200" style="width:90px" list="foto-diam-list">
-      <datalist id="foto-diam-list"><option value="59.5">LP 10m</option><option value="30.5">LG 10m</option></datalist></div>
-    <div class="filter-group"><label title="Mittenabstand der Befestigungsschrauben - nur noch zur Kontrolle: der Maßstab kommt aus dem Innenkreis, die Schrauben entzerren die Aufnahme und richten die Achsen aus.">Schraubenabstand B × H (mm, Kontrolle)</label>
-      <div style="display:flex;gap:4px;align-items:center">
-        <input type="number" id="foto-screwW" step="0.01" value="141.5" placeholder="aus Kreis" style="width:95px"> ×
-        <input type="number" id="foto-screwH" step="0.01" value="141.5" placeholder="aus Kreis" style="width:95px"></div></div>
-  </div>
-  <div id="foto-stored" class="hint" style="margin:4px 0"></div>
-  <div id="foto-work" style="display:none">
-    <div class="row-actions" id="foto-modes" style="margin:10px 0 6px;flex-wrap:wrap">
-      <button class="btn-sec" data-mode="screws">1. Schrauben</button>
-      <button class="btn-sec" data-mode="circle">2. Innenkreis</button>
-      <button class="btn-sec" data-mode="holes">3. Einschusslöcher</button>
-      <button class="btn-sec" data-mode="pan">Nur verschieben</button>
-      <span style="width:12px"></span>
-      <button class="btn-sec" id="foto-autoholes">Löcher automatisch suchen</button>
-      <button class="btn-sec" id="foto-fit">Ansicht einpassen</button>
-      <button class="btn-sec" id="foto-reset">Markierungen löschen</button>
-      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)"
-             title="Schraubenmitte automatisch bestimmen - Schatten können das Ergebnis verfälschen, im Zweifel lieber genau klicken">
-        <input type="checkbox" id="foto-snap-screws"> Schrauben einrasten</label>
-      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)">
-        <input type="checkbox" id="foto-snap-holes" checked> Löcher einrasten</label>
-    </div>
-    <div id="foto-status" class="hint" style="margin-bottom:6px;min-height:18px"></div>
-    <div style="width:100%;border:1px solid var(--line);border-radius:6px;overflow:hidden">
-      <canvas id="foto-canvas" style="display:block;cursor:crosshair;touch-action:none"></canvas>
-    </div>
-    <div id="foto-geo" class="hint" style="margin-top:6px"></div>
-    <div class="hint" style="margin-top:4px">Legende: gelb = Schrauben, grün = erkannter Innenkreis mit Achsen und
-      10-mm-Ringen (Kontrolle der Entzerrung), Kreis grün/rot = Loch mit/ohne Zuordnung, blau = Neuberechnung mit
-      aktuellen Parametern, violett = nach Optimierung.</div>
-
-    <div class="row-actions" style="margin-top:12px;align-items:center">
-      <span class="hint">Schüsse Nr.</span>
-      <input type="number" id="foto-shot-from" min="1" placeholder="von" style="width:70px">
-      <span class="hint">–</span>
-      <input type="number" id="foto-shot-to" min="1" placeholder="bis" style="width:70px">
-      <span class="hint" style="margin-left:8px">max. Zuordnungsabstand</span>
-      <input type="number" id="foto-maxdist" value="15" min="1" max="60" step="1" style="width:70px"> <span class="hint">mm</span>
-      <button class="btn" id="foto-match">Löcher den Schüssen zuordnen</button>
-    </div>
-    <div class="row-actions" style="margin-top:10px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
-      <button class="btn" id="foto-oneclick"
-        title="Löcher zuordnen (falls noch nicht geschehen), Basissatz an allen Schüssen und je Zone einen eigenen Satz kalibrieren, alles in Abschnitt 2 eintragen und als Kalibrierung speichern - danach unten wie gewohnt für den Stand freigeben.">One-Click-Kalibrierung (Zonen)</button>
-      <span class="hint">ordnet zu, kalibriert Basissatz + Zonen A/B/C, trägt alles in Abschnitt 2 ein und speichert es als Kalibrierung.
-        Lochradius/Bandbreite aus Abschnitt 2 (Zonen-Kalibrierung); für den Basissatz gelten die Häkchen unter „Zu optimierende Parameter“ (Geometrie nur, wenn angehakt).</span>
-      <span id="foto-oneclick-status" class="hint" style="width:100%"></span>
-    </div>
-    <div id="foto-zoneresult" style="display:none;margin-top:10px"></div>
-    <div id="foto-pairs" style="margin-top:8px;max-height:320px;overflow:auto"></div>
-
-    <div id="foto-optbox" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
-      <div class="hint" style="margin-bottom:6px">Zu optimierende Parameter (Startwerte = aktuelle Parameter aus Abschnitt 2):</div>
-      <div class="row-actions" style="flex-wrap:wrap;gap:14px">
-        <label><input type="checkbox" id="foto-opt-ofs" checked> Mikrofon-Offsets OFS1–5</label>
-        <label><input type="checkbox" id="foto-opt-offset" checked> Nachkorrektur OFFSETX/Y</label>
-        <label><input type="checkbox" id="foto-opt-sound"> Schallgeschwindigkeit</label>
-        <label><input type="checkbox" id="foto-opt-standoff"> Standoff Papier</label>
-        <label><input type="checkbox" id="foto-opt-michalfx"> Mikrofon-Halbabstand X</label>
-      </div>
-      <div class="row-actions" style="margin-top:8px">
-        <button class="btn" id="foto-optimize">Parameter optimieren</button>
-        <span id="foto-optstatus" class="hint"></span>
-      </div>
-      <div id="foto-result" style="display:none;margin-top:10px"></div>
-    </div>
-    <div id="foto-verifybox" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
-      <div style="font-weight:600;margin-bottom:4px">Messwerte gegen das Foto prüfen</div>
-      <div class="hint" style="margin-bottom:6px">Die zugeordneten Löcher gelten als wahre Trefferlage. Verglichen werden die vom Gerät gemeldete Position,
-        das neu berechnete Schusszentrum (Parameter aus Abschnitt 2), die einzelnen Schnittpunkte (Messpunkte) und die Rohzeiten je Mikrofon.
-        Zusätzlich lassen sich Varianten der Parameter bzw. des Verfahrens auf dieselben Schüsse rechnen.</div>
-      <div class="row-actions" id="foto-variants" style="flex-wrap:wrap;gap:6px 14px;font-size:12px"></div>
-      <div class="row-actions" style="margin-top:8px">
-        <button class="btn" id="foto-verify">Prüfen</button>
-        <label style="font-size:12px"><input type="checkbox" id="foto-allpoints"> Messpunkte aller Schüsse im Foto zeigen</label>
-        <span id="foto-verifystatus" class="hint"></span>
-      </div>
-      <div id="foto-verify-result" style="margin-top:10px"></div>
-    </div>
-  </div>
 </section>
 
 <section id="resultSection" style="display:none">
@@ -520,7 +626,7 @@
         <span><span class="dot" style="background:#e04040"></span>Simuliert (ungültig/keine Rohdaten)</span>
         <span><span class="cross"></span>Schnittpunkte (Detail)</span>
         <label class="detail-toggle" id="fotoPosToggleWrap" style="display:none;margin-left:0"
-               title="Lage des Einschusslochs laut Foto (Foto-Kalibrierung, Abschnitt 5) als grüner Ring, mit Linie zur Neuberechnung">
+               title="Lage des Einschusslochs laut Foto (Abschnitt 3) als grüner Ring, mit Linie zur Neuberechnung">
           <input type="checkbox" id="fotoPosToggle" checked onchange="renderTargetSVG(currentTargetGeometry, lastSimShots)">
           <span class="dot" style="background:none;border:2px solid #2ecc71"></span>Foto
         </label>
@@ -603,7 +709,7 @@ function firmwareShotSummary(shots) {
       + '(erste Flanke im TDOA-Fenster, Pulsbreite aus steigenden/fallenden Flanken). TDOA, WALKMAX und Breiten-Regel wirken nur auf diese Schüsse.'
       + (raw.some(s => s.raw && s.raw.truncated) ? ' Achtung: bei einigen Schüssen wurden mehr als 16 Flanken gekürzt (truncated).' : '')
     : '';
-  return parts.length ? ' · Firmware-Daten: ' + parts.join(' · ') : '';
+  return parts.length ? ' · Gerätedaten: ' + parts.join(' · ') : '';
 }
 
 // applyShotParams: Parameter, die beim Schuss am Geraet aktiv waren (aus dem
@@ -768,6 +874,7 @@ async function selectSession(tr, r) {
   document.getElementById('resultSection').style.display = 'none';
   document.getElementById('calSection').style.display = 'none';
   document.getElementById('photoSection').style.display = 'none';
+  document.getElementById('xferSection').style.display = 'none';
   if (window.fotoSessionChanged) window.fotoSessionChanged();
   const info = document.getElementById('selectedInfo');
   info.textContent = 'Lade Rohdaten…';
@@ -787,8 +894,10 @@ async function selectSession(tr, r) {
       + `${shots.length} Schuss/Schüsse, davon ${withRaw} mit Rohdaten (nur diese können neu berechnet werden).`
       + firmwareShotSummary(shots);
     currentDiscipline = r.discipline;
-    if (!document.getElementById('z-hole').value) document.getElementById('z-hole').value = defaultHoleRadius(r.discipline);
+    // Lochradius der Vorsatzscheibe wie am Stand aus der Scheibe (zone_hole.go)
+    document.getElementById('z-hole').value = holeRadiusForTarget();
     document.getElementById('paramsSection').style.display = '';
+    document.getElementById('xferSection').style.display = '';
     document.getElementById('calSection').style.display = withRaw ? '' : 'none';
     document.getElementById('photoSection').style.display = withRaw ? '' : 'none';
     renderCalShotList();
@@ -800,6 +909,7 @@ async function selectSession(tr, r) {
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('p-sound');
   if (el) el.title = soundSpeedTooltip();
+  initGroups();
 });
 
 // ── 2. Parameter / Config / SHOW-Import ─────────────────────────────────
@@ -870,6 +980,7 @@ function onUsePiezoChange() {
 
 function applyParams(p) {
   if (!p) return;
+  setTimeout(updateGroupSummaries, 0);
   if (p.standoff_paper_mm != null) document.getElementById('p-standoffPaper').value = p.standoff_paper_mm;
   if (p.mic_half_x_mm != null) document.getElementById('p-micHalfX').value = p.mic_half_x_mm;
   if (p.offset_x_um != null) document.getElementById('p-offsetX').value = p.offset_x_um;
@@ -921,6 +1032,15 @@ const ZONES = [['A', 'Loch Vorsatzscheibe'], ['B', 'neben Band'], ['C', 'Band + 
 })();
 
 // Voreinstellung Lochradius nach Disziplin (LG Ø 30,5; LP Ø 59,5)
+// holeRadiusForTarget: wie der Stand-PC (standpc/zone_hole.go) aus der
+// Scheibe der geladenen Serie - LG Ø 30,5 mm, LP Ø 59,5 mm.
+function holeRadiusForTarget() {
+  const n = (currentTargetGeometry && currentTargetGeometry.name) || '';
+  if (n === 'LP') return 29.75;
+  if (n === 'LG') return 15.25;
+  return defaultHoleRadius(currentDiscipline);
+}
+
 function defaultHoleRadius(discipline) {
   const d = (discipline || '').toLowerCase();
   if (/pistole|\blp\b|^lp/.test(d)) return 29.75;
@@ -934,6 +1054,48 @@ function renderZoneBox() {
     const set = document.getElementById(`z-${z}-on`).checked;
     document.querySelectorAll(`#zoneTable input[id^="z-${z}-"]:not([id$="-on"])`).forEach(el => el.disabled = !set);
   }
+  updateGroupSummaries();
+}
+
+// ── Gruppen (aufklappbar) und Kurzfassungen ──────────────────────────────
+// Zustand je Gruppe im Browser merken; Kopfzeilen zeigen die wichtigsten
+// aktuellen Werte, damit man auch zugeklappt sieht, was gilt.
+let loadedConfigName = '';
+
+function initGroups() {
+  document.querySelectorAll('details.grp').forEach(d => {
+    let st = null;
+    try { st = localStorage.getItem('sim-grp-' + d.id); } catch (e) { /* ohne Speicher */ }
+    d.open = st != null ? st === '1' : d.dataset.default === 'open';
+    d.addEventListener('toggle', () => { try { localStorage.setItem('sim-grp-' + d.id, d.open ? '1' : '0'); } catch (e) {} });
+  });
+  const ps = document.getElementById('paramsSection');
+  ps.addEventListener('input', updateGroupSummaries);
+  ps.addEventListener('change', updateGroupSummaries);
+  updateGroupSummaries();
+}
+
+function updateGroupSummaries() {
+  const v = id => document.getElementById(id)?.value ?? '';
+  const ck = id => !!document.getElementById(id)?.checked;
+  const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt ? '– ' + txt : ''; };
+  const ofs = [0,1,2,3,4,5].map(i => v('p-ofs' + i) || '0').join(' / ');
+  set('sum-base', `Schall ${v('p-sound')} m/s · OFS ${ofs} · Offset ${v('p-offsetX')}/${v('p-offsetY')} µm`
+    + (ck('p-soundFromShot') ? ' · Schall je Schuss' : ''));
+  const zon = ck('z-enabled');
+  const own = zon ? ZONES.map(([z]) => z).filter(z => ck(`z-${z}-on`)) : [];
+  set('sum-zones', zon ? `eingeschaltet · eigene Sätze: ${own.length ? own.join(', ') : 'keine'} · Loch Ø ${(2 * (+v('z-hole') || 0)).toFixed(1).replace('.', ',')} mm` : 'aus (alle Treffer mit den Grundwerten)');
+  const mics = [0,1,2,3,4,5].filter(i => ck('p-micen' + i)).length;
+  const algo = [`Kugelkorr. ${v('p-bshiftPct')} %`, `Cluster ${v('p-clusterRadius')} µm`];
+  if (ck('pa-lsq')) algo.push('LSQ');
+  if (ck('pa-corr')) algo.push('CLUSTERCORR');
+  if ((+v('pa-iter') || 0) > 0) algo.push(`${v('pa-iter')}× nachzentriert`);
+  algo.push(mics === 6 ? '6 Mics' : `${mics} von 6 Mics`);
+  algo.push(ck('p-usePiezo') ? 'Piezo Pflicht' : 'ohne Piezo');
+  if ((+v('p-walkK') || 0) > 0) algo.push(`WALKK ${v('p-walkK')}`);
+  set('sum-algo', algo.join(' · '));
+  set('sum-saved', loadedConfigName ? `zuletzt geladen: ${loadedConfigName}` : '');
+  document.querySelectorAll('.zone-warn').forEach(el => el.style.display = zon ? '' : 'none');
 }
 
 function readZones() {
@@ -1062,6 +1224,11 @@ function loadConfigById(id) {
   if (!c) return;
   applyParams(Object.assign({zones: null}, c.params));
   currentLoadedLaneNo = c.lane_no != null ? c.lane_no : currentLoadedLaneNo;
+  loadedConfigName = c.name;
+  // Lochradius gilt je Scheibe (am Stand setzt ihn der Stand-PC) - nicht den
+  // gespeicherten Wert einer evtl. anderen Scheibe uebernehmen
+  if (currentSessionId) document.getElementById('z-hole').value = holeRadiusForTarget();
+  updateGroupSummaries();
 }
 
 async function saveConfig() {
@@ -1287,7 +1454,7 @@ function buildSetCommands() {
     }
     lines.push('SET ZONES=1');
   } else {
-    lines.push('SET ZONES=0'); // ab Firmware 4.17.0
+    lines.push('SET ZONES=0');
   }
   return lines.join('\n');
 }
@@ -1342,10 +1509,8 @@ async function sendTransfer() {
       + 'Eine ältere, noch nicht übernommene Freigabe für diesen Stand wird ersetzt.'
       + (simOnlyPosAlgo(currentParams()) ? '\n\nHinweis: „nach Rest-Fehler gewichten“ gibt es nur im Simulator – '
          + 'das Gerät rechnet ohne Gewichtung. Ergebnisse am Stand können deshalb von der Simulation abweichen.' : '')
-      + '\n\nDie Einstellungen der Positionsbestimmung (CLUSTERCORR/CLUSTERITER/LSQ) übernimmt erst Firmware 4.12.0 – '
-      + 'ältere Firmware überspringt sie.'
-      + (readZones() ? '\n\nZonen-Kalibrierung: Firmware ab 4.17.0 übernimmt auch die Zonen-Sätze (Lochradius setzt der Stand-PC je Scheibe). '
-         + 'Ältere Firmware übernimmt nur den Basissatz – am Stand entspricht das Ergebnis dann „nur Basissatz“.' : ''))) return;
+      + (readZones() ? '\n\nDie Zonen-Sätze werden mit übertragen (den Lochradius setzt der Stand-PC je Scheibe).'
+         : '\n\nZonen sind ausgeschaltet – am Stand werden sie ebenfalls ausgeschaltet.'))) return;
   try {
     const t = await api(`/api/lanes/${lane}/calibration-transfer`, {
       method: 'PUT', headers: {'Content-Type':'application/json'},

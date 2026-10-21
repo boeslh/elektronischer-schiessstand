@@ -18,6 +18,13 @@
   main{flex:1;padding:32px 24px;max-width:640px;width:100%}
 
   .section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px;margin-bottom:20px}
+  .setup-help{margin-top:16px;border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--dim)}
+  .setup-help summary{cursor:pointer;color:var(--text)}
+  .setup-help h3{font-size:13px;color:var(--text);margin:14px 0 6px}
+  .setup-help p{margin:6px 0;line-height:1.45}
+  .setup-help pre{background:#0e1218;border:1px solid var(--line);border-radius:6px;padding:10px 12px;
+    font-family:monospace;font-size:12px;color:var(--text);overflow-x:auto;white-space:pre;user-select:all}
+  .setup-help code{font-family:monospace;color:var(--text)}
   .section h2{font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);margin-bottom:18px}
 
   .field{margin-bottom:16px}
@@ -289,6 +296,68 @@
     </div>
   </div>
 
+  <div class="section">
+    <h2>Papierscheiben (Seriennummer / Etikett)</h2>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px">
+      Beim Verkauf einer Papierscheibe im Preisschießen wird eine Seriennummer vergeben. Über den
+      Etikettendrucker (Datamax, Etikett 45 × 30 mm) lässt sich in der Kasse je Papierscheibe ein Etikett
+      mit Barcode, Scheibenname, Seriennummer, Teilnehmernummer und Name drucken.
+    </p>
+    <div class="ea-grid">
+      <div class="field"><label for="pp-mode">Seriennummer</label>
+        <select id="pp-mode">
+          <option value="manuell">Manuell (eintippen)</option>
+          <option value="fortlaufend">Fortlaufend (automatisch)</option>
+        </select>
+        <div class="desc">Fortlaufend: keine Eingabe beim Verkauf; bereits vergebene Nummern werden übersprungen.</div></div>
+      <div class="field"><label for="pp-printer">Etikettendrucker</label>
+        <select id="pp-printer"></select>
+        <div class="desc" id="pp-printer-desc">CUPS-Warteschlange im Rohdaten-Modus (DPL).</div></div>
+    </div>
+    <div class="actions" style="flex-wrap:wrap">
+      <button class="btn-save" onclick="savePapier()">Speichern</button>
+      <button class="btn-reset" onclick="testPapierLabel()">Testetikett drucken</button>
+      <div id="msg-papier" class="msg"></div>
+    </div>
+    <details class="setup-help">
+      <summary>Etikettendrucker einrichten (Beispielbefehle)</summary>
+      <p>Der Etikettendrucker (z. B. Datamax E-4203) wird auf dem <b>Schießstand-Server</b> in CUPS als
+        Warteschlange <b>ohne Treiber</b> angelegt – der Server schickt die DPL-Daten unverändert („raw“).
+        Die Befehle in einem Terminal auf dem Server ausführen; der Name <code>Etiketten</code> ist frei wählbar.
+        Läuft der Server in einer virtuellen Maschine, muss die Schnittstelle (bzw. der USB-Adapter) an die VM
+        durchgereicht werden.</p>
+
+      <h3>Drucker am Parallelport</h3>
+<pre># Treiber für den Parallelport laden
+sudo modprobe lp ppdev parport_pc
+# Gerätedatei prüfen (erwartet: /dev/lp0)
+ls -l /dev/lp*
+# Warteschlange ohne Treiber anlegen
+sudo lpadmin -p Etiketten -E -v parallel:/dev/lp0</pre>
+
+      <h3>Drucker über USB2Parallel-Adapter</h3>
+<pre># Adapter muss in der Liste erscheinen
+lsusb
+# Gerätedatei prüfen (erwartet: /dev/usb/lp0)
+ls -l /dev/usb/lp*
+# CUPS-Adresse des Adapters ermitteln (z. B. usb://...)
+sudo lpinfo -v | grep -i usb
+# Warteschlange ohne Treiber anlegen, Adresse aus lpinfo einsetzen
+sudo lpadmin -p Etiketten -E -v 'usb://…'</pre>
+      <p>Findet <code>lpinfo</code> keine <code>usb://</code>-Adresse, geht auch direkt die Gerätedatei:
+        <code>sudo lpadmin -p Etiketten -E -v parallel:/dev/usb/lp0</code></p>
+
+      <h3>Prüfen</h3>
+<pre># Warteschlange und Anschluss anzeigen
+lpstat -v Etiketten
+# Etikett mit „TEST“ drucken
+printf '\002L\rD11\r1211000002000200TEST\rE\r' | lp -d Etiketten -o raw</pre>
+      <p>Kommt das Test-Etikett, diese Seite neu laden,
+        oben <code>Etiketten</code> als Etikettendrucker wählen, speichern und <b>Testetikett drucken</b>.
+        Ein Hinweis von <code>lpadmin</code>, dass Warteschlangen ohne Treiber veraltet sind, kann ignoriert werden.</p>
+    </details>
+  </div>
+
   <div class="actions">
     <button class="btn-save" onclick="save()">Speichern</button>
     <button class="btn-reset" onclick="resetDefaults()">Zurücksetzen</button>
@@ -464,6 +533,7 @@ loadOnline();
 loadLaneURLs();
 loadDevMode();
 loadAusgabe();
+loadPapier();
 loadFontSizes();
 
 async function loadFontSizes() {
@@ -638,6 +708,56 @@ async function testAusgabe(kind) {
     showMsgEl('msg-ausgabe', kind === 'mail' ? 'Testmail versendet.' : 'Testseite an den Drucker gesendet.', 'ok');
   } catch (e) {
     showMsgEl('msg-ausgabe', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+// ---- Papierscheiben (Seriennummer / Etikettendrucker) ----
+async function loadPapier() {
+  try {
+    const r = await fetch('/api/settings/papierscheiben');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    const s = d.settings;
+    document.getElementById('pp-mode').value = s.serial_mode;
+    const sel = document.getElementById('pp-printer');
+    const printers = d.printers || [];
+    if (s.label_printer && !printers.includes(s.label_printer)) printers.push(s.label_printer);
+    sel.innerHTML = '<option value="">– kein Etikettendruck –</option>' + printers.map(p =>
+      `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+    sel.value = s.label_printer;
+    document.getElementById('pp-printer-desc').textContent = d.printer_error
+      ? 'Drucker konnten nicht gelesen werden: ' + d.printer_error
+      : 'CUPS-Warteschlange im Rohdaten-Modus (DPL).';
+  } catch (e) {
+    showMsgEl('msg-papier', 'Laden fehlgeschlagen: ' + e.message, 'err');
+  }
+}
+
+async function savePapier() {
+  const body = {
+    serial_mode: document.getElementById('pp-mode').value,
+    label_printer: document.getElementById('pp-printer').value,
+  };
+  try {
+    const r = await fetch('/api/settings/papierscheiben', {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    showMsgEl('msg-papier', 'Gespeichert.', 'ok');
+  } catch (e) {
+    showMsgEl('msg-papier', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function testPapierLabel() {
+  try {
+    const r = await fetch('/api/settings/papierscheiben/test-label', {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    showMsgEl('msg-papier', 'Testetikett an den Drucker gesendet.', 'ok');
+  } catch (e) {
+    showMsgEl('msg-papier', 'Fehler: ' + e.message, 'err');
   }
 }
 

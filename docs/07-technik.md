@@ -12,23 +12,41 @@ Nachhinein an echten Schüssen ausprobieren, ohne erneut zu schießen.
 
 ![Simulator](bilder/simulator.png)
 
-Ablauf in vier Schritten:
+Die Seite ist in sechs Abschnitte gegliedert; Gruppen lassen sich auf- und
+zuklappen (der Zustand bleibt im Browser gespeichert), die Kopfzeile jeder
+Gruppe zeigt die wichtigsten aktuellen Werte:
 
 1. **Ergebnis auswählen** – nach Datum und Schütze suchen; Ergebnisse des
    Wartungs-Schützen lassen sich gezielt filtern.
-2. **Kalibrierparameter** – Abstand Papier–Sensoren (Standoff),
-   Mikrofonabstand, Offsets, Schallgeschwindigkeit, Kugeldurchmesser-
-   Korrektur (Standard 30 %), Cluster-Radius (Standard 4000 µm), Verfahren
-   zur Positionsbestimmung, Piezo-Bestätigung, Mikrofon-Offsets und genutzte
-   Mikrofone. Kalibrierungen lassen sich unter einem Namen speichern, wieder
-   laden und löschen; die Liste ist nach Stand gefiltert und zeigt je
-   Kalibrierung den Erfassungsmodus und ob sie Zonen enthält.
-3. **Kalibrierung** – Mikrofon-Offsets aus ausgewählten Schüssen berechnen;
-   optional **Foto-Kalibrierung** über ein Foto der beschossenen
-   Papierscheibe (Abschnitt 3b).
-4. **Ergebnis** – Original und Neuberechnung im direkten Vergleich, inklusive
+2. **Parametersatz** – mit dem Erklärkasten „So hängen Parameter und
+   Kalibrierungen zusammen“ und den Gruppen
+   - *Gespeicherte Kalibrierungen laden* (nach Stand gefiltert, mit
+     Erfassungsmodus und Zonen; SHOW-Ausgabe des Geräts übernehmen),
+   - *Grundwerte* – gelten für jeden Treffer: Standoff, Mikrofon-Halbabstand,
+     Schallgeschwindigkeit, Nachkorrektur OFFSETX/Y, Mikrofon-Offsets OFS0–OFS5,
+   - *Zonen* – eigene Werte je Bereich der Scheibe (siehe unten),
+   - *Auswerteverfahren* – Kugeldurchmesser-Korrektur (Standard 30 %),
+     Cluster-Radius (Standard 4000 µm), Positionsbestimmung, Mikrofone, Piezo,
+     Pulsbreiten-Korrektur, Rohdaten.
+   **Neu berechnen** zeigt die Wirkung auf die Schüsse.
+3. **Kalibrieren mit Foto (empfohlen)** – Foto markieren, One-Click-
+   Kalibrierung, Einzelschritt „nur Grundwerte“, Messwerte gegen das Foto
+   prüfen.
+4. **Kalibrieren ohne Foto** – Rest-Fehler (wie CAL START) oder
+   Schnittpunkt-Cluster Σ9.
+5. **Speichern und an den Stand übertragen.**
+6. **Ergebnis** – Original und Neuberechnung im direkten Vergleich, inklusive
    Qualitätsmaß (Streuung der Schnittpunkte) und – nach einer
    Foto-Kalibrierung – der Lage laut Foto je Schuss.
+
+**Welche Werte wann gelten:** Ohne Zonen rechnet jeder Treffer mit den
+Grundwerten. Mit Zonen bestimmen die Grundwerte zuerst die Lage; der Treffer
+wird dann mit dem Satz seiner Zone neu gerechnet, dessen
+Schallgeschwindigkeit, OFS0–OFS5 und OFFSETX/Y die Grundwerte ersetzen
+(Geometrie und Auswerteverfahren gelten weiter). Nur die One-Click-
+Kalibrierung bestimmt Grundwerte **und** Zonen; Rest-Fehler, Σ9 und der
+Foto-Einzelschritt ändern nur die Grundwerte – sind Zonen eingeschaltet,
+weist die Seite darauf hin, dass deren Sätze dann ggf. nicht mehr passen.
 
 ### Zonen-Kalibrierung
 
@@ -45,9 +63,10 @@ Schallgeschwindigkeit, Mikrofon-Offsets und Nachkorrektur:
 | **B** | neben dem Schussband (Bandbreite ca. 90 mm) |
 | **C** | Schussband und Vorsatzscheibe |
 
-An den Zonengrenzen wird zwischen den Sätzen übergeblendet. Die Firmware
-rechnet ab Version 4.17.0 identisch zum Simulator; ältere Firmware übernimmt
-nur den Basissatz.
+An den Zonengrenzen wird zwischen den Sätzen übergeblendet. Die Messplatine
+rechnet identisch zum Simulator. Den Lochradius der Vorsatzscheibe setzt der
+Stand-PC je Scheibe (LG/LP); der Simulator übernimmt ihn genauso aus der
+Scheibe der geladenen Serie, auch beim Laden einer gespeicherten Kalibrierung.
 
 ### Foto-Kalibrierung
 

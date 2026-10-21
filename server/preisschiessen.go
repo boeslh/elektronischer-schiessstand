@@ -167,6 +167,12 @@ type PSKauf struct {
 	Preis        float64 `json:"preis"`
 	PurchasedAt  string  `json:"purchased_at"`
 	ReturnedAt   *string `json:"returned_at"`
+	// Papierscheiben des Kaufs: Seriennummer(n) und Etikettendruck (gedruckt
+	// = alle Etiketten mindestens einmal gedruckt; LabelPrintCount = wie oft
+	// mindestens).
+	PaperSerials    string  `json:"paper_serials"`
+	LabelPrintedAt  *string `json:"label_printed_at"`
+	LabelPrintCount int     `json:"label_print_count"`
 }
 
 // CartItem referenziert eine Scheibe oder ein Set im (rein clientseitigen)
@@ -1116,6 +1122,20 @@ func (s *Store) createKaufEinheiten(ctx context.Context, tx pgx.Tx, preisschiess
 	if n == 0 {
 		return nil
 	}
+	// Fortlaufende Vergabe (Einstellungen -> Papierscheiben): jede
+	// Papierscheibe - auch innerhalb eines Sets - bekommt eine neue, noch
+	// nicht verwendete Nummer; eine mitgeschickte Nummer wird ignoriert.
+	mode, err := s.paperSerialMode(ctx, tx)
+	if err != nil {
+		return err
+	}
+	var autoSerial map[string]bool
+	if mode == "fortlaufend" {
+		physicalSerial = ""
+		if autoSerial, err = paperScheibenIDs(ctx, tx, scheibeIDs); err != nil {
+			return err
+		}
+	}
 	if physicalSerial != "" && n != 1 {
 		return errBadRequest("physische Seriennummer nur bei Einzelkauf einer Scheibe möglich (nicht bei Sets mit mehreren Scheiben)")
 	}
@@ -1131,13 +1151,17 @@ func (s *Store) createKaufEinheiten(ctx context.Context, tx pgx.Tx, preisschiess
 		var physSerialArg any
 		if physicalSerial != "" {
 			physSerialArg = physicalSerial
+		} else if autoSerial[scheibeID] {
+			if physSerialArg, err = nextPaperSerial(ctx, tx); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO ps_kauf_scheiben (preisschiessen_id, kauf_id, scheibe_id, serial_no, physical_serial_no)
 			VALUES ($1,$2,$3,$4,$5)`,
 			preisschiessenID, kaufID, scheibeID, startSerial+i, physSerialArg); err != nil {
 			if isUniqueViolation(err) {
-				return errBadRequest(fmt.Sprintf("Seriennummer %q wurde bereits vergeben", physicalSerial))
+				return errBadRequest(fmt.Sprintf("Seriennummer %v wurde bereits vergeben", physSerialArg))
 			}
 			return err
 		}
@@ -1432,10 +1456,18 @@ func (s *Store) ListKonto(ctx context.Context, teilnehmerID string) ([]PSKauf, e
 	rows, err := s.pool.Query(ctx, `
 		SELECT k.id, k.teilnehmer_id, k.typ, k.scheibe_id::text, k.set_id::text,
 		       COALESCE(sc.name, st.name), k.preis,
-		       k.purchased_at::text, k.returned_at::text
+		       k.purchased_at::text, k.returned_at::text,
+		       COALESCE(ps.serials, ''), ps.printed_at::text, COALESCE(ps.print_count, 0)
 		FROM ps_kaeufe k
 		LEFT JOIN ps_scheiben sc ON sc.id = k.scheibe_id
 		LEFT JOIN ps_sets st ON st.id = k.set_id
+		LEFT JOIN LATERAL (
+			SELECT string_agg(ks.physical_serial_no, ', ' ORDER BY ks.serial_no) AS serials,
+			       max(ks.label_printed_at) AS printed_at,
+			       min(ks.label_print_count) AS print_count
+			FROM ps_kauf_scheiben ks
+			WHERE ks.kauf_id = k.id AND ks.physical_serial_no IS NOT NULL
+		) ps ON true
 		WHERE k.teilnehmer_id = $1
 		ORDER BY k.purchased_at DESC`, teilnehmerID)
 	if err != nil {
@@ -1446,7 +1478,8 @@ func (s *Store) ListKonto(ctx context.Context, teilnehmerID string) ([]PSKauf, e
 	for rows.Next() {
 		var k PSKauf
 		if err := rows.Scan(&k.ID, &k.TeilnehmerID, &k.Typ, &k.ScheibeID, &k.SetID,
-			&k.Name, &k.Preis, &k.PurchasedAt, &k.ReturnedAt); err != nil {
+			&k.Name, &k.Preis, &k.PurchasedAt, &k.ReturnedAt,
+			&k.PaperSerials, &k.LabelPrintedAt, &k.LabelPrintCount); err != nil {
 			return nil, err
 		}
 		out = append(out, k)
@@ -1597,7 +1630,11 @@ func (s *Store) purchaseItem(ctx context.Context, tx pgx.Tx, teilnehmerID, preis
 			WHERE sc.id = $1`, item.ScheibeID).Scan(&scoringMode); err != nil {
 			return "", 0, err
 		}
-		if scoringMode == "papier" {
+		mode, err := s.paperSerialMode(ctx, tx)
+		if err != nil {
+			return "", 0, err
+		}
+		if scoringMode == "papier" && mode != "fortlaufend" {
 			return "", 0, errBadRequest("Seriennummer der Papierscheibe erforderlich")
 		}
 	}

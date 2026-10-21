@@ -54,12 +54,12 @@
     <label for="ps-id">Preisschießen</label>
     <select id="ps-id" onchange="onSerialInput()"><option value="">– laden... –</option></select>
     <label for="ps-serial">Seriennummer der Papierscheibe</label>
-    <input type="text" id="ps-serial" placeholder="z.B. 00042" oninput="onSerialInput()">
+    <input type="text" id="ps-serial" placeholder="z.B. 00042" oninput="onSerialInput()" onkeydown="startKey(event)" autocomplete="off">
     <div id="ps-serial-info"></div>
   </div>
   <div id="fields-rundenwettkampf" style="display:none">
     <label for="starter-id">Starter-ID</label>
-    <input type="text" id="starter-id" placeholder="UUID">
+    <input type="text" id="starter-id" placeholder="UUID" onkeydown="startKey(event)" autocomplete="off">
   </div>
 
   <div class="row" style="margin-top:14px">
@@ -160,6 +160,20 @@ function onSerialInput() {
   }, 300);
 }
 
+// Enter im Eingabefeld startet das Einlesen - der Barcodescanner schickt
+// nach der Nummer ein Enter. Waehrend einer laufenden Erfassung wird ein
+// weiterer Scan ignoriert, damit sie nicht versehentlich neu gestartet wird.
+function startKey(ev) {
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  if (!ev.target.value.trim()) return;
+  if (document.getElementById('live-card').style.display !== 'none') {
+    showMsg('start-msg', 'Es läuft noch eine Erfassung – erst übertragen oder abbrechen.', 'err');
+    return;
+  }
+  startSession();
+}
+
 async function startSession() {
   const mode = document.getElementById('mode').value;
   try {
@@ -191,6 +205,7 @@ async function submitResult(confirmOverwrite) {
     document.getElementById('ps-serial').value = '';
     document.getElementById('ps-serial-info').textContent = '';
     document.getElementById('ps-serial-info').className = '';
+    document.getElementById('ps-serial').focus();
   } catch (err) {
     if (String(err.message).includes('bereits ein Ergebnis') && !confirmOverwrite) {
       if (confirm('Es liegt bereits ein Ergebnis vor. Überschreiben?')) return submitResult(true);
@@ -249,10 +264,24 @@ async function sendRawCmd() {
   }
 }
 
+// focusNextFix: nach einer Korrektur springt der Cursor zum naechsten noch zu
+// korrigierenden Schuss (render() setzt ihn, sobald der neue Stand da ist).
+let focusNextFix = false;
+
 async function correctShot(index) {
   const ring = parseFloat(document.getElementById('correct-ring-' + index).value);
   if (isNaN(ring)) { alert('Bitte einen Ringwert eingeben.'); return; }
-  await postJSON('/correct', { Index: index, Ring: Math.round(ring), Decimal: ring });
+  focusNextFix = true;
+  // Ring = ganzzahliger Anteil des Zehntelwerts (9,7 -> 9; 10,0-10,9 -> 10)
+  await postJSON('/correct', { Index: index, Ring: Math.floor(ring + 1e-9), Decimal: ring });
+}
+
+// Enter im Korrekturfeld = OK
+function correctKey(ev, index) {
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    correctShot(index);
+  }
 }
 
 async function postJSON(path, body) {
@@ -280,6 +309,10 @@ function render() {
   document.getElementById('debug-status-line').className = state.connected ? 'connected' : '';
 
   const tbody = document.getElementById('shots-tbody');
+  // Eingabe in einem Korrekturfeld ueber das Neuzeichnen hinweg erhalten
+  const active = document.activeElement;
+  const keep = active && active.classList && active.classList.contains('correct-input')
+    ? {id: active.id, value: active.value} : null;
   tbody.innerHTML = (state.shots || []).map((s, i) => {
     const needsFix = (s.raw_flag === 'review' || s.raw_flag === 'invalid') && !s.corrected;
     const rowClass = needsFix ? s.raw_flag : '';
@@ -290,7 +323,8 @@ function render() {
     // statt der Bedienperson eine komplett leere Eingabe zuzumuten.
     const suggested = s.decimal ?? s.ring ?? '';
     const correctionCell = needsFix
-      ? `<input type="number" step="0.1" class="correct-input" id="correct-ring-${i}" placeholder="Ring" value="${suggested}">
+      ? `<input type="number" step="0.1" class="correct-input" id="correct-ring-${i}" placeholder="Ring" value="${suggested}"
+           onkeydown="correctKey(event, ${i})" onfocus="this.select()" title="Wert eingeben, mit Enter oder OK übernehmen">
          <button class="secondary" style="padding:3px 8px" onclick="correctShot(${i})">OK</button>`
       : (s.corrected ? '(korrigiert)' : '');
     return `<tr class="${rowClass}">
@@ -304,6 +338,16 @@ function render() {
 
   document.getElementById('submit-btn').disabled = (state.shots || []).some(
     s => (s.raw_flag === 'review' || s.raw_flag === 'invalid') && !s.corrected);
+
+  const inputs = tbody.querySelectorAll('.correct-input');
+  if (focusNextFix) {
+    // nach einer Korrektur: naechstes offenes Feld, sonst "Abschicken"
+    focusNextFix = false;
+    if (inputs.length) { inputs[0].focus(); inputs[0].select(); }
+  } else if (keep) {
+    const el = document.getElementById(keep.id);
+    if (el) { el.value = keep.value; el.focus(); }
+  }
 
   document.getElementById('debug-card').style.display = state.dev_mode ? 'block' : 'none';
 }

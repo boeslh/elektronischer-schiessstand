@@ -55,6 +55,22 @@ func classifyConfigChange(first, macChanged bool, changes map[string]string) str
 	return "einstellungen"
 }
 
+// configHistoryIgnored: Schluessel, die nicht in den Verlauf gehoeren, weil
+// der Stand-PC sie selbst je Scheibe setzt - ZHOLE (Lochradius der
+// Vorsatzscheibe, standpc/zone_hole.go) wechselt bei jedem Umschalten
+// zwischen LG und LP und waere sonst jedes Mal eine "Aenderung"; eine
+// Wiederherstellung darf ihn ebenfalls nicht setzen.
+var configHistoryIgnored = map[string]bool{"ZHOLE": true}
+
+func withoutIgnored(m map[string]string) map[string]string {
+	for k := range m {
+		if configHistoryIgnored[k] {
+			delete(m, k)
+		}
+	}
+	return m
+}
+
 // diffConfig: Schluessel aus next, deren Wert von prev abweicht (oder neu ist).
 func diffConfig(prev, next map[string]string) (changes, previous map[string]string) {
 	changes, previous = map[string]string{}, map[string]string{}
@@ -107,7 +123,7 @@ func (s *Store) RecordESP32Config(ctx context.Context, laneNo int, mac string, c
 		return nil, err
 	}
 
-	changes, previous := diffConfig(state, cfg)
+	changes, previous := diffConfig(withoutIgnored(state), withoutIgnored(cfg))
 	macChanged := n > 0 && lastMAC != mac
 	if len(changes) == 0 && !macChanged {
 		return nil, nil
@@ -139,6 +155,8 @@ func (s *Store) ListESP32ConfigHistory(ctx context.Context, laneNo, limit int) (
 		if err := rows.Scan(&e.ID, &e.MAC, &e.Changes, &e.Previous, &e.CreatedAt); err != nil {
 			return nil, err
 		}
+		withoutIgnored(e.Changes)
+		withoutIgnored(e.Previous)
 		e.Kind = classifyConfigChange(len(all) == 0, len(all) > 0 && lastMAC != e.MAC, e.Changes)
 		lastMAC = e.MAC
 		all = append(all, e)
@@ -180,6 +198,7 @@ func (s *Store) ESP32ConfigStateUntil(ctx context.Context, laneNo int, untilID i
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	withoutIgnored(state) // ZHOLE nicht wiederherstellen
 	if lastID != untilID {
 		return nil, &httpError{code: 404, msg: "Verlaufseintrag nicht gefunden"}
 	}

@@ -899,10 +899,17 @@ function manualResultShots() {
     const ringVal = rings[i].value.trim();
     if (ringVal === '') continue;
     // Wie bei echten Sensor-Schuessen werden ring UND decimal immer beide
-    // gefuellt (ring gerundet) - Auswertungen, die je nach decimal_scoring
-    // eines von beiden lesen, funktionieren so unabhaengig davon.
+    // gefuellt - Auswertungen, die je nach decimal_scoring eines von beiden
+    // lesen, funktionieren so unabhaengig davon. Ring = ganzzahliger Anteil
+    // des Zehntelwerts (9,5 -> 9; 10,0-10,9 -> 10), nicht gerundet. Bei
+    // Serien-/Gesamtwerten ist eine Zehntelsumme nicht exakt in Ringe
+    // umrechenbar - Ringdisziplinen werden dort ohnehin in ganzen Ringen
+    // eingegeben, Zehnteldisziplinen werten den Zehntelwert.
     const val = parseFloat(ringVal);
-    const entry = { count: perEntryCount, ring: Math.round(val), decimal: val };
+    const entry = { count: perEntryCount, decimal: val };
+    // Serien-/Gesamtwerte in Zehntel-Disziplinen: Ringwert bleibt leer -
+    // aus einer Zehntelsumme laesst sich die Ringsumme nicht ableiten.
+    if (mode === 'shot' || !mrDiscipline.decimal_scoring) entry.ring = Math.floor(val + 1e-9);
     if (teilers[i].value.trim() !== '') entry.teiler = parseFloat(teilers[i].value);
     // series_no mitschicken (1-basiert) - ohne das gruppiert v_series_results
     // alle Serien-Eintraege einer Session unter NULL zusammen statt je Serie

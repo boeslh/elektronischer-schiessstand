@@ -102,6 +102,9 @@ tr.gw-row.active td{background:#1a2a2a}
 .badge{border-radius:10px;padding:2px 9px;font-size:.7rem;font-weight:600;letter-spacing:.4px;white-space:nowrap}
 .badge-open{background:#1a2a3a;color:#64b5f6}
 .badge-returned{background:#1e2530;color:#75879a}
+.badge-label{background:#1a3324;color:#81c784;margin-left:4px}
+.btn-label{margin-left:4px;padding:3px 8px;border-radius:4px;font-size:.75rem;cursor:pointer;background:#1a2a3a;color:#64b5f6;border:1px solid #2a4a6a}
+.btn-label:hover{background:#21364a}
 .badge-yes{background:#1a3a2a;color:#4ab8a0}
 .badge-no{background:#1e2530;color:#75879a}
 .badge-gekauft{background:#1a2a3a;color:#64b5f6}
@@ -982,6 +985,10 @@ function showMsg(id, text, type) {
 function eur(n) { return (n || 0).toFixed(2).replace('.', ',') + ' €'; }
 
 const TYP_LABEL = {scheibe: 'Scheibe', set: 'Set'};
+// Seriennummern-Vergabe der Papierscheiben (manuell/fortlaufend), siehe
+// Einstellungen -> Papierscheiben.
+let kaPapierConfig = {serial_mode: 'manuell', label_printer_set: false};
+api('/papierscheiben/config').then(c => { if (c) kaPapierConfig = c; }).catch(() => {});
 const TYPE_LABEL = {0:'Kugel', 1:'Bogen', 2:'Kugel Auflage'};
 
 let psList = [];
@@ -1258,10 +1265,15 @@ async function kaRenderKonto() {
   tbody.innerHTML = konto.length ? konto.map(k => `
     <tr>
       <td style="font-size:.78rem;white-space:nowrap">${(k.purchased_at||'').slice(0,16).replace('T',' ')}</td>
-      <td>${esc(k.name)} <span class="hint">(${TYP_LABEL[k.typ]||k.typ})</span></td>
+      <td>${esc(k.name)} <span class="hint">(${TYP_LABEL[k.typ]||k.typ})</span>${k.paper_serials
+        ? `<div class="hint">Seriennummer ${esc(k.paper_serials)}</div>` : ''}</td>
       <td>${eur(k.preis)}</td>
-      <td>${k.returned_at ? '<span class="badge badge-returned">Zurückgegeben</span>' : '<span class="badge badge-open">Offen</span>'}</td>
-      <td>${k.returned_at ? '' : `<button class="btn-ret" onclick="kaRuckgabe('${k.id}')">Zurückgeben</button>`}</td>
+      <td>${k.returned_at ? '<span class="badge badge-returned">Zurückgegeben</span>' : '<span class="badge badge-open">Offen</span>'}${
+        k.paper_serials && k.label_print_count > 0
+          ? `<span class="badge badge-label" title="zuletzt ${esc((k.label_printed_at||'').slice(0,16).replace('T',' '))}">Label gedruckt${k.label_print_count > 1 ? ` (${k.label_print_count}×)` : ''}</span>` : ''}</td>
+      <td style="white-space:nowrap">${k.returned_at ? '' : `<button class="btn-ret" onclick="kaRuckgabe('${k.id}')">Zurückgeben</button>`}${
+        !k.returned_at && k.paper_serials
+          ? `<button class="btn-label" onclick="kaLabelDrucken('${k.id}', ${k.label_print_count > 0})">${k.label_print_count > 0 ? 'Ersatz-Label' : 'Label drucken'}</button>` : ''}</td>
     </tr>`).join('') : '<tr><td colspan="5" style="color:var(--dim);text-align:center">Keine Käufe</td></tr>';
 }
 
@@ -1277,7 +1289,9 @@ function kaAddToCart(typ, id, name, price, maxProTeilnehmer, scoringMode) {
   // papier: Papierscheiben-Disziplin - verlangt beim Kauf die Seriennummer
   // der physischen Karte (siehe migrations/056, Konzept
   // .claude/plans/wise-scribbling-abelson.md).
-  kaCart.push({typ, id, name, price, papier: scoringMode === 'papier', physicalSerial: ''});
+  // Bei fortlaufender Vergabe (Einstellungen -> Papierscheiben) vergibt der
+  // Server die Nummer selbst - dann keine Eingabe im Warenkorb.
+  kaCart.push({typ, id, name, price, papier: scoringMode === 'papier' && kaPapierConfig.serial_mode !== 'fortlaufend', physicalSerial: ''});
   kaRenderCart();
   if (typ === 'set') kaRenderAngebot(); // evtl. davon abhängige Scheiben jetzt freischalten
 }
@@ -1400,6 +1414,15 @@ async function kaFinalizeBezahlen(restAuszahlen) {
     }
     document.getElementById('ka-pay-erhalten').value = '';
     kaUpdatePayPreview();
+  } catch(err) { showMsg('ka-tk-msg', 'Fehler: '+err.message, 'err'); }
+}
+
+async function kaLabelDrucken(kaufID, ersatz) {
+  if (ersatz && !confirm('Das Label wurde bereits gedruckt. Ersatz-Label drucken?')) return;
+  try {
+    await api(`/preisschiessen/${currentPS.id}/kaeufe/${kaufID}/label`, {method:'POST'});
+    await kaRenderKonto();
+    showMsg('ka-tk-msg', ersatz ? 'Ersatz-Label gedruckt.' : 'Label gedruckt.', 'ok');
   } catch(err) { showMsg('ka-tk-msg', 'Fehler: '+err.message, 'err'); }
 }
 
