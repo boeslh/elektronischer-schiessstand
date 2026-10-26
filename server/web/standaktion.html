@@ -67,6 +67,9 @@
   .session-item .si-counts{font-size:13px;font-weight:600;min-width:120px}
   .session-item .si-id{font-size:11px;font-family:monospace;color:var(--dim);
                         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .session-item .si-disc{font-size:13px;font-weight:600;min-width:70px}
+  .session-item .si-imp{font-size:12px;color:var(--green);margin-left:auto;white-space:nowrap}
+  .session-item.imported{opacity:.75}
 
   /* ── Status-Meldungen ── */
   .msg{padding:8px 12px;border-radius:5px;font-size:13px;margin-top:10px}
@@ -138,8 +141,8 @@
     <div class="section-head">
       <span class="icon">📥</span>
       <div>
-        <h2>Schüsse aus lokalem Log importieren</h2>
-        <div class="sub">JSONL-Schusslog eines StandPC in die Datenbank importieren und einer Session zuordnen</div>
+        <h2>Lokale Durchgänge importieren</h2>
+        <div class="sub">Am Stand ohne Server geschossene Durchgänge (z. B. Standalone-App) übernehmen und einem Schützen, Wettkampf oder Preisschießen zuordnen</div>
       </div>
     </div>
     <div class="section-body">
@@ -165,35 +168,67 @@
       <!-- Schritt 2: Session aus dem Log wählen -->
       <div id="imp-sessions-wrap" style="display:none">
         <hr class="divider">
-        <div style="font-size:12px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Lokale Sessions am StandPC</div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Lokale Durchgänge am Stand</div>
         <div id="imp-session-list" class="session-list"></div>
+        <div id="imp-result"></div>
       </div>
 
-      <!-- Schritt 3: Ziel-Session zuordnen -->
+      <!-- Schritt 3: Ziel zuordnen -->
       <div id="imp-assign-wrap" style="display:none">
         <hr class="divider">
-        <div style="font-size:12px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Ziel-Session in der Datenbank</div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Zuordnen</div>
 
         <div id="imp-sel-info" class="info-box active" style="margin-bottom:14px"></div>
 
         <div class="row">
-          <div class="field">
-            <label>Schütze</label>
-            <select id="imp-shooter">
-              <option value="">– Schütze wählen –</option>
+          <div class="field" style="max-width:320px">
+            <label>Übernehmen als</label>
+            <select id="imp-kind" onchange="onImpKind()">
+              <option value="training">Training eines Schützen</option>
+              <option value="wettkampf">Ergebnis eines Wettkampf-Starters</option>
+              <option value="preisschiessen">Gekaufte Preisschießen-Scheibe</option>
             </select>
           </div>
+        </div>
+
+        <div id="imp-k-training" class="row">
           <div class="field">
-            <label>Veranstaltung (optional)</label>
-            <select id="imp-event">
-              <option value="">– Keine –</option>
-            </select>
+            <label>Schütze</label>
+            <select id="imp-shooter"></select>
           </div>
           <div class="field">
             <label>Disziplin</label>
-            <select id="imp-discipline">
-              <option value="">– Disziplin wählen –</option>
-            </select>
+            <select id="imp-discipline"></select>
+          </div>
+          <div class="field">
+            <label>Veranstaltung (optional)</label>
+            <select id="imp-event"></select>
+          </div>
+        </div>
+
+        <div id="imp-k-wettkampf" class="row" style="display:none">
+          <div class="field">
+            <label>Wettkampf</label>
+            <select id="imp-comp" onchange="loadImpStarters()"></select>
+          </div>
+          <div class="field">
+            <label>Starter</label>
+            <select id="imp-starter"><option value="">– zuerst Wettkampf wählen –</option></select>
+          </div>
+        </div>
+
+        <div id="imp-k-preisschiessen" class="row" style="display:none">
+          <div class="field">
+            <label>Preisschießen</label>
+            <select id="imp-ps" onchange="loadImpTeilnehmer()"></select>
+          </div>
+          <div class="field">
+            <label>Teilnehmer</label>
+            <select id="imp-tn" onchange="loadImpUnits()"><option value="">– zuerst Preisschießen wählen –</option></select>
+          </div>
+          <div class="field">
+            <label>Scheibe</label>
+            <select id="imp-unit"><option value="">– zuerst Teilnehmer wählen –</option></select>
           </div>
         </div>
 
@@ -283,17 +318,21 @@ let allDiscs      = [];  // DisciplineFull vom Server
 let selSrcNo      = 0;
 let selDstNo      = 0;
 let impLocalSID   = '';
+let impLocal      = null;  // gewaehlter lokaler Durchgang
 let impLaneNo     = 0;
+let impDiscs      = [];
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
-  const [lanes, shooters, comps, discs, discsFull] = await Promise.all([
+  const [lanes, shooters, comps, discs, discsFull, pss] = await Promise.all([
     api('/api/lanes').catch(() => []),
     api('/api/shooters').catch(() => []),
     api('/api/competitions').catch(() => []),
     api('/api/disciplines').catch(() => []),
     api('/api/disciplines/full').catch(() => []),
+    api('/api/preisschiessen').catch(() => []),
   ]);
+  impDiscs = discs || [];
 
   allLanes = lanes || [];
   allDiscs = (discsFull || []).filter(d => d.active && d.standpc_target_no > 0);
@@ -303,6 +342,9 @@ async function init() {
   populateSelect('imp-shooter', shooters || [], s => `${s.last_name}, ${s.first_name}`, s => s.id);
   populateSelect('imp-event',   comps    || [], c => c.name, c => c.id, true);
   populateSelect('imp-discipline', discs || [], d => d.name, d => d.id);
+  populateSelect('imp-comp', (comps || []).filter(c => c.active !== false),
+    c => `${c.name}${c.starts_on ? ' (' + c.starts_on.split('-').reverse().join('.') + ')' : ''}`, c => c.id);
+  populateSelect('imp-ps', (pss || []).filter(p => p.active !== false), p => p.name, p => p.id);
 
   renderTransferLanes();
   renderDiscTable();
@@ -538,12 +580,18 @@ async function loadLocalSessions() {
   }
 }
 
+function fmtLocalDate(iso) {
+  const d = iso ? new Date(iso) : null;
+  return d ? d.toLocaleString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric',
+    hour:'2-digit', minute:'2-digit'}) : '–';
+}
+
 function renderLocalSessions(sessions) {
   const wrap = document.getElementById('imp-sessions-wrap');
   const list = document.getElementById('imp-session-list');
 
   if (!sessions.length) {
-    list.innerHTML = '<div style="color:var(--dim);font-size:13px">Keine lokalen Sessions gefunden.</div>';
+    list.innerHTML = '<div style="color:var(--dim);font-size:13px">Keine lokalen Durchgänge gefunden.</div>';
     wrap.style.display = '';
     return;
   }
@@ -551,16 +599,16 @@ function renderLocalSessions(sessions) {
   list.innerHTML = '';
   for (const s of sessions) {
     const item = document.createElement('div');
-    item.className = 'session-item';
+    item.className = 'session-item' + (s.imported ? ' imported' : '');
     item.dataset.sid = s.session_id;
-
-    const d = s.last_at ? new Date(s.last_at) : null;
-    const dateStr = d ? d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',
-                        hour:'2-digit',minute:'2-digit'}) : '–';
+    const imp = s.imported
+      ? `<div class="si-imp" title="Session ${esc(s.imported.session_id)}">✓ importiert: ${esc(s.imported.shooter)}${
+          s.imported.event ? ' · ' + esc(s.imported.event) : ''}</div>` : '';
     item.innerHTML = `
-      <div class="si-date">${dateStr}</div>
+      <div class="si-date">${fmtLocalDate(s.first_at)}</div>
+      <div class="si-disc">${esc(s.discipline || '–')}</div>
       <div class="si-counts">${s.wertung_count} Wertung · ${s.probe_count} Probe</div>
-      <div class="si-id">${s.session_id}</div>`;
+      ${imp}`;
     item.onclick = () => selectLocalSession(s, item);
     list.appendChild(item);
   }
@@ -571,63 +619,99 @@ function selectLocalSession(s, item) {
   document.querySelectorAll('.session-item').forEach(i => i.classList.remove('sel'));
   item.classList.add('sel');
   impLocalSID = s.session_id;
+  impLocal = s;
 
-  const d = s.last_at ? new Date(s.last_at) : null;
-  const dateStr = d ? d.toLocaleString('de-DE',{dateStyle:'medium',timeStyle:'short'}) : '–';
   document.getElementById('imp-sel-info').innerHTML =
-    `<strong>${s.wertung_count} Wertungsschüsse</strong>, ${s.probe_count} Probeschüsse · Letzter Schuss: ${dateStr}<br>
-     <span style="font-size:11px;font-family:monospace">${s.session_id}</span>`;
-  document.getElementById('imp-shot-preview').textContent = `${s.wertung_count} Wertungsschüsse werden importiert`;
+    `<strong>${esc(s.discipline || 'Disziplin unbekannt')}</strong> · ${s.wertung_count} Wertungsschüsse,
+     ${s.probe_count} Probeschüsse · ${fmtLocalDate(s.first_at)} – ${fmtLocalDate(s.last_at)}` +
+    (s.imported ? `<br><span style="color:var(--warn)">Bereits importiert (${esc(s.imported.shooter)}) –
+      ein erneuter Import ersetzt die frühere Übernahme.</span>` : '');
+  document.getElementById('imp-shot-preview').textContent =
+    `${s.wertung_count} Wertungs- und ${s.probe_count} Probeschüsse werden übernommen`;
+  // Disziplin des Durchgangs vorauswählen
+  const disc = impDiscs.find(d => d.name === s.discipline);
+  if (disc) document.getElementById('imp-discipline').value = disc.id;
   document.getElementById('imp-assign-wrap').style.display = '';
 }
 
-async function doImport() {
-  const shooterID    = document.getElementById('imp-shooter').value;
-  const disciplineID = document.getElementById('imp-discipline').value;
-  const eventID      = document.getElementById('imp-event').value;
+function onImpKind() {
+  const kind = document.getElementById('imp-kind').value;
+  for (const k of ['training', 'wettkampf', 'preisschiessen'])
+    document.getElementById('imp-k-' + k).style.display = k === kind ? '' : 'none';
+}
 
-  if (!impLocalSID) { alert('Keine lokale Session gewählt.'); return; }
-  if (!shooterID)   { alert('Schütze wählen.'); return; }
-  if (!disciplineID){ alert('Disziplin wählen.'); return; }
+async function loadImpStarters() {
+  const id = document.getElementById('imp-comp').value;
+  const sel = document.getElementById('imp-starter');
+  if (!id) { sel.innerHTML = '<option value="">– zuerst Wettkampf wählen –</option>'; return; }
+  const starters = await api(`/api/competitions/${id}/starters`).catch(() => []);
+  populateSelect('imp-starter', starters || [], st =>
+    `${st.last_name}, ${st.first_name}${st.team_name ? ' – ' + st.team_name : ''}${
+      st.role && st.role !== 'S' ? ' (' + st.role + ')' : ''}`, st => st.id);
+}
+
+async function loadImpTeilnehmer() {
+  const id = document.getElementById('imp-ps').value;
+  document.getElementById('imp-unit').innerHTML = '<option value="">– zuerst Teilnehmer wählen –</option>';
+  const sel = document.getElementById('imp-tn');
+  if (!id) { sel.innerHTML = '<option value="">– zuerst Preisschießen wählen –</option>'; return; }
+  const tn = await api(`/api/preisschiessen/${id}/teilnehmer`).catch(() => []);
+  populateSelect('imp-tn', tn || [], t => `${t.teilnehmer_nr} – ${t.shooter_name}`, t => t.id);
+}
+
+async function loadImpUnits() {
+  const ps = document.getElementById('imp-ps').value;
+  const tn = document.getElementById('imp-tn').value;
+  const sel = document.getElementById('imp-unit');
+  if (!ps || !tn) { sel.innerHTML = '<option value="">– zuerst Teilnehmer wählen –</option>'; return; }
+  const units = await api(`/api/preisschiessen/${ps}/teilnehmer/${tn}/scheiben-einheiten`).catch(() => []);
+  const label = u => `${u.scheibe_name} #${u.serial_no}${u.physical_serial_no ? ' (' + u.physical_serial_no + ')' : ''}` +
+    (u.status === 'gekauft' ? '' : ` – ${u.status}, ${u.shot_count}/${u.required_shots} Schuss`);
+  populateSelect('imp-unit', units || [], label, u => u.id);
+}
+
+function impTarget() {
+  const kind = document.getElementById('imp-kind').value;
+  const val = id => document.getElementById(id).value;
+  if (kind === 'training') {
+    if (!val('imp-shooter'))    throw new Error('Schütze wählen.');
+    if (!val('imp-discipline')) throw new Error('Disziplin wählen.');
+    return {kind, shooter_id: val('imp-shooter'), discipline_id: val('imp-discipline'), event_id: val('imp-event')};
+  }
+  if (kind === 'wettkampf') {
+    if (!val('imp-starter')) throw new Error('Wettkampf und Starter wählen.');
+    return {kind, starter_id: val('imp-starter')};
+  }
+  if (!val('imp-unit')) throw new Error('Preisschießen, Teilnehmer und Scheibe wählen.');
+  return {kind, kauf_scheibe_id: val('imp-unit')};
+}
+
+async function doImport(confirmOverwrite) {
+  if (!impLocalSID) { alert('Keinen lokalen Durchgang gewählt.'); return; }
+  let target;
+  try { target = impTarget(); } catch (e) { alert(e.message); return; }
 
   document.getElementById('btn-import').disabled = true;
   try {
-    // 1. Session anlegen
-    const assigned = await api(`/api/lanes/${impLaneNo}/assign`, {
+    const result = await api(`/api/lanes/${impLaneNo}/local-sessions/${encodeURIComponent(impLocalSID)}/import`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        shooter_id: shooterID,
-        discipline_id: disciplineID,
-        event_id: eventID || null,
-      }),
+      body: JSON.stringify({...target, confirm_overwrite: !!confirmOverwrite}),
     });
-
-    // 2. Schüsse vom StandPC holen + importieren
-    const result = await api('/api/import-session', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        session_id: assigned.session_id,
-        lane_no: impLaneNo,
-        local_sid: impLocalSID,
-      }),
-    });
-
-    // 3. Session abschließen
-    await api(`/api/sessions/${assigned.session_id}/status`, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({status: 'finished'}),
-    }).catch(() => {});
-
-    showMsg('imp-msg',
-      `${result.imported} Schüsse importiert und Session ${assigned.session_id.slice(0,8)}… angelegt.`,
-      'ok');
     document.getElementById('imp-assign-wrap').style.display = 'none';
-    document.getElementById('imp-sessions-wrap').style.display = 'none';
-    impLocalSID = '';
+    impLocalSID = ''; impLocal = null;
+    await loadLocalSessions();
+    showMsg('imp-result', `${result.imported} Schüsse übernommen.` + (result.warning ? ' Hinweis: ' + result.warning : ''),
+      result.warning ? 'info' : 'ok');
   } catch(e) {
+    if (!confirmOverwrite && /bereits/.test(e.message)) {
+      const what = /importiert/.test(e.message)
+        ? 'Dieser Durchgang wurde bereits importiert. Erneut importieren und die frühere Übernahme ersetzen?'
+        : 'Für dieses Ziel liegt bereits ein Ergebnis vor. Überschreiben?';
+      document.getElementById('btn-import').disabled = false;
+      if (confirm(what)) return doImport(true);
+      return;
+    }
     showMsg('imp-msg', 'Fehler: ' + e.message, 'err');
   } finally {
     document.getElementById('btn-import').disabled = false;

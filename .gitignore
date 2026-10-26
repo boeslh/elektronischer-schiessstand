@@ -62,3 +62,6 @@
 /docs/tools/__pycache__/
 /online/online
 /online/dist/
+
+# ---- standanzeige: eingebauter Stand-PC (build-standpc.sh) ----
+/standanzeige/android/app/src/main/jniLibs/

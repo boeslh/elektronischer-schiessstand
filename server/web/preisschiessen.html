@@ -1404,13 +1404,18 @@ async function kaFinalizeBezahlen(restAuszahlen) {
     await kaRefreshTeilnehmer();
     await tnLoadTeilnehmerList();
     const resultEl = document.getElementById('ka-pay-result');
+    // automatischer Labeldruck (Einstellungen -> Papierscheiben)
+    const labelInfo = res.label_error
+      ? ` Label konnte nicht gedruckt werden: ${res.label_error} – bitte über „Label drucken“ nachdrucken.`
+      : (res.labels_printed ? ` ${res.labels_printed} Label${res.labels_printed > 1 ? 's' : ''} gedruckt.` : '');
     if (res.rueckgeld > 0) {
       resultEl.textContent = `Rückgeld: ${eur(res.rueckgeld)}`;
       resultEl.className = 'msg ok';
       resultEl.style.display = 'block';
+      if (labelInfo) showMsg('ka-tk-msg', labelInfo.trim(), res.label_error ? 'err' : 'ok');
     } else {
       resultEl.style.display = 'none';
-      showMsg('ka-tk-msg', 'Bezahlung gebucht.', 'ok');
+      showMsg('ka-tk-msg', 'Bezahlung gebucht.' + labelInfo, res.label_error ? 'err' : 'ok');
     }
     document.getElementById('ka-pay-erhalten').value = '';
     kaUpdatePayPreview();

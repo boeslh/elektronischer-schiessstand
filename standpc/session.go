@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -150,6 +151,8 @@ type StatusInfo struct {
 	Notification   string         `json:"notification,omitempty"` // einmaliger Hinweis fuer den Browser
 	HistoryGen     int            `json:"history_gen"`            // aendert sich bei jedem ResetHistory (Session-/Modus-/Disziplinwechsel)
 	DevMode        bool           `json:"dev_mode"`               // Entwicklermodus (Schuesse per Mausklick), global vom Server
+	Standalone     bool           `json:"standalone,omitempty"`   // Betrieb ohne Server (lokale Durchgaenge)
+	SessionID      string         `json:"session_id,omitempty"`   // nur im Standalone-Betrieb (lokale Session)
 }
 
 type SessionManager struct {
@@ -183,6 +186,11 @@ type SessionManager struct {
 
 	psInfo  *PSLaneInfoLocal // Preisschiessen-Zustand des Stands; nil = kein Preisschiessen
 	devMode bool             // Entwicklermodus (Schuesse per Mausklick), global vom Server gepollt
+	// standaloneReady: Run() hat im Standalone-Betrieb einen gespeicherten
+	// Durchgang wiederhergestellt bzw. geprueft - erst danach schreibt ein
+	// Disziplinwechsel die State-Datei (sonst ueberschriebe die Start-
+	// Disziplin aus main() den wiederherzustellenden Zustand).
+	standaloneReady bool
 
 	// fuer PollNow() (sofortiges Nachziehen nach lokaler Aktion, ohne auf
 	// den naechsten 3s-Tick zu warten) - in Run() gesetzt.
@@ -271,16 +279,92 @@ func (m *SessionManager) setDisciplineLocked(def *DisciplineDef) {
 // Setzt Modus auf Probe und leert den Verlauf.
 func (m *SessionManager) SetDiscipline(def *DisciplineDef) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if def != nil {
 		m.rawDiscipline = def.Name
 	} else {
 		m.rawDiscipline = ""
 	}
+	// Standalone: jede Disziplinwahl beginnt einen neuen Durchgang (eigene
+	// lokale Session), auch die erneute Wahl derselben Disziplin.
+	if m.cfg.Standalone {
+		m.sessionID = newLocalSessionID()
+		m.shotNo = 0
+	}
 	m.setDisciplineLocked(def)
 	if def != nil {
 		log.Printf("Disziplin: %s (manuell gesetzt)", def.Name)
 	}
+	save := m.cfg.Standalone && m.standaloneReady
+	m.mu.Unlock()
+	if save {
+		m.SaveState()
+	}
+}
+
+// CurrentDisciplineName: Name der aktuellen Disziplin ("" = keine).
+func (m *SessionManager) CurrentDisciplineName() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.discipline != nil {
+		return m.discipline.Name
+	}
+	return m.rawDiscipline
+}
+
+// newLocalSessionID erzeugt eine zufaellige UUID (Version 4) fuer einen
+// lokalen Durchgang im Standalone-Betrieb - weltweit eindeutig, damit der
+// Server beim Import einen bereits uebernommenen Durchgang erkennt.
+func newLocalSessionID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("local-%d", time.Now().UnixNano())
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// runStandalone: Betrieb ohne Server - den zuletzt laufenden Durchgang
+// (State-Datei + Schussprotokoll) wiederherstellen; sonst bleibt der beim
+// Start mit der Standard-Disziplin begonnene neue Durchgang aktiv.
+func (m *SessionManager) runStandalone() {
+	log.Printf("Session: Standalone-Betrieb (ohne Server, lokale Durchgaenge)")
+	defer func() {
+		m.mu.Lock()
+		m.standaloneReady = true
+		m.mu.Unlock()
+		m.SaveState()
+	}()
+	saved, err := LoadRecoverState(m.cfg.ShotLogDir, m.cfg.LaneNo)
+	if err != nil || saved == nil || saved.SessionID == "" {
+		return
+	}
+	shots := LoadShotsForSession(m.cfg.ShotLogDir, m.cfg.LaneNo, saved.SessionID)
+	if len(shots) == 0 {
+		return
+	}
+	m.mu.Lock()
+	if def := m.LookupDiscipline(saved.RawDiscipline); def != nil {
+		m.discipline = def
+		m.rawDiscipline = def.Name
+	}
+	m.sessionID = saved.SessionID
+	m.shotNo = saved.ShotNo
+	m.probeCount = saved.ProbeCount
+	m.wertungCount = saved.WertungCount
+	m.wertungShotsFired = saved.WertungShotsFired
+	m.mode = ModeProbe
+	if saved.Mode == ModeWertung {
+		m.mode = ModeWertung
+	}
+	m.mu.Unlock()
+	m.web.RestoreHistory(shots)
+	m.mu.RLock()
+	st := m.statusLocked()
+	m.mu.RUnlock()
+	m.web.BroadcastStatus(st)
+	log.Printf("Session (Standalone): WIEDERHERGESTELLT %s | %s | %d Schüsse",
+		saved.SessionID, saved.RawDiscipline, len(shots))
 }
 
 // Solver liefert den aktuell gueltigen TDOA-Solver (lokal oder vom Server)
@@ -496,8 +580,17 @@ func (m *SessionManager) statusLocked() StatusInfo {
 		NowMs:          nowMs(),
 		WertungCount:   m.wertungCount,
 		HistoryGen:     m.web.HistoryGen(),
-		DevMode:        m.devMode,
+		DevMode:        m.devMode || m.cfg.DevMode,
+		Standalone:     m.cfg.Standalone,
+		SessionID:      standaloneSessionID(m.cfg, m.sessionID),
 	}
+}
+
+func standaloneSessionID(cfg *Config, sid string) string {
+	if cfg.Standalone {
+		return sid
+	}
+	return ""
 }
 
 // SaveState speichert den aktuellen Session-Zustand auf Disk.
@@ -619,6 +712,10 @@ func (m *SessionManager) fetchServerShots(client *http.Client, sessionID string)
 
 // Run pollt den Server. Blockiert nicht – als Goroutine starten.
 func (m *SessionManager) Run(ctx context.Context) {
+	if m.cfg.Standalone {
+		m.runStandalone()
+		return
+	}
 	if m.cfg.ServerURL == "" {
 		log.Printf("Session: kein server_url konfiguriert – lokaler Betrieb "+
 			"(statische session_id %q)", m.cfg.SessionID)
@@ -726,7 +823,7 @@ func (m *SessionManager) pollDevMode(client *http.Client, url string) {
 func (m *SessionManager) DevMode() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.devMode
+	return m.devMode || m.cfg.DevMode
 }
 
 // pollPreisschiessen holt den Preisschiessen-Zustand des Stands und

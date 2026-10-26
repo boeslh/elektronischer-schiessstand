@@ -22,3 +22,25 @@ func TestDPLLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestDPLJobPositioning(t *testing.T) {
+	label := []byte("LABEL")
+	// ohne Einstellungen: nur Masseinheit, Drucker-Einstellungen bleiben
+	if got := string(dplJob(PapierSettings{}, label)); got != "\x02m\x02c0000LABEL" {
+		t.Errorf("ohne Positionierung: %q", got)
+	}
+	present := 12.0
+	got := string(dplJob(PapierSettings{LabelPresentMM: &present, LabelSOPAdjustMM: -1.5}, label))
+	want := "\x02m\x02c0000\x02O0544\x02Kf0120\r\x02f664LABEL"
+	if got != want {
+		t.Errorf("mit Positionierung:\n got %q\nwant %q", got, want)
+	}
+	zero := 0.0
+	if got := string(dplJob(PapierSettings{LabelPresentMM: &zero}, label)); got != "\x02m\x02c0000\x02Kf0000\rLABEL" {
+		t.Errorf("Vorschub 0: %q", got)
+	}
+	pitch := 32.0
+	if got := string(dplJob(PapierSettings{LabelPitchMM: &pitch}, label)); got != "\x02m\x02c0320LABEL" {
+		t.Errorf("fester Abstand: %q", got)
+	}
+}

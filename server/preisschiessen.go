@@ -3308,7 +3308,20 @@ func (a *APIServer) postBezahlen(w http.ResponseWriter, r *http.Request) (any, e
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"kauf_ids": kaufIDs, "rueckgeld": rueckgeld}, nil
+	res := map[string]any{"kauf_ids": kaufIDs, "rueckgeld": rueckgeld}
+	// Labels der Papierscheiben gleich drucken (Einstellungen ->
+	// Papierscheiben). Ein Druckfehler macht die bereits gebuchte Zahlung
+	// nicht rueckgaengig - die Kasse zeigt ihn an, Nachdruck ueber
+	// "Label drucken".
+	if st, err := a.store.GetPapierSettings(r.Context()); err == nil && st.LabelAutoPrint && st.LabelPrinter != "" {
+		n, err := a.printKaufLabels(r.Context(), st, r.PathValue("id"), kaufIDs)
+		if err != nil {
+			res["label_error"] = err.Error()
+		} else {
+			res["labels_printed"] = n
+		}
+	}
+	return res, nil
 }
 
 func (a *APIServer) postRuckgabe(w http.ResponseWriter, r *http.Request) (any, error) {

@@ -16,6 +16,13 @@ Future<void> main() async {
   enterFullscreen();
   WakelockPlus.enable(); // Bildschirm bleibt an
   final settings = await AppSettings.load();
+  // Eingebauter Stand-PC (Standalone-Betrieb): Dienst beim App-Start starten
+  // (laeuft er schon, bleibt er unveraendert)
+  if (settings.embedded) {
+    try {
+      await settings.applyEmbedded();
+    } catch (_) {/* Fehler zeigt die Einstellungsseite */}
+  }
   runApp(StandanzeigeApp(settings: settings));
 }
 
@@ -35,16 +42,16 @@ class _StandanzeigeAppState extends State<StandanzeigeApp> {
   @override
   void initState() {
     super.initState();
-    if (_settings.url.isNotEmpty) _startState();
+    if (_settings.displayUrl.isNotEmpty) _startState();
   }
 
   void _startState() {
     _state?.dispose();
-    _state = DisplayState(StandPcApi(_settings.url))..start();
+    _state = DisplayState(StandPcApi(_settings.displayUrl))..start();
   }
 
   void _onSaved(AppSettings s) {
-    final urlChanged = s.url != _settings.url || _state == null;
+    final urlChanged = s.displayUrl != _settings.displayUrl || _state == null;
     setState(() {
       _settings = s;
       if (urlChanged) _startState();

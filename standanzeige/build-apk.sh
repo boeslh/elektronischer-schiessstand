@@ -20,6 +20,7 @@ export PATH="$HOME/development/flutter/bin:$ANDROID_HOME/cmdline-tools/latest/bi
 command -v flutter >/dev/null || { echo "flutter nicht gefunden - zuerst Shooting-App/setup-flutter-android.sh ausfuehren" >&2; exit 1; }
 
 cd "$BASE"
+"$BASE/build-standpc.sh"   # eingebauter Stand-PC (Standalone-Betrieb)
 flutter pub get
 
 stamp="$(date +%Y%m%d-%H%M)"

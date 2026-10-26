@@ -722,7 +722,7 @@ func (ws *WebServer) handleLocalSessions(w http.ResponseWriter, r *http.Request)
 
 func (ws *WebServer) handleLocalSessionShots(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	shots := LoadShotsForSession(ws.cfg.ShotLogDir, ws.cfg.LaneNo, id)
+	shots := LoadAllShotsForSession(ws.cfg.ShotLogDir, ws.cfg.LaneNo, id)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if shots == nil {
@@ -740,6 +740,13 @@ func (ws *WebServer) handlePutDisciplinesConfig(w http.ResponseWriter, r *http.R
 	if len(cfg.Disciplines) == 0 {
 		http.Error(w, "mindestens eine Disziplin erforderlich", http.StatusBadRequest)
 		return
+	}
+
+	// Standalone: die eingebaute Grundauswahl (LG-40, LGA-30, LP-40, LPA-30)
+	// bleibt immer verfuegbar - vom Server uebertragene Disziplinen kommen
+	// hinzu bzw. ersetzen gleichnamige.
+	if ws.cfg.Standalone {
+		cfg.Disciplines = mergeBuiltinDisciplines(cfg.Disciplines)
 	}
 
 	// Datei schreiben (wenn konfiguriert)

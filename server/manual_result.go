@@ -241,6 +241,22 @@ func (s *Store) abortOnFailure(ctx context.Context, sessionID string) {
 func (s *Store) RecordRundenwettkampfResult(ctx context.Context, starterID, granularity string,
 	shots []ManualShotInput, source, actor string, confirmOverwrite bool) (string, error) {
 
+	sessionID, err := s.newStarterSession(ctx, starterID, confirmOverwrite)
+	if err != nil {
+		return "", err
+	}
+	if err := s.RecordExternalResult(ctx, sessionID, granularity, shots, source, actor); err != nil {
+		s.abortOnFailure(ctx, sessionID)
+		return "", err
+	}
+	return sessionID, nil
+}
+
+// newStarterSession legt fuer einen Rundenwettkampf-Starter eine neue Session
+// auf einer virtuellen Bahn an; ein bereits vorliegendes Ergebnis wird nur mit
+// confirmOverwrite abgeloest (ErrResultExists). Gemeinsam fuer manuelle/
+// Wertmaschinen-Erfassung und den Import lokaler Durchgaenge.
+func (s *Store) newStarterSession(ctx context.Context, starterID string, confirmOverwrite bool) (string, error) {
 	var eventID, shooterID, disciplineID string
 	if err := s.pool.QueryRow(ctx,
 		`SELECT event_id, shooter_id, discipline_id FROM starters WHERE id=$1`, starterID,
@@ -260,16 +276,7 @@ func (s *Store) RecordRundenwettkampfResult(ctx context.Context, starterID, gran
 	if err := s.checkOverwrite(ctx, existingSessionID, confirmOverwrite); err != nil {
 		return "", err
 	}
-
-	sessionID, err := s.AssignVirtualLane(ctx, disciplineID, eventID, shooterID)
-	if err != nil {
-		return "", err
-	}
-	if err := s.RecordExternalResult(ctx, sessionID, granularity, shots, source, actor); err != nil {
-		s.abortOnFailure(ctx, sessionID)
-		return "", err
-	}
-	return sessionID, nil
+	return s.AssignVirtualLane(ctx, disciplineID, eventID, shooterID)
 }
 
 // RecordPreisschiessenResult erfasst ein manuelles oder Wertmaschinen-
@@ -279,6 +286,33 @@ func (s *Store) RecordRundenwettkampfResult(ctx context.Context, starterID, gran
 func (s *Store) RecordPreisschiessenResult(ctx context.Context, kaufScheibeID, granularity string,
 	shots []ManualShotInput, source, actor string, confirmOverwrite bool) (string, error) {
 
+	sessionID, err := s.newKaufScheibeSession(ctx, kaufScheibeID, confirmOverwrite)
+	if err != nil {
+		return "", err
+	}
+	if err := s.RecordExternalResult(ctx, sessionID, granularity, shots, source, actor); err != nil {
+		s.abortOnFailure(ctx, sessionID)
+		return "", err
+	}
+	if err := s.linkKaufScheibe(ctx, kaufScheibeID, sessionID); err != nil {
+		return "", err
+	}
+	return sessionID, nil
+}
+
+// linkKaufScheibe verknuepft eine gekaufte Scheiben-Einheit mit ihrer
+// (neuen) Ergebnis-Session.
+func (s *Store) linkKaufScheibe(ctx context.Context, kaufScheibeID, sessionID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE ps_kauf_scheiben SET session_id=$1 WHERE id=$2`, sessionID, kaufScheibeID)
+	return err
+}
+
+// newKaufScheibeSession legt fuer eine gekaufte Preisschiessen-Scheibe eine
+// neue Session auf einer virtuellen Bahn an (Verknuepfung danach mit
+// linkKaufScheibe); ein bereits vorliegendes Ergebnis wird nur mit
+// confirmOverwrite abgeloest (ErrResultExists).
+func (s *Store) newKaufScheibeSession(ctx context.Context, kaufScheibeID string, confirmOverwrite bool) (string, error) {
 	var existingSessionID *string
 	var teilnehmerID, scheibeID string
 	if err := s.pool.QueryRow(ctx, `
@@ -306,21 +340,7 @@ func (s *Store) RecordPreisschiessenResult(ctx context.Context, kaufScheibeID, g
 	if err := s.checkOverwrite(ctx, existing, confirmOverwrite); err != nil {
 		return "", err
 	}
-
-	sessionID, err := s.AssignVirtualLane(ctx, disciplineID, "", shooterID)
-	if err != nil {
-		return "", err
-	}
-	if err := s.RecordExternalResult(ctx, sessionID, granularity, shots, source, actor); err != nil {
-		s.abortOnFailure(ctx, sessionID)
-		return "", err
-	}
-	if _, err := s.pool.Exec(ctx,
-		`UPDATE ps_kauf_scheiben SET session_id=$1 WHERE id=$2`, sessionID, kaufScheibeID,
-	); err != nil {
-		return "", err
-	}
-	return sessionID, nil
+	return s.AssignVirtualLane(ctx, disciplineID, "", shooterID)
 }
 
 // FindKaufScheibeByPhysicalSerial loest die neue manuell eingetippte

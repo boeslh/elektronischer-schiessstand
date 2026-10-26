@@ -314,9 +314,51 @@
         <select id="pp-printer"></select>
         <div class="desc" id="pp-printer-desc">CUPS-Warteschlange im Rohdaten-Modus (DPL).</div></div>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:4px;cursor:pointer">
+      <input type="checkbox" id="pp-auto" style="width:16px;height:16px"> Labels gleich nach dem Bezahlen drucken
+    </label>
+    <div class="desc" style="font-size:12px;color:var(--dim);margin:4px 0 12px 24px">
+      Druckt in der Kasse beim Buchen der Zahlung die Labels aller dabei gekauften Papierscheiben.
+      Nachdruck und Ersatz-Label weiter über „Label drucken“.</div>
+    <div class="ea-sub">Position auf dem Etikett</div>
+    <div class="ea-grid">
+      <div class="field"><label for="pp-present">Vorschub zum Abreißen (mm)</label>
+        <input id="pp-present" type="number" min="0" max="40" step="0.5" placeholder="leer = Einstellung des Druckers">
+        <div class="desc">So weit schiebt der Drucker das Etikett nach dem Druck zum Abreißen vor und zieht es vor dem
+          nächsten Druck wieder zurück. Leer = der Server schickt nichts, es gilt die Einstellung am Drucker.</div></div>
+      <div class="field"><label for="pp-pitch">Etikettenabstand (mm)</label>
+        <input id="pp-pitch" type="number" min="10" max="200" step="0.1" placeholder="leer = Lückensensor">
+        <div class="desc">Etikett + Lücke, z. B. 32,0 bei 30 mm Etikett und 2 mm Lücke. Nur ausfüllen, wenn der
+          Drucker die Lücke nicht sicher erkennt und die Etiketten von Druck zu Druck „wandern“: Dann schiebt er
+          immer genau diese Strecke vor. Wandert es weiter, in 0,1-mm-Schritten nachstellen (steht das Etikett
+          mit jedem Druck weiter vor: Wert verkleinern).</div></div>
+      <div class="field"><label for="pp-sop">Druckbeginn verschieben (mm)</label>
+        <input id="pp-sop" type="number" min="-20" max="20" step="0.5" value="0">
+        <div class="desc">Sitzt der Druck auf allen Etiketten gleich weit zu hoch oder zu tief, hier korrigieren
+          (positiv = später beginnen). 0 = Werkseinstellung.</div></div>
+    </div>
+    <p style="font-size:12px;color:var(--dim);margin:0 0 12px">
+      Die Befehle gelten nur bis zum Ausschalten und werden vor jedem Druck neu geschickt. Bei Druckern ohne Display
+      (z. B. Datamax E-4203) wirken sie nur, wenn im Druckermenü die Optionssteuerung („Option Control“) auf
+      <b>Host</b> steht (beim E-4203: Setup-Menü Punkt 20 „Stop Location“ = HOST).</p>
+    <details class="setup-help" style="margin:0 0 12px">
+      <summary>Etiketten am Drucker einmessen (Datamax E-4203)</summary>
+      <p>Nach dem Einlegen neuer Etiketten oder wenn die Etiketten von Druck zu Druck „wandern“. Der E-4203 kennt
+        dafür keinen Befehl vom Server, das Einmessen geht nur am Gerät (Bedienungsanleitung Abschnitt 4.6):</p>
+      <ol style="margin:6px 0 6px 18px;line-height:1.6">
+        <li>Drucker ausschalten. Etiketten eingelegt, Druckkopf verriegelt, Deckel zu.</li>
+        <li><b>CANCEL</b> gedrückt halten und einschalten, halten bis die PAUSED-Leuchte ausgeht, dann loslassen.</li>
+        <li><b>PAUSE</b> drücken: Der Drucker zieht etwa 25 cm Etiketten durch und misst Etikett und Lücke.</li>
+        <li>Blinkt danach die PAUSED-Leuchte fünfmal, hat es geklappt; blinkt FAULT, Vorgang wiederholen.</li>
+        <li><b>PAUSE und CANCEL</b> zusammen kurz drücken: Werte speichern und zurück in den Normalbetrieb.</li>
+      </ol>
+      <p>Zum Verwerfen statt Schritt 5 den Drucker ausschalten. FEED lang drücken richtet im Normalbetrieb das
+        nächste Etikett neu aus.</p>
+    </details>
     <div class="actions" style="flex-wrap:wrap">
       <button class="btn-save" onclick="savePapier()">Speichern</button>
       <button class="btn-reset" onclick="testPapierLabel()">Testetikett drucken</button>
+      <button class="btn-reset" onclick="papierPrinterAction('align')">Ausrichtungs-Etikett</button>
       <div id="msg-papier" class="msg"></div>
     </div>
     <details class="setup-help">
@@ -719,6 +761,10 @@ async function loadPapier() {
     if (!r.ok) throw new Error(d.error || r.statusText);
     const s = d.settings;
     document.getElementById('pp-mode').value = s.serial_mode;
+    document.getElementById('pp-auto').checked = !!s.label_auto_print;
+    document.getElementById('pp-present').value = s.label_present_mm == null ? '' : s.label_present_mm;
+    document.getElementById('pp-sop').value = s.label_sop_adjust_mm || 0;
+    document.getElementById('pp-pitch').value = s.label_pitch_mm == null ? '' : s.label_pitch_mm;
     const sel = document.getElementById('pp-printer');
     const printers = d.printers || [];
     if (s.label_printer && !printers.includes(s.label_printer)) printers.push(s.label_printer);
@@ -737,7 +783,17 @@ async function savePapier() {
   const body = {
     serial_mode: document.getElementById('pp-mode').value,
     label_printer: document.getElementById('pp-printer').value,
+    label_auto_print: document.getElementById('pp-auto').checked,
+    label_present_mm: document.getElementById('pp-present').value.trim() === ''
+      ? null : parseFloat(document.getElementById('pp-present').value),
+    label_sop_adjust_mm: parseFloat(document.getElementById('pp-sop').value) || 0,
+    label_pitch_mm: document.getElementById('pp-pitch').value.trim() === ''
+      ? null : parseFloat(document.getElementById('pp-pitch').value),
   };
+  if (body.label_auto_print && !body.label_printer) {
+    showMsgEl('msg-papier', 'Für den automatischen Druck zuerst einen Etikettendrucker wählen.', 'err');
+    return;
+  }
   try {
     const r = await fetch('/api/settings/papierscheiben', {
       method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
@@ -745,6 +801,19 @@ async function savePapier() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || r.statusText);
     showMsgEl('msg-papier', 'Gespeichert.', 'ok');
+  } catch (e) {
+    showMsgEl('msg-papier', 'Fehler: ' + e.message, 'err');
+  }
+}
+
+async function papierPrinterAction(action) {
+  try {
+    const r = await fetch('/api/settings/papierscheiben/printer-action', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    showMsgEl('msg-papier', 'Ausrichtungs-Etikett gesendet (vorher speichern, damit geänderte Werte gelten).', 'ok');
   } catch (e) {
     showMsgEl('msg-papier', 'Fehler: ' + e.message, 'err');
   }

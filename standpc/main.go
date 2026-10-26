@@ -85,6 +85,17 @@ type Config struct {
 	ServerURL string `json:"server_url"`
 	SessionID string `json:"session_id"`
 
+	// Standalone: Betrieb ganz ohne Server (z.B. eingebaut in die Android-
+	// App). Jeder Durchgang (Start bzw. jede Disziplinwahl) bekommt eine
+	// eigene lokale Session-ID, die Schuesse werden mit Disziplin und
+	// Zeitpunkt im Schussprotokoll gespeichert und koennen spaeter vom
+	// Server importiert werden (Standaktion -> Import). server_url und
+	// session_id werden dann ignoriert.
+	Standalone bool `json:"standalone"`
+	// DevMode: Entwicklermodus (Schuesse per Mausklick) lokal einschalten -
+	// sonst schaltet ihn der Server global; fuer Tests ohne ESP32.
+	DevMode bool `json:"dev_mode"`
+
 	// Webserver fuer die Schuetzenanzeige
 	HTTPListen string `json:"http_listen"` // z.B. ":8080"
 	// Eigene URL fuer Server-Discovery (leer = automatisch aus ServerURL und HTTPListen ableiten)
@@ -195,6 +206,21 @@ var builtinDisciplines = DisciplinesConfig{
 		{Name: "LP-40", TargetNo: 7, TrialShots: 100, ScoringShots: 40, ShotsPerSeries: 10, DecimalScoring: false},
 		{Name: "LPA-30", TargetNo: 7, TrialShots: 100, ScoringShots: 30, ShotsPerSeries: 10, DecimalScoring: true},
 	},
+}
+
+// mergeBuiltinDisciplines ergaenzt defs um die eingebauten Disziplinen, die
+// darin (nach Name) fehlen.
+func mergeBuiltinDisciplines(defs []DisciplineDef) []DisciplineDef {
+	have := map[string]bool{}
+	for _, d := range defs {
+		have[d.Name] = true
+	}
+	for _, d := range builtinDisciplines.Disciplines {
+		if !have[d.Name] {
+			defs = append(defs, d)
+		}
+	}
+	return defs
 }
 
 func loadDisciplines(path string) (*DisciplinesConfig, error) {
@@ -390,11 +416,14 @@ type Shot struct {
 	InnerTen       bool    `json:"inner_ten"`
 	CenterDistance float64 `json:"center_distance"` // Abstand Mitte in 1/100 mm
 
-	Mode      string `json:"mode"` // "probe" | "wertung"
-	Rejected  bool   `json:"rejected"`
-	RejectMsg string `json:"reject_msg,omitempty"`
-	Overcount bool   `json:"overcount,omitempty"` // Schuss nach Disziplinabschluss
-	SeriesNo  *int   `json:"series_no,omitempty"` // nil bei nicht zaehlenden Schuessen (Reject/pos_invalid)
+	Mode string `json:"mode"` // "probe" | "wertung"
+	// Disziplin der Session zum Schusszeitpunkt - fuer den spaeteren Import
+	// lokal geschossener Durchgaenge (Standalone-Betrieb).
+	Discipline string `json:"discipline,omitempty"`
+	Rejected   bool   `json:"rejected"`
+	RejectMsg  string `json:"reject_msg,omitempty"`
+	Overcount  bool   `json:"overcount,omitempty"` // Schuss nach Disziplinabschluss
+	SeriesNo   *int   `json:"series_no,omitempty"` // nil bei nicht zaehlenden Schuessen (Reject/pos_invalid)
 }
 
 // ----------------------------------------------------------------------------
@@ -610,6 +639,9 @@ func main() {
 			}
 			shot.Mode = mode
 			shot.SessionID = sid
+			if sid != "" {
+				shot.Discipline = sessions.CurrentDisciplineName()
+			}
 			shot.Overcount = overcount
 			shot.SeriesNo = seriesNo
 			if overcount {

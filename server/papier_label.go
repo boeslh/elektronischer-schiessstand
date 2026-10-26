@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -35,20 +36,35 @@ import (
 type PapierSettings struct {
 	SerialMode   string `json:"serial_mode"` // manuell | fortlaufend
 	LabelPrinter string `json:"label_printer"`
+	// LabelAutoPrint: Labels der Papierscheiben gleich nach dem Bezahlen in
+	// der Kasse drucken (postBezahlen).
+	LabelAutoPrint bool `json:"label_auto_print"`
+	// Positionierung (siehe dplJob): Vorschub zum Abreissen in mm (nil =
+	// Einstellung des Druckers) und Verschiebung des Druckbeginns in mm.
+	LabelPresentMM   *float64 `json:"label_present_mm"`
+	LabelSOPAdjustMM float64  `json:"label_sop_adjust_mm"`
+	// LabelPitchMM: fester Etikettenabstand (Etikett + Luecke) in mm, wenn
+	// der Lueckensensor die Luecke nicht sicher erkennt; nil = Lueckensensor.
+	LabelPitchMM *float64 `json:"label_pitch_mm"`
 }
 
 func (s *Store) GetPapierSettings(ctx context.Context) (PapierSettings, error) {
 	var st PapierSettings
 	err := s.pool.QueryRow(ctx,
-		`SELECT paper_serial_mode, label_printer FROM app_settings WHERE id=1`).
-		Scan(&st.SerialMode, &st.LabelPrinter)
+		`SELECT paper_serial_mode, label_printer, label_auto_print,
+		        label_present_mm::float8, label_sop_adjust_mm::float8, label_pitch_mm::float8
+		 FROM app_settings WHERE id=1`).
+		Scan(&st.SerialMode, &st.LabelPrinter, &st.LabelAutoPrint, &st.LabelPresentMM, &st.LabelSOPAdjustMM,
+			&st.LabelPitchMM)
 	return st, err
 }
 
 func (s *Store) SetPapierSettings(ctx context.Context, st PapierSettings) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE app_settings SET paper_serial_mode=$1, label_printer=$2 WHERE id=1`,
-		st.SerialMode, st.LabelPrinter)
+		`UPDATE app_settings SET paper_serial_mode=$1, label_printer=$2, label_auto_print=$3,
+		        label_present_mm=$4, label_sop_adjust_mm=$5, label_pitch_mm=$6 WHERE id=1`,
+		st.SerialMode, st.LabelPrinter, st.LabelAutoPrint, st.LabelPresentMM, st.LabelSOPAdjustMM,
+		st.LabelPitchMM)
 	return err
 }
 
@@ -192,6 +208,66 @@ func dplLabel(l paperLabel) []byte {
 	return b.Bytes()
 }
 
+// Druckbeginn (Start of Print) der Modelle ohne Display ab Werk: 0220
+// Zoll/100 = 559 Zehntel-mm vom Mediensensor (DPL-Handbuch, <STX>O).
+const dplDefaultSOP = 559
+
+// dplJob stellt einem oder mehreren Labels die Positionierbefehle voran.
+// Alle Befehle gelten nur bis zum Ausschalten des Druckers (keine dauerhafte
+// Konfiguration) und wirken bei Modellen ohne Display nur, wenn im
+// Druckermenue die Optionssteuerung (Option Control) auf "Host" steht.
+//
+//	<STX>m      Masseinheit 0,1 mm fuer die folgenden Befehle
+//	<STX>cnnnn  fester Etikettenabstand statt Lueckensensor; c0000 schaltet
+//	            den Lueckensensor wieder ein (gilt sonst bis zum Ausschalten)
+//	<STX>Onnnn  Druckbeginn ab Mediensensor (nur bei Verschiebung != 0)
+//	<STX>Kfnnnn Vorschub nach dem Druck relativ zum naechsten Druckbeginn;
+//	            der Drucker zieht das Etikett vor dem naechsten Druck zurueck
+//	<STX>fnnn   dasselbe fuer aeltere Modelle (Abstand ab Mediensensor)
+func dplJob(st PapierSettings, labels ...[]byte) []byte {
+	var b bytes.Buffer
+	b.WriteString("\x02m")
+	pitch := 0
+	if st.LabelPitchMM != nil {
+		pitch = int(math.Round(*st.LabelPitchMM * 10))
+	}
+	fmt.Fprintf(&b, "\x02c%04d", pitch)
+	sop := dplDefaultSOP + int(math.Round(st.LabelSOPAdjustMM*10))
+	if st.LabelSOPAdjustMM != 0 {
+		if sop < 50 {
+			sop = 50
+		}
+		fmt.Fprintf(&b, "\x02O%04d", sop)
+	}
+	if st.LabelPresentMM != nil {
+		present := int(math.Round(*st.LabelPresentMM * 10))
+		fmt.Fprintf(&b, "\x02Kf%04d\r", present)
+		if f := sop + present; present > 0 && f <= 999 {
+			fmt.Fprintf(&b, "\x02f%03d", f)
+		}
+	}
+	for _, l := range labels {
+		b.Write(l)
+	}
+	return b.Bytes()
+}
+
+// dplAlignmentLabel: Rahmen 1 mm innerhalb der Etikettenkante und
+// Mittelkreuz - zeigt, wie weit der Druck auf dem Etikett verschoben ist.
+func dplAlignmentLabel() []byte {
+	var b bytes.Buffer
+	b.WriteString("\x02L\r")
+	b.WriteString("D11\r")
+	b.WriteString("m\r")
+	b.WriteString("1X1100000100010B430280004004\r") // Rahmen 43 x 28 mm ab 1/1 mm
+	b.WriteString("1X1100001490000L450002\r")       // waagrechte Mittellinie
+	b.WriteString("1X1100000000224L002300\r")       // senkrechte Mittellinie
+	b.WriteString("1211000002200030Ausrichtung\r")
+	b.WriteString("Q0001\r")
+	b.WriteString("E\r")
+	return b.Bytes()
+}
+
 func printRaw(ctx context.Context, printer, title string, data []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -267,6 +343,15 @@ func (a *APIServer) putPapierSettings(w http.ResponseWriter, r *http.Request) (a
 		return nil, errBadRequest("ungueltiger Body: " + err.Error())
 	}
 	st.LabelPrinter = strings.TrimSpace(st.LabelPrinter)
+	if st.LabelPresentMM != nil && (*st.LabelPresentMM < 0 || *st.LabelPresentMM > 40) {
+		return nil, errBadRequest("Vorschub zum Abreißen: 0 bis 40 mm")
+	}
+	if st.LabelPitchMM != nil && (*st.LabelPitchMM < 10 || *st.LabelPitchMM > 200) {
+		return nil, errBadRequest("Etikettenabstand: 10 bis 200 mm")
+	}
+	if st.LabelSOPAdjustMM < -20 || st.LabelSOPAdjustMM > 20 {
+		return nil, errBadRequest("Druckbeginn verschieben: -20 bis +20 mm")
+	}
 	if st.SerialMode != "manuell" && st.SerialMode != "fortlaufend" {
 		return nil, errBadRequest(`Seriennummer muss "manuell" oder "fortlaufend" sein`)
 	}
@@ -288,8 +373,46 @@ func (a *APIServer) postPapierTestLabel(w http.ResponseWriter, r *http.Request) 
 	if st.LabelPrinter == "" {
 		return nil, errBadRequest("Etikettendrucker zuerst auswählen und speichern")
 	}
-	data := dplLabel(paperLabel{Serial: "123456", ScheibeName: "Testscheibe", TeilnehmerNr: 99, Name: "Testetikett Müller"})
+	data := dplJob(st, dplLabel(paperLabel{Serial: "123456", ScheibeName: "Testscheibe", TeilnehmerNr: 99, Name: "Testetikett Müller"}))
 	if err := printRaw(r.Context(), st.LabelPrinter, "Testetikett", data); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+// POST /api/settings/papierscheiben/printer-action {"action":"align"}
+//
+//	align  Ausrichtungs-Etikett (Rahmen + Mittelkreuz) mit den eingestellten
+//	       Positionierbefehlen drucken
+//
+// Einmessen geht beim E-4203 nur am Geraet (<STX>K}Q kennen erst die Modelle
+// der Class Series 2) - Anleitung in den Einstellungen.
+func (a *APIServer) postPapierPrinterAction(w http.ResponseWriter, r *http.Request) (any, error) {
+	if _, err := a.requireTile(w, r, "settings"); err != nil {
+		return nil, err
+	}
+	body, err := decodeBody[struct {
+		Action string `json:"action"`
+	}](r)
+	if err != nil {
+		return nil, errBadRequest("ungueltiger Body: " + err.Error())
+	}
+	st, err := a.store.GetPapierSettings(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	if st.LabelPrinter == "" {
+		return nil, errBadRequest("Etikettendrucker zuerst auswählen und speichern")
+	}
+	var data []byte
+	var title string
+	switch body.Action {
+	case "align":
+		data, title = dplJob(st, dplAlignmentLabel()), "Ausrichtungs-Etikett"
+	default:
+		return nil, errBadRequest(`action muss "align" sein`)
+	}
+	if err := printRaw(r.Context(), st.LabelPrinter, title, data); err != nil {
 		return nil, err
 	}
 	return map[string]any{"ok": true}, nil
@@ -302,7 +425,8 @@ func (a *APIServer) getPapierConfig(w http.ResponseWriter, r *http.Request) (any
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"serial_mode": st.SerialMode, "label_printer_set": st.LabelPrinter != ""}, nil
+	return map[string]any{"serial_mode": st.SerialMode, "label_printer_set": st.LabelPrinter != "",
+		"label_auto_print": st.LabelAutoPrint && st.LabelPrinter != ""}, nil
 }
 
 // POST /api/preisschiessen/{id}/kaeufe/{kid}/label - druckt die Etiketten
@@ -313,27 +437,48 @@ func (a *APIServer) postKaufLabel(w http.ResponseWriter, r *http.Request) (any, 
 	if err != nil {
 		return nil, err
 	}
-	if st.LabelPrinter == "" {
-		return nil, errBadRequest("Kein Etikettendrucker eingerichtet (Einstellungen → Papierscheiben)")
-	}
-	ids, labels, err := a.store.kaufLabels(ctx, r.PathValue("id"), r.PathValue("kid"))
+	n, err := a.printKaufLabels(ctx, st, r.PathValue("id"), []string{r.PathValue("kid")})
 	if err != nil {
 		return nil, err
 	}
-	if len(labels) == 0 {
+	if n == 0 {
 		return nil, errBadRequest("Keine Papierscheibe mit Seriennummer in diesem Kauf")
 	}
-	var data []byte
-	for _, l := range labels {
-		data = append(data, dplLabel(l)...)
+	return map[string]any{"ok": true, "count": n}, nil
+}
+
+// printKaufLabels druckt die Labels aller Papierscheiben (mit Seriennummer)
+// der angegebenen Kaeufe in einem Druckauftrag und vermerkt den Druck.
+// Liefert die Anzahl gedruckter Labels (0 = keine Papierscheibe dabei).
+func (a *APIServer) printKaufLabels(ctx context.Context, st PapierSettings, preisschiessenID string, kaufIDs []string) (int, error) {
+	if st.LabelPrinter == "" {
+		return 0, errBadRequest("Kein Etikettendrucker eingerichtet (Einstellungen → Papierscheiben)")
 	}
+	var ids []string
+	var labels []paperLabel
+	for _, kid := range kaufIDs {
+		i, l, err := a.store.kaufLabels(ctx, preisschiessenID, kid)
+		if err != nil {
+			return 0, err
+		}
+		ids = append(ids, i...)
+		labels = append(labels, l...)
+	}
+	if len(labels) == 0 {
+		return 0, nil
+	}
+	var parts [][]byte
+	for _, l := range labels {
+		parts = append(parts, dplLabel(l))
+	}
+	data := dplJob(st, parts...)
 	if err := printRaw(ctx, st.LabelPrinter, "Etikett "+labels[0].Serial, data); err != nil {
-		return nil, err
+		return 0, err
 	}
 	if _, err := a.store.pool.Exec(ctx, `
 		UPDATE ps_kauf_scheiben SET label_printed_at = now(), label_print_count = label_print_count + 1
 		WHERE id = ANY($1::uuid[])`, ids); err != nil {
-		return nil, err
+		return 0, err
 	}
-	return map[string]any{"ok": true, "count": len(labels)}, nil
+	return len(labels), nil
 }

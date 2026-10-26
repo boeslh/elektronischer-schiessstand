@@ -386,6 +386,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/settings/papierscheiben", a.h(a.getPapierSettings))
 	mux.HandleFunc("PUT /api/settings/papierscheiben", a.h(a.putPapierSettings))
 	mux.HandleFunc("POST /api/settings/papierscheiben/test-label", a.h(a.postPapierTestLabel))
+	mux.HandleFunc("POST /api/settings/papierscheiben/printer-action", a.h(a.postPapierPrinterAction))
 	mux.HandleFunc("POST /api/esp32-calibrations", a.h(a.postESP32Calibration))
 	mux.HandleFunc("GET /api/esp32-calibrations/{mac}", a.h(a.getESP32Calibration))
 	mux.HandleFunc("GET /api/esp32-calibrations", a.h(a.getESP32CalibrationByLane))
@@ -401,6 +402,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/lanes/{no}/calibration-transfer/from-config", a.h(a.postCalibrationTransferFromConfig))
 	mux.HandleFunc("GET /api/lanes/{no}/local-sessions", a.h(a.proxyLocalSessions))
 	mux.HandleFunc("GET /api/lanes/{no}/local-sessions/{sid}/shots", a.h(a.proxyLocalSessionShots))
+	mux.HandleFunc("POST /api/lanes/{no}/local-sessions/{sid}/import", a.h(a.importLocalSession))
 	mux.HandleFunc("POST /api/transfer", a.h(a.transferSession))
 	mux.HandleFunc("POST /api/import-session", a.h(a.importSession))
 	mux.HandleFunc("POST /api/lanes/{no}/push-disciplines", a.h(a.pushDisciplinesToStandPC))
@@ -1784,22 +1786,6 @@ func standpcURL(lanes []Lane, laneNo int) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("Stand %d nicht gefunden", laneNo)
-}
-
-func (a *APIServer) proxyLocalSessions(w http.ResponseWriter, r *http.Request) (any, error) {
-	no, err := strconv.Atoi(r.PathValue("no"))
-	if err != nil {
-		return nil, errBadRequest("ungültige Lane-Nummer")
-	}
-	lanes, err := a.store.ListLanes(r.Context())
-	if err != nil {
-		return nil, err
-	}
-	base, err := standpcURL(lanes, no)
-	if err != nil {
-		return nil, err
-	}
-	return proxyGet(base + "/api/local-sessions")
 }
 
 func (a *APIServer) proxyLocalSessionShots(w http.ResponseWriter, r *http.Request) (any, error) {

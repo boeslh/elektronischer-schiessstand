@@ -87,6 +87,7 @@ func ClearRecoverState(dir string, laneNo int) {
 // LocalSession fasst Metadaten einer Session aus dem JSONL-Log zusammen.
 type LocalSession struct {
 	SessionID    string    `json:"session_id"`
+	Discipline   string    `json:"discipline,omitempty"` // Disziplin des Durchgangs (Standalone-Betrieb)
 	WertungCount int       `json:"wertung_count"`
 	ProbeCount   int       `json:"probe_count"`
 	FirstAt      time.Time `json:"first_at"`
@@ -112,6 +113,7 @@ func ListLocalSessions(dir string, laneNo int) ([]LocalSession, error) {
 			continue
 		}
 		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 4096), 1<<20) // Zeilen mit air_ns/raw_edges koennen lang werden
 		for sc.Scan() {
 			var shot Shot
 			if err := json.Unmarshal(sc.Bytes(), &shot); err != nil || shot.SessionID == "" {
@@ -123,6 +125,9 @@ func ListLocalSessions(dir string, laneNo int) ([]LocalSession, error) {
 				byID[shot.SessionID] = ls
 			}
 			t, _ := time.Parse(time.RFC3339, shot.FiredAt)
+			if ls.Discipline == "" {
+				ls.Discipline = shot.Discipline
+			}
 			if ls.FirstAt.IsZero() || t.Before(ls.FirstAt) {
 				ls.FirstAt = t
 			}
@@ -208,6 +213,38 @@ func LoadShotsForSession(dir string, laneNo int, sessionID string) []*Shot {
 			continue
 		}
 		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 4096), 1<<20)
+		for scanner.Scan() {
+			var shot Shot
+			if err := json.Unmarshal(scanner.Bytes(), &shot); err != nil {
+				continue
+			}
+			if shot.SessionID == sessionID {
+				shots = append(shots, &shot)
+			}
+		}
+		f.Close()
+	}
+	return shots
+}
+
+// LoadAllShotsForSession wie LoadShotsForSession, durchsucht aber ALLE
+// Schussprotokolle der Lane (Datumsreihenfolge) - fuer den Import aelterer
+// lokaler Durchgaenge durch den Server (GET /api/local-sessions/{id}/shots).
+func LoadAllShotsForSession(dir string, laneNo int, sessionID string) []*Shot {
+	if dir == "" || sessionID == "" {
+		return nil
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, fmt.Sprintf("lane%02d_*.jsonl", laneNo)))
+	sort.Strings(files)
+	var shots []*Shot
+	for _, name := range files {
+		f, err := os.Open(name)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 4096), 1<<20)
 		for scanner.Scan() {
 			var shot Shot
 			if err := json.Unmarshal(scanner.Bytes(), &shot); err != nil {
