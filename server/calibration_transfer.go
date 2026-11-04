@@ -7,7 +7,7 @@
 // Stand-PCs holt ihn ab (GET ..., unauthentifiziert wie die uebrigen Stand-
 // PC-Endpunkte, z.B. /api/esp32-calibrations), zeigt die Unterschiede zur
 // aktuellen Geraetekonfiguration und schreibt sie auf Knopfdruck per
-// CAL IMPORT (OFS0-5 + SOUNDSPEED atomar) und SET auf den ESP32 (siehe
+// CAL IMPORT (DIST0-5 atomar) und SET auf den ESP32 (siehe
 // standpc/calibration_transfer.go). Danach meldet er das Ergebnis zurueck
 // (POST .../applied).
 //
@@ -44,18 +44,22 @@ type FirmwareSetting struct {
 func firmwareSettings(p SimParams) []FirmwareSetting {
 	f2 := func(v float64) string { return strconv.FormatFloat(math.Round(v*100)/100, 'f', 2, 64) }
 	i := func(v int64) string { return strconv.FormatInt(v, 10) }
-	_, _, _, _, clusterMM := solveParams(p) // RADIUS inkl. Fallback 0 -> Firmware-Default
+	_, _, clusterMM := solveParams(p) // RADIUS inkl. Fallback 0 -> Firmware-Default
+	layout := p.MicLayout
+	if layout == "" {
+		layout = micLayoutAngled
+	}
 	s := []FirmwareSetting{
-		{"STANDOFFPAPER", f2(p.StandoffPaperMM)},
-		{"MICHALFX", f2(p.MicHalfXMm)},
+		// MICLAYOUT ist fest in der Firmware (board_layout.h) und wird nicht
+		// gesetzt - der Stand-PC prueft damit nur, ob die Kalibrierung zur
+		// Mikrofon-Anordnung des Geraets passt (Firmware Rev 4.20.0).
+		{"MICLAYOUT", layout},
 		{"OFFSETX", i(p.OffsetXUm)},
 		{"OFFSETY", i(p.OffsetYUm)},
-		// eine Nachkommastelle (Firmware ab 4.15.0) - fuer aeltere Firmware
-		// rundet der Stand-PC ganzzahlig (standpc targetForDevice)
-		{"SOUNDSPEED", strconv.FormatFloat(math.Round(p.SoundMps*10)/10, 'f', 1, 64)},
+		{"TEMP", strconv.FormatFloat(math.Round(p.TempC*10)/10, 'f', 1, 64)},
 	}
 	for k := 0; k < 6; k++ {
-		s = append(s, FirmwareSetting{fmt.Sprintf("OFS%d", k), i(p.MicOffsetNs[k])})
+		s = append(s, FirmwareSetting{fmt.Sprintf("DIST%d", k), i(p.MicDistUm[k])})
 	}
 	s = append(s,
 		FirmwareSetting{"BSHIFTPCT", i(int64(p.BulletShiftPct))},
@@ -143,9 +147,9 @@ func zcalValue(s *ZoneSet) string {
 	if s == nil {
 		return "OFF"
 	}
-	parts := []string{strconv.FormatFloat(math.Round(s.SoundMps*10)/10, 'f', 1, 64)}
-	for _, o := range s.MicOffsetNs {
-		parts = append(parts, strconv.FormatInt(o, 10))
+	parts := make([]string, 0, 8)
+	for _, d := range s.MicDistUm {
+		parts = append(parts, strconv.FormatInt(d, 10))
 	}
 	parts = append(parts, strconv.FormatInt(s.OffsetXUm, 10), strconv.FormatInt(s.OffsetYUm, 10))
 	return strings.Join(parts, ",")

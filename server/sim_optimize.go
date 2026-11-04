@@ -1,9 +1,9 @@
 // ============================================================================
 // sim_optimize.go – Kalibrierung auf minimalen Schnittpunkt-Cluster Σ9
-// (siehe clusterSum9 in simulator.go) ueber Mikrofon-Offsets UND - je nach
-// Auswahl - Geometrie-/Korrekturparameter (Standoff, Mic-Halbabstand X,
-// Kugeldurchmesser-Korrektur %, Korrektur-Kappung, Schallgeschwindigkeit),
-// jeweils innerhalb vorgegebener Grenzen.
+// (siehe clusterSum9 in simulator.go) ueber die Entfernungskorrekturen der
+// Mikrofone (DIST1-5) UND - je nach Auswahl - Korrekturparameter
+// (Kugeldurchmesser-Korrektur %, Korrektur-Kappung, Temperatur), jeweils
+// innerhalb vorgegebener Grenzen.
 //
 // Laeuft nur im Simulator auf dem Server (Rechenzeit unkritisch), die
 // Firmware-Auswertung selbst bleibt unveraendert - gefunden werden nur
@@ -12,14 +12,14 @@
 // Verfahren (Σ9 ist stueckweise und nicht differenzierbar - Schnittpunkte
 // wandern in den Cluster-Radius hinein oder heraus -, daher ableitungsfreie
 // Suche mit mehreren Startpunkten):
-//  1. Startpunkte: die aktuellen Parameter sowie ein Raster (min/Mitte/max)
-//     ueber Standoff, Mic-Halbabstand und Schallgeschwindigkeit (soweit zur
-//     Optimierung freigegeben). Je Startpunkt werden die Offsets zuerst wie
-//     bei CAL START auf minimalen Rest-Fehler kalibriert - von beliebigen
-//     Offsets aus liegen oft gar keine Schnittpunkte im Cluster-Radius, Σ9
-//     waere dann ueberall 9 x 5mm und gaebe der Suche keine Richtung. Der
-//     Startpunkt "aktuelle Parameter" behaelt zusaetzlich die aktuellen
-//     Offsets (bereits gute Kalibrierung nicht verwerfen).
+//  1. Startpunkte: die aktuellen Parameter sowie min/Mitte/max der
+//     Temperatur (soweit zur Optimierung freigegeben). Je Startpunkt werden
+//     die Entfernungskorrekturen zuerst wie bei CAL START auf minimalen
+//     Rest-Fehler kalibriert - von beliebigen Werten aus liegen oft gar
+//     keine Schnittpunkte im Cluster-Radius, Σ9 waere dann ueberall 9 x 5mm
+//     und gaebe der Suche keine Richtung. Der Startpunkt "aktuelle
+//     Parameter" behaelt zusaetzlich die aktuellen Korrekturen (bereits gute
+//     Kalibrierung nicht verwerfen).
 //  2. Je Startpunkt Kompass-Suche (Koordinatensuche mit Schrittweiten-
 //     Halbierung) ueber alle freigegebenen Parameter auf minimale Σ9-Summe.
 //  3. Die besten Ergebnisse werden mit kleineren Schritten erneut
@@ -49,26 +49,21 @@ type OptRange struct {
 // der Kugelkorrektur wirken praktisch nur auf die korrigierte Variante.
 type Cluster9Options struct {
 	Corrected bool     `json:"corrected"`
-	Offsets   bool     `json:"offsets"` // Mic-Offsets OFS1-5 (OFS0 bleibt Referenz 0)
-	Standoff  OptRange `json:"standoff"`
-	MicHalfX  OptRange `json:"mic_half_x"`
+	Dist      bool     `json:"dist"` // Entfernungskorrektur DIST1-5 (DIST0 bleibt Referenz 0)
 	BShiftPct OptRange `json:"bullet_shift_pct"`
 	BShiftCap OptRange `json:"bullet_shift_cap"`
-	Sound     OptRange `json:"sound"`
+	Temp      OptRange `json:"temp"` // Grad C (Schallgeschwindigkeit)
 }
 
-// DefaultCluster9Options: Grenzen nach Vorgabe (Standoff 27-30mm, Mic-
-// Halbabstand 114-117mm, Kugelkorrektur 30-60%, Kappung 3-5mm, Schall
-// 340-346 m/s).
+// DefaultCluster9Options: Grenzen nach Vorgabe (Kugelkorrektur 30-60%,
+// Kappung 3-5mm, Temperatur 14-24 Grad C ~ 340-346 m/s).
 func DefaultCluster9Options() Cluster9Options {
 	return Cluster9Options{
 		Corrected: true,
-		Offsets:   true,
-		Standoff:  OptRange{true, 27, 30},
-		MicHalfX:  OptRange{true, 114, 117},
+		Dist:      true,
 		BShiftPct: OptRange{true, 30, 60},
 		BShiftCap: OptRange{true, 3, 5},
-		Sound:     OptRange{true, 340, 346},
+		Temp:      OptRange{true, 14, 24},
 	}
 }
 
@@ -113,13 +108,13 @@ func (d optDim) clamp(v float64) float64 {
 // cluster9Dims baut die Dimensionen des Suchraums aus den Optionen.
 func cluster9Dims(o Cluster9Options) []optDim {
 	var dims []optDim
-	if o.Offsets {
+	if o.Dist {
 		for k := 1; k < 6; k++ {
 			k := k
 			dims = append(dims, optDim{
-				lo: -micOfsMaxNs, hi: micOfsMaxNs, step: 1000, minS: 1, integer: true,
-				get: func(p *SimParams) float64 { return float64(p.MicOffsetNs[k]) },
-				set: func(p *SimParams, v float64) { p.MicOffsetNs[k] = int64(v) },
+				lo: -micDistMaxUm, hi: micDistMaxUm, step: 300, minS: 1, integer: true,
+				get: func(p *SimParams) float64 { return float64(p.MicDistUm[k]) },
+				set: func(p *SimParams, v float64) { p.MicDistUm[k] = int64(v) },
 			})
 		}
 	}
@@ -128,20 +123,16 @@ func cluster9Dims(o Cluster9Options) []optDim {
 			dims = append(dims, optDim{lo: r.Min, hi: r.Max, step: step, minS: minS, integer: integer, get: get, set: set})
 		}
 	}
-	add(o.Standoff, 0.5, 0.01, false,
-		func(p *SimParams) float64 { return p.StandoffPaperMM }, func(p *SimParams, v float64) { p.StandoffPaperMM = v })
-	add(o.MicHalfX, 0.5, 0.01, false,
-		func(p *SimParams) float64 { return p.MicHalfXMm }, func(p *SimParams, v float64) { p.MicHalfXMm = v })
 	add(o.BShiftPct, 8, 1, true,
 		func(p *SimParams) float64 { return float64(p.BulletShiftPct) }, func(p *SimParams, v float64) { p.BulletShiftPct = int(v) })
 	add(o.BShiftCap, 0.5, 0.01, false,
 		func(p *SimParams) float64 { return p.BulletShiftCapMm }, func(p *SimParams, v float64) { p.BulletShiftCapMm = v })
-	add(o.Sound, 1, 0.05, false,
-		func(p *SimParams) float64 { return p.SoundMps }, func(p *SimParams, v float64) { p.SoundMps = v })
+	add(o.Temp, 1.5, 0.05, false,
+		func(p *SimParams) float64 { return p.TempC }, func(p *SimParams, v float64) { p.TempC = v })
 	return dims
 }
 
-// cluster9Shot: vorbereitete Rohzeiten eines Schusses (ohne Offsets).
+// cluster9Shot: vorbereitete Rohzeiten eines Schusses.
 type cluster9Shot struct {
 	raw  [6]int64
 	seen [6]bool
@@ -165,23 +156,18 @@ func prepCluster9Shots(airNs [][6][]int64, p SimParams) []cluster9Shot {
 // evalCluster9 berechnet fuer p die Σ9-Werte aller Schuesse. cost = Summe
 // (unloesbarer Schuss: Strafwert 1000mm).
 func evalCluster9(shots []cluster9Shot, p SimParams, corrected bool) (cost float64, c Cluster9Candidate) {
-	micX, micY, standoffMM, soundMmPerNs, radiusMM := solveParams(p)
+	g, soundMmPerNs, radiusMM := solveParams(p)
 	var sum float64
 	for _, s := range shots {
-		var t [6]int64
-		for i := 0; i < 6; i++ {
-			if s.seen[i] {
-				t[i] = s.raw[i] - p.MicOffsetNs[i]
-			}
-		}
-		x, y, _, _, _, cands, _, _, ok := airPosition(t, s.seen, micX, micY, standoffMM,
+		t := s.raw
+		x, y, _, _, _, cands, _, _, ok := airPosition(t, s.seen, g,
 			soundMmPerNs, radiusMM, p.BulletShiftPct, float32(p.BulletShiftCapMm))
 		if !ok {
 			cost += 1000
 			continue
 		}
 		if p.PosAlgo.active() {
-			x, y, _, _ = refinePosition(cands, x, y, t, s.seen, micX, micY, standoffMM, soundMmPerNs, radiusMM, p.PosAlgo)
+			x, y, _, _ = refinePosition(cands, x, y, t, s.seen, g, soundMmPerNs, radiusMM, p.PosAlgo)
 		}
 		v, _ := clusterSum9(cands, x, y, radiusMM, corrected)
 		cost += float64(v)
@@ -268,10 +254,10 @@ func OptimizeCluster9(airNs [][6][]int64, p SimParams, o Cluster9Options) Cluste
 		d.set(&p, d.clamp(d.get(&p)))
 	}
 
-	// Startpunkte: aktuelle Parameter + Raster ueber Standoff/MicHalfX/Schall.
+	// Startpunkte: aktuelle Parameter + min/Mitte/max der Temperatur.
 	type startPt struct {
 		p        SimParams
-		keepOffs bool
+		keepDist bool
 	}
 	starts := []startPt{{p, true}}
 	levels := func(r OptRange, cur float64) []float64 {
@@ -280,14 +266,10 @@ func OptimizeCluster9(airNs [][6][]int64, p SimParams, o Cluster9Options) Cluste
 		}
 		return []float64{r.Min, (r.Min + r.Max) / 2, r.Max}
 	}
-	for _, so := range levels(o.Standoff, p.StandoffPaperMM) {
-		for _, mx := range levels(o.MicHalfX, p.MicHalfXMm) {
-			for _, snd := range levels(o.Sound, p.SoundMps) {
-				q := p
-				q.StandoffPaperMM, q.MicHalfXMm, q.SoundMps = so, mx, snd
-				starts = append(starts, startPt{q, false})
-			}
-		}
+	for _, temp := range levels(o.Temp, p.TempC) {
+		q := p
+		q.TempC = temp
+		starts = append(starts, startPt{q, false})
 	}
 
 	results := make([]Cluster9Candidate, len(starts))
@@ -301,9 +283,9 @@ func OptimizeCluster9(airNs [][6][]int64, p SimParams, o Cluster9Options) Cluste
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			q := s.p
-			if o.Offsets && !s.keepOffs {
-				ofs, _ := CalibrateMicOffsets(airNs, q) // Rest-Fehler-Vorkalibrierung
-				q.MicOffsetNs = ofs
+			if o.Dist && !s.keepDist {
+				dist, _ := CalibrateMicDist(airNs, nil, q) // Rest-Fehler-Vorkalibrierung
+				q.MicDistUm = dist
 			}
 			q, c := compassSearch(cost, q, dims, 1)
 			costs[i] = c
@@ -355,7 +337,7 @@ func OptimizeCluster9(airNs [][6][]int64, p SimParams, o Cluster9Options) Cluste
 		if len(res.Alternates) >= 4 {
 			break
 		}
-		if math.Abs(s.c.MeanSumMM-res.Best.MeanSumMM) < 1e-6 && s.c.Params.MicOffsetNs == res.Best.Params.MicOffsetNs {
+		if math.Abs(s.c.MeanSumMM-res.Best.MeanSumMM) < 1e-6 && s.c.Params.MicDistUm == res.Best.Params.MicDistUm {
 			continue
 		}
 		res.Alternates = append(res.Alternates, s.c)
@@ -365,11 +347,9 @@ func OptimizeCluster9(airNs [][6][]int64, p SimParams, o Cluster9Options) Cluste
 		r    OptRange
 		v    float64
 	}{
-		{"Standoff", o.Standoff, res.Best.Params.StandoffPaperMM},
-		{"Mic-Halbabstand X", o.MicHalfX, res.Best.Params.MicHalfXMm},
 		{"Kugeldurchm.-Korrektur", o.BShiftPct, float64(res.Best.Params.BulletShiftPct)},
 		{"Korrektur-Kappung", o.BShiftCap, res.Best.Params.BulletShiftCapMm},
-		{"Schallgeschwindigkeit", o.Sound, res.Best.Params.SoundMps},
+		{"Temperatur", o.Temp, res.Best.Params.TempC},
 	} {
 		if b.r.Enabled && (math.Abs(b.v-b.r.Min) < 1e-6 || math.Abs(b.v-b.r.Max) < 1e-6) {
 			res.AtBound = append(res.AtBound, b.name)

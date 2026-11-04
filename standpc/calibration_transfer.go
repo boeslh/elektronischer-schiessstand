@@ -6,10 +6,13 @@
 // fertige Liste aus Firmware-Schluessel und SET-Wert. Hier wird sie mit der
 // aktuellen Geraetekonfiguration (SHOW) verglichen und NUR das Abweichende
 // geschrieben:
-//   - OFS0-5 + SOUNDSPEED gemeinsam per "CAL IMPORT" (atomar in der
-//     Firmware: erst alles validieren, dann schreiben - ein Verbindungs-
-//     abbruch hinterlaesst so keine halb uebernommenen Mikrofon-Offsets),
-//   - alle uebrigen Werte einzeln per "SET <Key>=<Value>".
+//   - DIST0-5 gemeinsam per "CAL IMPORT" (atomar in der Firmware: erst
+//     alles validieren, dann schreiben - ein Verbindungsabbruch hinterlaesst
+//     so keine halb uebernommene Kalibrierung; bis Firmware 4.19 OFS0-5 +
+//     SOUNDSPEED),
+//   - alle uebrigen Werte einzeln per "SET <Key>=<Value>",
+//   - MICLAYOUT wird nur verglichen: die Mikrofon-Anordnung ist fest in der
+//     Firmware, eine Kalibrierung fuer eine andere Anordnung wird abgelehnt.
 //
 // Danach wird SHOW erneut gelesen und verglichen; das Ergebnis geht an den
 // Server zurueck, damit im Simulator sichtbar ist, ob/wann die Freigabe auf
@@ -100,8 +103,13 @@ func currentSettingValue(c *ConfigTelegram, key string) (string, bool) {
 	f2 := func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }
 	itoa := strconv.Itoa
 	if strings.HasPrefix(key, "OFS") && len(key) == 4 {
-		if k := int(key[3] - '0'); k >= 0 && k < 6 {
+		if k := int(key[3] - '0'); k >= 0 && k < 6 && c.MicOffsetNs != nil {
 			return itoa(c.MicOffsetNs[k]), true
+		}
+	}
+	if strings.HasPrefix(key, "DIST") && len(key) == 5 {
+		if k := int(key[4] - '0'); k >= 0 && k < 6 && c.MicDistUm != nil {
+			return itoa(c.MicDistUm[k]), true
 		}
 	}
 	if strings.HasPrefix(key, "MICEN") && len(key) == 6 {
@@ -110,10 +118,27 @@ func currentSettingValue(c *ConfigTelegram, key string) (string, bool) {
 		}
 	}
 	switch key {
+	case "MICLAYOUT":
+		// bis Firmware 4.19 nicht gemeldet - damals immer flach
+		if c.MicLayout == "" {
+			return "flat", true
+		}
+		return c.MicLayout, true
+	case "TEMP":
+		if c.TempSetC == nil {
+			return "", false
+		}
+		return strconv.FormatFloat(*c.TempSetC, 'f', 1, 64), true
 	case "STANDOFFPAPER":
-		return f2(c.StandoffPaperMm), true
+		if c.StandoffPaperMm == nil {
+			return "", false
+		}
+		return f2(*c.StandoffPaperMm), true
 	case "MICHALFX":
-		return f2(c.MicHalfXMm), true
+		if c.MicHalfXMm == nil {
+			return "", false
+		}
+		return f2(*c.MicHalfXMm), true
 	case "OFFSETX":
 		return itoa(c.OffsetXUm), true
 	case "OFFSETY":
@@ -122,7 +147,10 @@ func currentSettingValue(c *ConfigTelegram, key string) (string, bool) {
 		if c.SoundSetMps != nil { // Firmware >= 4.15.0: genauer Wert
 			return strconv.FormatFloat(*c.SoundSetMps, 'f', 1, 64), true
 		}
-		return itoa(c.SoundMps), true
+		if c.SoundMps == nil { // ab Firmware 4.20.0 entfallen (TEMP)
+			return "", false
+		}
+		return itoa(*c.SoundMps), true
 	// seit Firmware Rev 4.13-4.15 - aeltere Firmware meldet sie nicht (ok=false)
 	case "CAPTURE":
 		if c.Capture == "" {
@@ -236,7 +264,8 @@ func currentSettingValue(c *ConfigTelegram, key string) (string, bool) {
 
 // targetForDevice passt einen Zielwert an die Firmware des Geraets an:
 // SOUNDSPEED nimmt erst ab Rev 4.15.0 Nachkommastellen an (erkennbar an
-// sound_set_mps im SHOW) - fuer aeltere Firmware wird ganzzahlig gerundet.
+// sound_set_mps im SHOW) - fuer aeltere Firmware wird ganzzahlig gerundet
+// (nur noch fuer gespeicherte Konfigurationen von Geraeten bis 4.19).
 func targetForDevice(c *ConfigTelegram, s firmwareSetting) string {
 	if s.Key == "SOUNDSPEED" && c != nil && c.SoundSetMps == nil {
 		if f, err := strconv.ParseFloat(s.Value, 64); err == nil {
@@ -303,6 +332,20 @@ var firmwareOptionalKeys = map[string]bool{
 	"ZONES": true, "ZHOLE": true, "ZBAND": true, "ZBLEND": true, "ZCALA": true, "ZCALB": true, "ZCALC": true,
 }
 
+// layoutMismatch: Fehlermeldung, wenn die Freigabe fuer eine andere
+// Mikrofon-Anordnung bestimmt wurde, als das Geraet hat (Firmware Rev
+// 4.20.0) - "" wenn passend oder kein Geraet verbunden.
+func layoutMismatch(items []transferItem) string {
+	for _, it := range items {
+		if it.Key == "MICLAYOUT" && it.Changed && it.Current != "" {
+			return fmt.Sprintf("Die Kalibrierung gilt für die Mikrofon-Anordnung „%s“, das Gerät hat „%s“ "+
+				"(Firmware ab 4.20.0: „angled“, vorher „flat“). Im Simulator mit der passenden Anordnung neu kalibrieren.",
+				it.Target, it.Current)
+		}
+	}
+	return ""
+}
+
 // setCommand: SET-Befehl fuer einen Schluessel - die Zonen-Saetze
 // (ZCALA/B/C) gehen als "SET ZCAL=<Zone>,<Werte>" (Firmware Rev 4.17.0).
 func setCommand(key, value string) string {
@@ -328,12 +371,14 @@ func (ws *WebServer) readDeviceConfig(c *ConfigTelegram) error {
 }
 
 func isCalImportKey(key string) bool {
-	return key == "SOUNDSPEED" || (strings.HasPrefix(key, "OFS") && len(key) == 4)
+	return key == "SOUNDSPEED" || (strings.HasPrefix(key, "OFS") && len(key) == 4) ||
+		(strings.HasPrefix(key, "DIST") && len(key) == 5)
 }
 
 // transferCommands baut die Befehlsfolge fuer die abweichenden Werte: ein
-// CAL IMPORT (mit ALLEN sieben Kalibrierwerten, damit Offsets und
-// Schallgeschwindigkeit garantiert zusammenpassen), dann je ein SET.
+// CAL IMPORT (mit ALLEN Kalibrierwerten - DIST0-5 bzw. bis Firmware 4.19
+// OFS0-5 + SOUNDSPEED -, damit sie garantiert zusammenpassen), dann je ein
+// SET. MICLAYOUT wird nie gesendet (fest in der Firmware).
 func transferCommands(items []transferItem) []string {
 	var cmds []string
 	calChanged := false
@@ -348,7 +393,7 @@ func transferCommands(items []transferItem) []string {
 		cmds = append(cmds, "CAL IMPORT "+strings.Join(cal, ","))
 	}
 	for _, it := range items {
-		if it.Changed && !isCalImportKey(it.Key) {
+		if it.Changed && !isCalImportKey(it.Key) && it.Key != "MICLAYOUT" {
 			cmds = append(cmds, setCommand(it.Key, it.Target))
 		}
 	}
@@ -392,6 +437,9 @@ func (ws *WebServer) handleAdminTransfer(w http.ResponseWriter, r *http.Request)
 	}
 	if msg := ws.transferCaptureMismatch(t); msg != "" {
 		resp["capture_error"] = msg
+	}
+	if msg := layoutMismatch(items); msg != "" {
+		resp["layout_error"] = msg
 	}
 	if showErr != nil {
 		resp["device_error"] = showErr.Error()
@@ -530,8 +578,13 @@ func (ws *WebServer) applySettings(settings []firmwareSetting) (applyResult, int
 		return applyResult{}, http.StatusBadGateway, fmt.Errorf("Gerätekonfiguration nicht lesbar: %w", err)
 	}
 
+	items := diffTransfer(&before, settings)
+	if msg := layoutMismatch(items); msg != "" {
+		return applyResult{}, http.StatusConflict, fmt.Errorf("%s", msg)
+	}
+
 	res := applyResult{Steps: []transferStep{}, Remaining: []transferItem{}}
-	for _, cmd := range transferCommands(diffTransfer(&before, settings)) {
+	for _, cmd := range transferCommands(items) {
 		st := transferStep{Cmd: cmd, OK: true}
 		reboot, err := ws.sendCheckedReboot(cmd)
 		if err != nil {

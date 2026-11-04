@@ -38,6 +38,7 @@ func main() {
 	}
 
 	web := NewWebServer()
+	web.name = cfg.Name
 	session := NewSession(cfg, client)
 	session.web = web
 	web.session = session
@@ -50,7 +51,7 @@ func main() {
 	// "Fern"-Button in der Bedienoberflaeche ausloesbar (siehe session.go
 	// EnterFernMode).
 
-	log.Printf("wertmaschine: Port %s, Protokoll %s, Server %s", cfg.ComPort, cfg.Protocol, cfg.ServerURL)
+	log.Printf("wertmaschine %s: Port %s, Protokoll %s, Server %s", cfg.Name, cfg.ComPort, cfg.Protocol, cfg.ServerURL)
 	if err := web.Run(cfg.HTTPListen); err != nil {
 		log.Fatalf("FATAL HTTP: %v", err)
 	}

@@ -63,7 +63,7 @@ func (o PosAlgoOptions) active() bool { return o.clusterActive() || o.LSQ }
 // relativ zur Endposition neu bestimmt - bei CorrCluster gegen die
 // korrigierten, sonst gegen die rohen Schnittpunkte.
 func refinePosition(cands []airCandidate, fwX, fwY float32, tNs [6]int64, seen [6]bool,
-	micX, micY [6]float32, standoffMM, soundMmPerNs, radiusMM float32, o PosAlgoOptions) (x, y float32, clusterHits int, precMM float32) {
+	g micGeom, soundMmPerNs, radiusMM float32, o PosAlgoOptions) (x, y float32, clusterHits int, precMM float32) {
 
 	x, y = fwX, fwY
 	if o.clusterActive() {
@@ -111,7 +111,7 @@ func refinePosition(cands []airCandidate, fwX, fwY float32, tNs [6]int64, seen [
 		}
 	}
 	if o.LSQ {
-		if lx, ly, ok := lsqPosition(x, y, tNs, seen, micX, micY, standoffMM, soundMmPerNs, float32(o.LSQPelletRMm)); ok {
+		if lx, ly, ok := lsqPosition(x, y, tNs, seen, g, soundMmPerNs, float32(o.LSQPelletRMm)); ok {
 			x, y = lx, ly
 		}
 	}
@@ -155,8 +155,8 @@ func refinePosition(cands []airCandidate, fwX, fwY float32, tNs [6]int64, seen [
 // Braucht >= 4 Mikrofone (3 sind bereits exakt durch die Schnittpunkte
 // bestimmt), Ausreisser-Verwerfung siehe unten (nur bei >= 5). Verwirft das Ergebnis, wenn es mehr als 10mm
 // vom Startpunkt wegwandert (Divergenz).
-func lsqPosition(x0, y0 float32, tNs [6]int64, seen [6]bool, micX, micY [6]float32,
-	standoffMM, soundMmPerNs, pelletR float32) (float32, float32, bool) {
+func lsqPosition(x0, y0 float32, tNs [6]int64, seen [6]bool, g micGeom,
+	soundMmPerNs, pelletR float32) (float32, float32, bool) {
 
 	use := seen
 	count := func() int {
@@ -168,12 +168,12 @@ func lsqPosition(x0, y0 float32, tNs [6]int64, seen [6]bool, micX, micY [6]float
 		}
 		return n
 	}
-	h2 := float64(standoffMM) * float64(standoffMM)
 	path := func(i int, x, y float64) (d, ddx, ddy float64) {
-		dx, dy := x-float64(micX[i]), y-float64(micY[i])
+		dx, dy := x-float64(g.X[i]), y-float64(g.Y[i])
 		rho := math.Max(math.Hypot(dx, dy), 1e-3)
 		rr := math.Max(rho-float64(pelletR), 0)
-		d = math.Sqrt(rr*rr + h2)
+		z := float64(g.Z[i])
+		d = math.Sqrt(rr*rr + z*z)
 		k := rr / (d * rho)
 		return d, k * dx, k * dy
 	}

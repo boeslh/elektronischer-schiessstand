@@ -593,16 +593,21 @@ func (s *Store) assignLane(ctx context.Context, laneNo int,
 		}
 	}
 
-	// Schon belegt?
-	var busy int
-	if err := tx.QueryRow(ctx, `
-		SELECT COUNT(*) FROM sessions
-		WHERE lane_id=$1 AND status IN ('assigned','sighting','match','paused')`,
-		laneID).Scan(&busy); err != nil {
-		return "", err
-	}
-	if busy > 0 {
-		return "", ErrLaneBusy
+	// Schon belegt? Gilt nur fuer echte Staende - eine virtuelle Bahn
+	// (manuelle Eingabe, Wertmaschinen, Import lokaler Durchgaenge) nimmt
+	// beliebig viele gleichzeitige Erfassungen auf, sonst bekaeme z.B. die
+	// zweite von zwei parallel abschickenden Wertmaschinen "Stand belegt".
+	if !laneVirtual {
+		var busy int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM sessions
+			WHERE lane_id=$1 AND status IN ('assigned','sighting','match','paused')`,
+			laneID).Scan(&busy); err != nil {
+			return "", err
+		}
+		if busy > 0 {
+			return "", ErrLaneBusy
+		}
 	}
 
 	// Im Preisschiessen-Selbstbedienungsmodus reserviert (ps_lane_selfservice,

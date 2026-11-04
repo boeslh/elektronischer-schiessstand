@@ -52,12 +52,26 @@ func TestCaptureMismatch(t *testing.T) {
 			t.Errorf("captureMismatch(%v,%q) = %v, erwartet %v", c.cal, c.dev, got, c.differ)
 		}
 	}
-	if cmd := calImportCommand([6]int{0, 1, 2, 3, 4, 5}, 342.5, &ConfigTelegram{SoundSetMps: new(float64)}); cmd !=
+	snd := 342.5
+	old := esp32Calibration{OffsetsNs: [6]int{0, 1, 2, 3, 4, 5}, SoundSetMps: &snd}
+	if cmd, msg := calImportCommand(old, &ConfigTelegram{SoundSetMps: new(float64)}); msg != "" || cmd !=
 		"CAL IMPORT OFS0=0,OFS1=1,OFS2=2,OFS3=3,OFS4=4,OFS5=5,SOUNDSPEED=342.5" {
-		t.Errorf("4.15: %s", cmd)
+		t.Errorf("4.15: %s %s", cmd, msg)
 	}
-	if cmd := calImportCommand([6]int{}, 342.5, &ConfigTelegram{}); cmd[len(cmd)-14:] != "SOUNDSPEED=343" {
+	if cmd, _ := calImportCommand(esp32Calibration{SoundSetMps: &snd}, &ConfigTelegram{}); cmd[len(cmd)-14:] != "SOUNDSPEED=343" {
 		t.Errorf("alt: %s", cmd)
+	}
+	// Firmware 4.20.0: nur Sicherungen mit Entfernungskorrektur
+	fw420 := &ConfigTelegram{MicDistUm: &[6]int{}}
+	nw := esp32Calibration{DistUm: &[6]int{0, -420, 300, 110, -30, 15}}
+	if cmd, msg := calImportCommand(nw, fw420); msg != "" || cmd != "CAL IMPORT DIST0=0,DIST1=-420,DIST2=300,DIST3=110,DIST4=-30,DIST5=15" {
+		t.Errorf("4.20: %s %s", cmd, msg)
+	}
+	if _, msg := calImportCommand(old, fw420); msg == "" {
+		t.Error("alte Sicherung (Offsets) darf nicht auf Firmware 4.20 zurueckgespielt werden")
+	}
+	if _, msg := calImportCommand(nw, &ConfigTelegram{}); msg == "" {
+		t.Error("Sicherung mit DIST darf nicht auf Firmware vor 4.20")
 	}
 }
 

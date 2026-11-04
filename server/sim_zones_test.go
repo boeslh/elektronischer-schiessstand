@@ -32,13 +32,7 @@ func TestZoneWeights(t *testing.T) {
 
 // synthShot: Laufzeiten fuer einen Treffer bei x,y (mm) mit Parametern p.
 func synthShot(p SimParams, x, y float64) SimShotRaw {
-	micX, micY, so := micGeometry(p)
-	var air [6][]int64
-	for i := 0; i < 6; i++ {
-		d := math.Sqrt(math.Pow(x-float64(micX[i]), 2) + math.Pow(y-float64(micY[i]), 2) + float64(so*so))
-		air[i] = []int64{int64(math.Round(d/(p.SoundMps*1e-6))) + 50000}
-	}
-	return SimShotRaw{HasRaw: true, AirNs: air}
+	return SimShotRaw{HasRaw: true, AirNs: genCalAirNs(x, y, p.MicDistUm, p)}
 }
 
 // Ohne Zonen-Saetze (alle nil) muss die zweistufige Rechnung exakt die
@@ -58,7 +52,7 @@ func TestSolveZoned(t *testing.T) {
 	if z := SolveSimShot(center, p); z.XUm != plainC.XUm || z.YUm != plainC.YUm || z.Zone != "A" {
 		t.Fatalf("ohne Saetze: %+v gegen %+v", z, plainC)
 	}
-	p.Zones.A = &ZoneSet{SoundMps: p.SoundMps, MicOffsetNs: p.MicOffsetNs, OffsetXUm: 500, OffsetYUm: -300}
+	p.Zones.A = &ZoneSet{MicDistUm: p.MicDistUm, OffsetXUm: 500, OffsetYUm: -300}
 	zc, zo := SolveSimShot(center, p), SolveSimShot(outer, p)
 	if zc.XUm != plainC.XUm+500 || zc.YUm != plainC.YUm-300 {
 		t.Errorf("Zone A: %d/%d, erwartet %d/%d", zc.XUm, zc.YUm, plainC.XUm+500, plainC.YUm-300)

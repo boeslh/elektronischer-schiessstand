@@ -6,12 +6,15 @@ import (
 	"time"
 )
 
+// transferTestConfig: Geraet mit Firmware bis 4.19 (Timing-Offsets, Standoff,
+// Schallgeschwindigkeit) - prueft, dass aeltere Geraete weiter funktionieren.
 func transferTestConfig() *ConfigTelegram {
 	one, five, zero, pr := 1, 5, 0, 2.25
+	so, mx, snd := 28.0, 115.0, 343
 	return &ConfigTelegram{
 		ClusterCorr: &one, ClusterIter: &five, LSQ: &zero, LSQPelletRMm: &pr,
-		StandoffPaperMm: 28, MicHalfXMm: 115, OffsetXUm: 0, OffsetYUm: 0, SoundMps: 343,
-		MicOffsetNs: [6]int{0, 100, 200, 300, 400, 500}, MicEnabled: [6]int{1, 1, 1, 1, 1, 1},
+		StandoffPaperMm: &so, MicHalfXMm: &mx, OffsetXUm: 0, OffsetYUm: 0, SoundMps: &snd,
+		MicOffsetNs: &[6]int{0, 100, 200, 300, 400, 500}, MicEnabled: [6]int{1, 1, 1, 1, 1, 1},
 		BulletShiftPct: 50, BulletShiftCapMm: 3, ClusterRadiusUm: 200, Algo: "classic",
 		PelletRMm: 2.25, MaxSigmaUm: 2000, PiezoMinUs: 100, PiezoMaxUs: 1400, MinMics: 5, UsePiezo: 1,
 	}
@@ -30,8 +33,93 @@ func transferTestConfig415() *ConfigTelegram {
 	return c
 }
 
+// transferTestConfig420: Geraet ab Firmware 4.20.0 (Mikrofon-Anordnung,
+// Entfernungskorrektur, Ersatztemperatur).
+func transferTestConfig420() *ConfigTelegram {
+	c := transferTestConfig()
+	temp := 20.0
+	c.StandoffPaperMm, c.MicHalfXMm, c.SoundMps, c.MicOffsetNs = nil, nil, nil, nil
+	c.MicLayout, c.MicDistUm, c.TempSetC = "angled", &[6]int{0, 100, 200, 300, 400, 500}, &temp
+	return c
+}
+
 // Dieselbe Schluesselliste/Formatierung wie server/calibration_transfer.go
-// firmwareSettings() fuer DefaultSimParams mit den obigen Offsets.
+// firmwareSettings() (TestFirmwareSettings_MatchesStandPC) fuer
+// DefaultSimParams mit den obigen Entfernungskorrekturen.
+func unchangedSettings420() []firmwareSetting {
+	kv := "MICLAYOUT=angled OFFSETX=0 OFFSETY=0 TEMP=20.0 " +
+		"DIST0=0 DIST1=100 DIST2=200 DIST3=300 DIST4=400 DIST5=500 BSHIFTPCT=50 BSHIFTCAP=3.00 RADIUS=200 " +
+		"CLUSTERCORR=1 CLUSTERITER=5 LSQ=0 LSQPELLETR=2.25 " +
+		"MICEN0=1 MICEN1=1 MICEN2=1 MICEN3=1 MICEN4=1 MICEN5=1 ALGO=CLASSIC " +
+		"PIEZOMIN=100 PIEZOMAX=1400 PIEZO=1"
+	var out []firmwareSetting
+	for _, f := range strings.Fields(kv) {
+		k, v, _ := strings.Cut(f, "=")
+		out = append(out, firmwareSetting{k, v})
+	}
+	return out
+}
+
+func TestDiffTransfer420_UnchangedAndCommands(t *testing.T) {
+	c := transferTestConfig420()
+	items := diffTransfer(c, unchangedSettings420())
+	for _, it := range items {
+		if it.Changed || it.Unsupported {
+			t.Errorf("%s: aktuell %q, Ziel %q - faelschlich als geaendert erkannt", it.Key, it.Current, it.Target)
+		}
+	}
+	if layoutMismatch(items) != "" {
+		t.Error("gleiche Anordnung darf nicht abgelehnt werden")
+	}
+	s := unchangedSettings420()
+	for i := range s {
+		switch s[i].Key {
+		case "DIST3":
+			s[i].Value = "-1234"
+		case "TEMP":
+			s[i].Value = "18.5"
+		}
+	}
+	cmds := transferCommands(diffTransfer(c, s))
+	want := "CAL IMPORT DIST0=0,DIST1=100,DIST2=200,DIST3=-1234,DIST4=400,DIST5=500|SET TEMP=18.5"
+	if strings.Join(cmds, "|") != want {
+		t.Errorf("Befehle\n  %v\nerwartet\n  %s", cmds, want)
+	}
+	// laengste CAL IMPORT-Zeile inkl. Korrelations-ID und Signatur
+	for i := range s {
+		if strings.HasPrefix(s[i].Key, "DIST") {
+			s[i].Value = "-10000"
+		}
+	}
+	if n := len(transferCommands(diffTransfer(c, s))[0]+" #999999") + 65; n > 220 {
+		t.Errorf("CAL IMPORT-Zeile %d Zeichen inkl. Signatur - Firmware-Puffer 220", n)
+	}
+}
+
+// Eine Kalibrierung fuer die neue Anordnung darf nicht auf ein Geraet mit
+// aelterer Firmware (flache Anordnung) - und umgekehrt.
+func TestLayoutMismatch(t *testing.T) {
+	if msg := layoutMismatch(diffTransfer(transferTestConfig(), unchangedSettings420())); msg == "" {
+		t.Error("Firmware 4.19 (flach) mit Freigabe fuer angled nicht abgelehnt")
+	}
+	flat := unchangedSettings420()
+	flat[0].Value = "flat"
+	if msg := layoutMismatch(diffTransfer(transferTestConfig420(), flat)); msg == "" {
+		t.Error("Freigabe fuer flat auf angled-Geraet nicht abgelehnt")
+	}
+	if layoutMismatch(diffTransfer(nil, unchangedSettings420())) != "" {
+		t.Error("ohne Geraet ist kein Vergleich moeglich")
+	}
+	for _, cmd := range transferCommands(diffTransfer(transferTestConfig420(), flat)) {
+		if strings.Contains(cmd, "MICLAYOUT") {
+			t.Errorf("MICLAYOUT darf nie gesendet werden: %s", cmd)
+		}
+	}
+}
+
+// Firmware bis 4.19: dieselbe Schluesselliste/Formatierung, wie sie der
+// Server bis dahin geliefert hat (gespeicherte Konfigurationen aelterer
+// Geraete, Wiederherstellung aus dem Verlauf).
 func unchangedSettings() []firmwareSetting {
 	kv := "STANDOFFPAPER=28.00 MICHALFX=115.00 OFFSETX=0 OFFSETY=0 SOUNDSPEED=343.0 " +
 		"OFS0=0 OFS1=100 OFS2=200 OFS3=300 OFS4=400 OFS5=500 BSHIFTPCT=50 BSHIFTCAP=3.00 RADIUS=200 " +

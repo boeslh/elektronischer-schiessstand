@@ -22,8 +22,10 @@ Gruppe zeigt die wichtigsten aktuellen Werte:
    Kalibrierungen zusammen“ und den Gruppen
    - *Gespeicherte Kalibrierungen laden* (nach Stand gefiltert, mit
      Erfassungsmodus und Zonen; SHOW-Ausgabe des Geräts übernehmen),
-   - *Grundwerte* – gelten für jeden Treffer: Standoff, Mikrofon-Halbabstand,
-     Schallgeschwindigkeit, Nachkorrektur OFFSETX/Y, Mikrofon-Offsets OFS0–OFS5,
+   - *Grundwerte* – gelten für jeden Treffer: Mikrofon-Anordnung (ab Firmware
+     4.20 „schräg zur Mitte“, ältere Schüsse „flach“), Temperatur (daraus die
+     Schallgeschwindigkeit), Nachkorrektur OFFSETX/Y, Entfernungskorrektur
+     DIST0–DIST5 je Mikrofon,
    - *Zonen* – eigene Werte je Bereich der Scheibe (siehe unten),
    - *Auswerteverfahren* – Kugeldurchmesser-Korrektur (Standard 30 %),
      Cluster-Radius (Standard 4000 µm), Positionsbestimmung, Mikrofone, Piezo,
@@ -41,12 +43,27 @@ Gruppe zeigt die wichtigsten aktuellen Werte:
 
 **Welche Werte wann gelten:** Ohne Zonen rechnet jeder Treffer mit den
 Grundwerten. Mit Zonen bestimmen die Grundwerte zuerst die Lage; der Treffer
-wird dann mit dem Satz seiner Zone neu gerechnet, dessen
-Schallgeschwindigkeit, OFS0–OFS5 und OFFSETX/Y die Grundwerte ersetzen
-(Geometrie und Auswerteverfahren gelten weiter). Nur die One-Click-
+wird dann mit dem Satz seiner Zone neu gerechnet, dessen DIST0–DIST5 und
+OFFSETX/Y die Grundwerte ersetzen (Anordnung, Temperatur und
+Auswerteverfahren gelten weiter). Nur die One-Click-
 Kalibrierung bestimmt Grundwerte **und** Zonen; Rest-Fehler, Σ9 und der
 Foto-Einzelschritt ändern nur die Grundwerte – sind Zonen eingeschaltet,
 weist die Seite darauf hin, dass deren Sätze dann ggf. nicht mehr passen.
+
+### Mikrofon-Anordnung und Kalibrierwerte (ab Firmware 4.20)
+
+Seit Firmware 4.20.0 stehen die Mikrofone schräg auf die Scheibenmitte
+ausgerichtet; ihre Positionen (x/y/z je Mikrofon) sind fest in der Firmware
+hinterlegt. Kalibriert wird je Mikrofon eine **Entfernungskorrektur**
+(DIST0–DIST5, 0,001 mm, ±10 mm): sie verschiebt das Mikrofon entlang seiner
+Linie zur Scheibenmitte. Die Schallgeschwindigkeit ergibt sich nur noch aus
+der Temperatur (DHT22 oder Ersatztemperatur TEMP, Standard 20 °C =
+343,2 m/s). Standoff, Mikrofon-Halbabstand, Timing-Offsets (OFS0–OFS5) und
+die feste Schallgeschwindigkeit gibt es nicht mehr. Kalibrierungen und
+Zonen-Sätze älterer Firmware passen nicht zur neuen Anordnung und müssen neu
+bestimmt werden; der Stand-PC lehnt es ab, sie auf ein Gerät mit neuer
+Firmware zurückzuspielen, ebenso eine Simulator-Freigabe für eine andere
+Anordnung.
 
 ### Zonen-Kalibrierung
 
@@ -55,7 +72,7 @@ unterschiedlich: im Loch der Vorsatzscheibe (nur das Schussband), neben dem
 Schussband (nur die Vorsatzscheibe) oder auf beiden. Ein einziger
 Parametersatz lässt deshalb je Bereich systematische Abweichungen. Die
 **Zonen-Kalibrierung** verwendet je Bereich einen eigenen Satz aus
-Schallgeschwindigkeit, Mikrofon-Offsets und Nachkorrektur:
+Entfernungskorrekturen der Mikrofone und Nachkorrektur:
 
 | Zone | Bereich |
 |---|---|

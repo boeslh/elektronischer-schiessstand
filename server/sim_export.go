@@ -161,10 +161,11 @@ type simExportDevice struct {
 type simExportInput struct {
 	// MicUsed: Mikrofon hat eine Flanke UND ist per MICEN aktiviert.
 	MicUsed [6]bool `json:"mic_used"`
-	// AirNsCorrected: alle Flanken abzueglich OFS0-5, weiterhin relativ zur
+	// AirNsCorrected: alle Flanken inkl. Pulsbreiten-Korrektur (seit Firmware
+	// Rev 4.20.0 ohne Timing-Offsets), weiterhin relativ zur
 	// ersten erfassten Flanke.
 	AirNsCorrected [6][]int64 `json:"air_ns_corrected"`
-	// TFirstNs: erste Flanke je Mikrofon abzueglich OFS (= tNs[] in
+	// TFirstNs: erste Flanke je Mikrofon (= tNs[] in
 	// solveAirPosition() bei ALGO=CLASSIC), null wenn nicht genutzt.
 	TFirstNs [6]*int64 `json:"t_first_ns"`
 }
@@ -214,11 +215,11 @@ type simExportEffective struct {
 	SoundMmPerNs    float64    `json:"sound_mm_per_ns"`
 	MicXMM          [6]float64 `json:"mic_x_mm"`
 	MicYMM          [6]float64 `json:"mic_y_mm"`
-	StandoffMM      float64    `json:"standoff_mm"`
+	MicZMM          [6]float64 `json:"mic_z_mm"` // seit Firmware Rev 4.20.0 je Mikrofon
 }
 
 func effectiveSimParams(p SimParams) simExportEffective {
-	micX, micY, standoff, sound, clusterMM := solveParams(p)
+	g, sound, clusterMM := solveParams(p)
 	e := simExportEffective{
 		Algo:            "classic", // der Simulator bildet nur ALGO=CLASSIC nach
 		ClusterRadiusUm: int64(math.Round(float64(clusterMM) * 1000)),
@@ -226,11 +227,11 @@ func effectiveSimParams(p SimParams) simExportEffective {
 		UsePiezo:        p.usePiezo(),
 		MinMics:         3,
 		SoundMmPerNs:    float64(sound),
-		StandoffMM:      float64(standoff),
 	}
 	for i := 0; i < 6; i++ {
-		e.MicXMM[i] = float64(micX[i])
-		e.MicYMM[i] = float64(micY[i])
+		e.MicXMM[i] = float64(g.X[i])
+		e.MicYMM[i] = float64(g.Y[i])
+		e.MicZMM[i] = float64(g.Z[i])
 	}
 	return e
 }
@@ -264,15 +265,15 @@ func buildSimExportShot(sh SimShotRaw, p SimParams) simExportShot {
 		}
 	}
 
-	// Eingabe der Loesung: Rohzeiten inkl. Pulsbreiten-Korrektur (WALKK),
-	// abzueglich Mikrofon-Offsets - genau wie in solveShotInternal.
+	// Eingabe der Loesung: Rohzeiten inkl. Pulsbreiten-Korrektur (WALKK) -
+	// genau wie in solveShotInternal (seit Firmware Rev 4.20.0 ohne Offsets).
 	enabled := p.micEnabled()
 	air := sh.airFor(p)
 	in := &simExportInput{}
 	for i := 0; i < 6; i++ {
 		in.AirNsCorrected[i] = make([]int64, len(air[i]))
 		for k, t := range air[i] {
-			in.AirNsCorrected[i][k] = t - p.MicOffsetNs[i]
+			in.AirNsCorrected[i][k] = t
 		}
 		if len(air[i]) > 0 && enabled[i] {
 			in.MicUsed[i] = true

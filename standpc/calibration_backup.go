@@ -34,12 +34,14 @@ func (ws *WebServer) uploadCalibrationBackup(cal CalTelegram) {
 	}
 	// Seit Firmware Rev 4.14/4.15 zusaetzlich: genaue Schallgeschwindigkeit
 	// (sound_mps ist gerundet), WALKK und der Erfassungsmodus, in dem die
-	// Offsets bestimmt wurden (ISR-Offsets passen nicht zu MCPWM).
+	// Kalibrierung bestimmt wurde (ISR passt nicht zu MCPWM). Ab Rev 4.20.0
+	// die Entfernungskorrekturen dist_um statt offsets_ns/sound_mps.
 	type payload struct {
 		MAC         string   `json:"mac"`
 		OffsetsNs   [6]int   `json:"offsets_ns"`
 		SoundMps    int      `json:"sound_mps"`
 		SoundSetMps *float64 `json:"sound_set_mps,omitempty"`
+		DistUm      *[6]int  `json:"dist_um,omitempty"`
 		WalkK       *float64 `json:"walk_k,omitempty"`
 		Capture     string   `json:"capture,omitempty"`
 		LaneNo      int      `json:"lane_no"`
@@ -48,7 +50,7 @@ func (ws *WebServer) uploadCalibrationBackup(cal CalTelegram) {
 	if capture == "" && ws.deviceState != nil {
 		capture = ws.deviceState.ActiveCapture()
 	}
-	data, err := json.Marshal(payload{cal.MAC, cal.OffsetsNs, cal.SoundMps, cal.SoundSetMps, cal.WalkK, capture, ws.cfg.LaneNo})
+	data, err := json.Marshal(payload{cal.MAC, cal.OffsetsNs, cal.SoundMps, cal.SoundSetMps, cal.DistUm, cal.WalkK, capture, ws.cfg.LaneNo})
 	if err != nil {
 		return
 	}
@@ -81,6 +83,7 @@ type esp32Calibration struct {
 	OffsetsNs   [6]int     `json:"offsets_ns"`
 	SoundMps    int        `json:"sound_mps"`
 	SoundSetMps *float64   `json:"sound_set_mps"` // nil bei Sicherungen vor Firmware 4.15
+	DistUm      *[6]int    `json:"dist_um"`       // ab Firmware 4.20.0, sonst nil (Timing-Offsets)
 	WalkK       *float64   `json:"walk_k"`
 	Capture     *string    `json:"capture"` // Erfassungsmodus der Offsets, nil = unbekannt (vor 4.13)
 	LaneNo      *int       `json:"lane_no"`

@@ -232,6 +232,7 @@
 
 <script>
 let configKeys = [];
+let keysFrom420 = [], keysUntil419 = []; // Schluessel nur ab Firmware 4.20.0 bzw. nur bis 4.19
 let networkKeys = [];
 
 function showMsg(id, text, type) {
@@ -294,10 +295,10 @@ function showTab(name) {
 // ── Konfiguration in Gruppen ────────────────────────────────────────────
 // Schluessel ohne Gruppe landen unter "Weitere" (z.B. neue Firmware-Keys).
 const CONFIG_GROUPS = [
-  {id: 'geo', name: 'Geometrie & Schallgeschwindigkeit', desc: 'Mikrofonlage, Schall, konstante Nachkorrektur',
-   keys: ['STANDOFFPAPER', 'MICHALFX', 'SOUNDSPEED', 'DHT', 'OFFSETX', 'OFFSETY']},
-  {id: 'ofs', name: 'Mikrofon-Offsets', desc: 'Laufzeit-Offsets je Mikrofon, Kalibrierschüsse',
-   keys: ['OFS0', 'OFS1', 'OFS2', 'OFS3', 'OFS4', 'OFS5', 'CALSHOTS']},
+  {id: 'geo', name: 'Geometrie & Schallgeschwindigkeit', desc: 'Temperatur bzw. Schall, konstante Nachkorrektur',
+   keys: ['TEMP', 'DHT', 'OFFSETX', 'OFFSETY', 'STANDOFFPAPER', 'MICHALFX', 'SOUNDSPEED']},
+  {id: 'ofs', name: 'Mikrofon-Kalibrierung', desc: 'Entfernungskorrektur je Mikrofon (ab Firmware 4.20, vorher Laufzeit-Offsets), Kalibrierschüsse',
+   keys: ['DIST0', 'DIST1', 'DIST2', 'DIST3', 'DIST4', 'DIST5', 'OFS0', 'OFS1', 'OFS2', 'OFS3', 'OFS4', 'OFS5', 'CALSHOTS']},
   {id: 'zones', name: 'Zonen-Kalibrierung', desc: 'je Bereich eigener Satz (ab Firmware 4.17.0)',
    keys: ['ZONES', 'ZHOLE', 'ZBAND', 'ZBLEND', 'ZCALA', 'ZCALB', 'ZCALC']},
   {id: 'pos', name: 'Positionsbestimmung', desc: 'Auswertepfad, Kugeldurchmesser-Korrektur, Cluster, LSQ',
@@ -334,7 +335,7 @@ function configRow(k, msgId) {
     <tr>
       <td class="key">${k.key}${k.reboot ? '<span class="reboot-tag">Reboot</span>' : ''}</td>
       <td class="desc">${esc(k.desc)}<br>${esc(k.range)} (Default ${esc(k.default)})</td>
-      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}" value="${esc(curStr)}"${wide ? ' style="width:260px"' : ''}${k.key === 'SOUNDSPEED' ? ` title="${esc(soundSpeedTooltip())}"` : ''}></td>
+      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}" value="${esc(curStr)}"${wide ? ' style="width:260px"' : ''}${k.key === 'TEMP' ? ` title="${esc(soundSpeedTooltip())}"` : ''}></td>
       <td><button onclick="setKey('${k.key}', '${msgId}')">Speichern</button></td>
     </tr>`;
 }
@@ -345,14 +346,18 @@ function renderConfigGroups() {
   const box = document.getElementById('config-groups');
   if (!box) return;
   const q = (document.getElementById('cfg-filter').value || '').trim().toLowerCase();
-  const byKey = new Map(configKeys.map(k => [k.key, k]));
+  // nur die Schluessel, die die Firmware des Geraets kennt (ab 4.20.0
+  // DIST/TEMP statt OFS/SOUNDSPEED/STANDOFFPAPER/MICHALFX), ohne Geraet die neuen
+  const fw420 = !lastCfg || lastCfg.mic_dist_um != null;
+  const hidden = new Set(fw420 ? keysUntil419 : keysFrom420);
+  const byKey = new Map(configKeys.filter(k => !hidden.has(k.key)).map(k => [k.key, k]));
   const used = new Set();
   const groups = CONFIG_GROUPS.map(g => {
     const keys = g.keys.filter(k => byKey.has(k));
     keys.forEach(k => used.add(k));
     return {...g, keys};
   });
-  const rest = configKeys.map(k => k.key).filter(k => !used.has(k));
+  const rest = configKeys.map(k => k.key).filter(k => byKey.has(k) && !used.has(k));
   if (rest.length) groups.push({id: 'other', name: 'Weitere', desc: 'übrige Einstellungen', keys: rest});
   const match = k => !q || k.key.toLowerCase().includes(q) || (k.desc || '').toLowerCase().includes(q);
   box.innerHTML = groups.map(g => {
@@ -378,17 +383,21 @@ function renderZones(cfg, z) {
   }
   if (!z) { el.textContent = 'Zonenwerte noch nicht abgerufen – Status aktualisieren.'; return; }
   const mm = um => (um / 1000).toFixed(2).replace('.', ',') + ' mm';
+  // ab Firmware 4.20.0 Entfernungskorrekturen, vorher Schall + Offsets
+  const fw420 = cfg.mic_dist_um != null;
   const row = (name, label, s) => s
-    ? `<tr><td><b style="display:inline;color:var(--text)">${name}</b> ${label}</td><td>${s.sound_mps.toFixed(1)} m/s</td>
-        <td style="font-family:monospace">${s.mic_offset_ns.join(' / ')}</td><td>${s.offset_x_um} / ${s.offset_y_um} µm</td></tr>`
-    : `<tr><td><b style="display:inline;color:var(--text)">${name}</b> ${label}</td><td colspan="3">kein eigener Satz – Basiswerte</td></tr>`;
+    ? `<tr><td><b style="display:inline;color:var(--text)">${name}</b> ${label}</td>`
+        + (fw420 ? `<td style="font-family:monospace">${s.mic_dist_um.join(' / ')}</td>`
+                 : `<td>${s.sound_mps.toFixed(1)} m/s</td><td style="font-family:monospace">${s.mic_offset_ns.join(' / ')}</td>`)
+        + `<td>${s.offset_x_um} / ${s.offset_y_um} µm</td></tr>`
+    : `<tr><td><b style="display:inline;color:var(--text)">${name}</b> ${label}</td><td colspan="${fw420 ? 2 : 3}">kein eigener Satz – Basiswerte</td></tr>`;
   el.innerHTML = `
     <div class="row" style="margin-bottom:8px">
       <span class="tag ${z.active ? 'on' : ''}">${z.active ? 'aktiv' : (z.zones ? 'eingeschaltet, aber nicht wirksam' : 'aus')}</span>
       <span style="color:var(--text)">Lochradius ${mm(z.z_hole_um)} · halbe Bandbreite ${mm(z.z_band_um)} · Überblendung ±${mm(z.z_blend_um)}</span>
     </div>
     ${z.zones && !z.active ? '<div class="warn-box">ZONES=1, wirkt aber nicht: Lochradius 0 oder ALGO=RIM (Zonen nur bei CLASSIC).</div>' : ''}
-    <table class="zone-table"><tr><th>Zone</th><th>Schall</th><th>Offsets OFS0–5 (ns)</th><th>Nachkorrektur x / y</th></tr>
+    <table class="zone-table"><tr><th>Zone</th>${fw420 ? '<th>Entfernung DIST0–5 (µm)</th>' : '<th>Schall</th><th>Offsets OFS0–5 (ns)</th>'}<th>Nachkorrektur x / y</th></tr>
       ${row('A', 'Loch Vorsatzscheibe', z.a)}${row('B', 'neben Band', z.b)}${row('C', 'Band + Vorsatz', z.c)}</table>`;
 }
 
@@ -396,23 +405,20 @@ async function loadKeys() {
   const r = await fetch('/admin/api/keys').then(r => r.json());
   configKeys = r.config || [];
   networkKeys = r.network || [];
+  keysFrom420 = r.from_420 || [];
+  keysUntil419 = r.until_419 || [];
   renderConfigGroups();
   renderTable('network-table', networkKeys, 'msg-network');
 }
 
-// soundSpeedTooltip: Schallgeschwindigkeit in Luft fuer 8-26 °C in 2-Grad-
-// Schritten als Hilfe fuer SOUNDSPEED - gleiche Formel wie die Firmware
-// (Rev 4.15.0, SET DHT): c = 331,3·√(1 + T/273,15)·(1 + 0,16·x_w),
-// Wasserdampfanteil x_w aus Sättigungsdampfdruck (Magnus) bei 1013,25 hPa.
+// soundSpeedTooltip: Schallgeschwindigkeit fuer 8-26 °C als Hilfe fuer
+// TEMP - gleiche Formel wie die Firmware ab Rev 4.20.0 (trockene Luft):
+// c = 331,3·√(1 + T/273,15).
 function soundSpeedTooltip() {
-  const c = (t, rh) => {
-    const ps = 6.112 * Math.exp(17.62 * t / (243.12 + t));
-    return 331.3 * Math.sqrt(1 + t / 273.15) * (1 + 0.16 * rh * ps / 1013.25);
-  };
   const f = v => v.toFixed(1).replace('.', ',');
-  const lines = ['Schallgeschwindigkeit in Luft (Formel wie Firmware):', 'Temp.   trocken   50 % rF'];
+  const lines = ['Schallgeschwindigkeit (Formel wie Firmware):'];
   for (let t = 8; t <= 26; t += 2) {
-    lines.push(`${String(t).padStart(2, ' ')} °C   ${f(c(t, 0))}   ${f(c(t, 0.5))} m/s`);
+    lines.push(`${String(t).padStart(2, ' ')} °C   ${f(331.3 * Math.sqrt(1 + t / 273.15))} m/s`);
   }
   return lines.join('\n');
 }
@@ -426,7 +432,7 @@ function renderTable(tableId, keys, msgId, valueFn) {
     <tr>
       <td class="key">${k.key}${k.reboot ? '<span class="reboot-tag">Reboot</span>' : ''}</td>
       <td class="desc">${esc(k.desc)}<br>${esc(k.range)} (Default ${esc(k.default)})</td>
-      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}" value="${esc(curStr)}"${k.key === 'SOUNDSPEED' ? ` title="${esc(soundSpeedTooltip())}"` : ''}></td>
+      <td><input type="text" id="cfg-${k.key}" placeholder="${esc(k.default)}" value="${esc(curStr)}"${k.key === 'TEMP' ? ` title="${esc(soundSpeedTooltip())}"` : ''}></td>
       <td><button onclick="setKey('${k.key}', '${msgId}')">Speichern</button></td>
     </tr>`;
   }).join('');
@@ -444,7 +450,7 @@ const CONFIG_FIELD_MAP = {
   ALGO:'algo', PELLETR:'pellet_r_mm', MAXSIGMA:'max_sigma_um', STANDOFFPAPER:'standoff_paper_mm',
   MICHALFX:'mic_half_x_mm', BSHIFTPCT:'bullet_shift_pct', BSHIFTCAP:'bullet_shift_cap_mm',
   PIEZO:'use_piezo', PIEZOMIN:'piezo_min_us', PIEZOMAX:'piezo_max_us',
-  OFFSETX:'offset_x_um', OFFSETY:'offset_y_um', SOUNDSPEED:'sound_mps',
+  OFFSETX:'offset_x_um', OFFSETY:'offset_y_um', SOUNDSPEED:'sound_mps', TEMP:'temp_set_c',
   PAPERFEED:'paper_feed_mm', PAPERSPEED:'paper_speed_mmps', PAPERAUTO:'paper_auto',
   PAPERTRIGGER:'paper_trigger', PAPERDIR:'paper_dir_invert', PAPERJOGSPEED:'paper_jog_speed_mmps',
   CALSHOTS:'cal_shots',
@@ -462,6 +468,9 @@ function currentConfigValue(key, cfg) {
   if (m) return cfg.mic_enabled ? cfg.mic_enabled[+m[1]] : undefined;
   const o = key.match(/^OFS([0-5])$/);
   if (o) return cfg.mic_offset_ns ? cfg.mic_offset_ns[+o[1]] : undefined;
+  const d = key.match(/^DIST([0-5])$/);
+  if (d) return cfg.mic_dist_um ? cfg.mic_dist_um[+d[1]] : undefined;
+  if (key === 'TEMP') return cfg.temp_set_c != null ? cfg.temp_set_c.toFixed(1) : undefined;
   // MAXSIGMA: SET erwartet mm (0.0-50.0), das Telegramm liefert max_sigma_um
   // in 0.001mm (siehe ConfigTelegram-Kommentar) - Vorgabewert entsprechend
   // umrechnen, sonst wuerde "Speichern" ohne Aenderung einen um Faktor 1000
@@ -480,7 +489,9 @@ function currentConfigValue(key, cfg) {
     const zm = key.match(/^ZCAL([ABC])$/);
     if (zm) {
       const s = lastZones[zm[1].toLowerCase()];
-      return s ? [s.sound_mps.toFixed(1), ...s.mic_offset_ns, s.offset_x_um, s.offset_y_um].join(',') : 'OFF';
+      if (!s) return 'OFF';
+      return (s.mic_dist_um ? s.mic_dist_um : [s.sound_mps.toFixed(1), ...s.mic_offset_ns])
+        .concat([s.offset_x_um, s.offset_y_um]).join(',');
     }
   }
   const field = CONFIG_FIELD_MAP[key];
@@ -617,8 +628,9 @@ async function calRestore(fromLane) {
     const ok = confirm(
       `Für dieses Gerät (${info.current_mac}) ist keine Kalibrierung gesichert – z.B. nach einem Platinentausch.\n\n`
       + `Es gibt aber eine Sicherung für Stand ${info.lane_no} von Gerät ${b.mac} (${when}):\n`
-      + `OFS ${b.offsets_ns.join(', ')} ns, Schall ${b.sound_mps} m/s\n\n`
-      + `Übernehmen? Die Mikrofon-Offsets gleichen auch Unterschiede der Platinen-Eingänge aus – `
+      + (b.dist_um ? `Entfernungskorrektur DIST ${b.dist_um.join(', ')} µm\n\n`
+                   : `OFS ${b.offsets_ns.join(', ')} ns, Schall ${b.sound_mps} m/s (Firmware vor 4.20)\n\n`)
+      + `Übernehmen? Die Kalibrierung gleicht auch Unterschiede der Platinen-Eingänge aus – `
       + `danach bitte mit CAL START oder der Foto-Kalibrierung überprüfen.`);
     if (ok) calRestore(true);
     return;
@@ -716,8 +728,8 @@ async function transferCheck() {
   const lines = [`Stand ${transferData.lane_no}: freigegeben am ${fmtTs(t.created_at)}`
     + (t.created_by ? ` (${esc(t.created_by)})` : '') + (t.note ? ` – „${esc(t.note)}“` : '')];
   if (t.applied_at) lines.push(`Bereits am ${fmtTs(t.applied_at)} auf Gerät ${esc(t.applied_mac || '?')} ${t.applied_ok ? 'übernommen' : 'teilweise übernommen (Fehler)'}.`);
-  if (transferData.capture_error) {
-    lines.push(`<span style="color:var(--err)">${esc(transferData.capture_error)}</span>`);
+  if (transferData.capture_error || transferData.layout_error) {
+    lines.push(`<span style="color:var(--err)">${esc(transferData.layout_error || transferData.capture_error)}</span>`);
   } else if (!transferData.device_connected) {
     lines.push(`<span style="color:var(--err)">Gerät nicht erreichbar${transferData.device_error ? ': ' + esc(transferData.device_error) : ''} – Übernahme nicht möglich.</span>`);
   } else if (transferData.changed === 0) {
@@ -875,7 +887,8 @@ function firmwareDiagnostics(st, cfg) {
     out += `<div class="kv">${line}</div>`;
   }
   if (st.sound_act_mps != null) {
-    let line = `<b>Schall</b>${st.sound_act_mps.toFixed(2)} m/s (${st.sound_src === 'dht' ? 'aus DHT22-Messung' : 'fester Wert SOUNDSPEED'})`;
+    const fixed = cfg && cfg.temp_set_c != null ? `Ersatztemperatur TEMP ${cfg.temp_set_c.toFixed(1)} °C` : 'fester Wert SOUNDSPEED';
+    let line = `<b>Schall</b>${st.sound_act_mps.toFixed(2)} m/s (${st.sound_src === 'dht' ? 'aus DHT22-Messung' : fixed})`;
     if (cfg && cfg.dht) {
       if (st.temp_c != null) {
         line += ` · ${st.temp_c.toFixed(1)} °C · ${st.rh_pct != null ? st.rh_pct.toFixed(0) + ' % rF' : '–'}`
@@ -887,6 +900,13 @@ function firmwareDiagnostics(st, cfg) {
       if (st.temp_c == null && st.dht_err > 5) line += ' ' + warn('– DHT22 liefert keine Werte: Verkabelung/Sensor an GPIO15 prüfen');
     }
     out += `<div class="kv">${line}</div>`;
+  }
+  if (cfg) {
+    // Mikrofon-Anordnung: ab Firmware 4.20.0 fest im Geraet (mic_layout)
+    const lay = cfg.mic_layout === 'angled' ? 'schräg zur Scheibenmitte (angled)'
+      : cfg.mic_layout === 'flat' ? 'flach in der Seitenwand (flat)'
+      : cfg.mic_layout ? esc(cfg.mic_layout) : 'flach (Firmware vor 4.20, Timing-Offsets)';
+    out += `<div class="kv"><b>Mikrofone</b>${lay}${cfg.mic_dist_um ? ' · DIST ' + cfg.mic_dist_um.join(' / ') + ' µm' : ''}</div>`;
   }
   if (cfg && cfg.walk_k != null) {
     let line = `<b>Pulsbreiten-Korr.</b>WALKK ${cfg.walk_k.toFixed(3)}${cfg.walk_cal ? ' · wird bei CAL START mitbestimmt' : ''}`;

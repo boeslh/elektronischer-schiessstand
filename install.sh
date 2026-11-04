@@ -514,6 +514,12 @@ if $INSTALL_WERTMASCHINE; then
     --com-port "${WM_COM}" \
     --protocol "${WM_PROTO}" \
     --listen "${WM_LISTEN}"
+  # Weitere Wertmaschinen (install-service.sh --instance N) nutzen dasselbe,
+  # eben neu gebaute Programm - mit neu starten, Konfiguration bleibt.
+  for unit in $(systemctl list-units --all --plain --no-legend 'schiessstand-wertmaschine-*.service' | awk '{print $1}'); do
+    echo "    Starte ${unit} neu ..."
+    systemctl restart "${unit}" || true
+  done
 fi
 
 # ── Zusammenfassung ──────────────────────────────────────────────────────────

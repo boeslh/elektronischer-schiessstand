@@ -5,13 +5,14 @@ package main
 
 import "math"
 
-// zoneFitLM: Levenberg-Marquardt ueber Schallgeschwindigkeit, OFS1-5 und
-// Nachkorrektur gegen die Foto-Lagen (Reste dx/dy je Schuss, robust nach
-// Huber ab 1,5 mm). In der Studie (calib_study_test.go, Leave-one-out)
-// deutlich besser uebertragbar als die Mustersuche der Foto-Kalibrierung,
-// deren Kostenfunktion zusaetzlich die Selbstkonsistenz der Mikrofone
-// enthaelt. Die Offsets sind schwach an den Startwert gebunden
-// (zoneRidgeNs). Ergebnis auf Firmware-Aufloesung gerundet.
+// zoneFitLM: Levenberg-Marquardt ueber DIST1-5 und Nachkorrektur gegen die
+// Foto-Lagen (Reste dx/dy je Schuss, robust nach Huber ab 1,5 mm). In der
+// Studie (Leave-one-out, damals mit Timing-Offsets) deutlich besser
+// uebertragbar als die Mustersuche der Foto-Kalibrierung, deren
+// Kostenfunktion zusaetzlich die Selbstkonsistenz der Mikrofone enthaelt.
+// Die Entfernungskorrekturen sind schwach an den Startwert gebunden
+// (zoneRidgeUm). Zonen haben seit Firmware Rev 4.20.0 keine eigene
+// Schallgeschwindigkeit. Ergebnis auf Firmware-Aufloesung gerundet.
 func zoneFitLM(in []zoneCalInput, start SimParams, opt PhotoCalOptions) ZoneSet {
 	const hub = 1.5
 	type par struct {
@@ -20,16 +21,13 @@ func zoneFitLM(in []zoneCalInput, start SimParams, opt PhotoCalOptions) ZoneSet 
 		step float64
 	}
 	var ps []par
-	if opt.SoundSpeed {
-		ps = append(ps, par{func(p *SimParams) float64 { return p.SoundMps }, func(p *SimParams, v float64) { p.SoundMps = v }, 0.5})
-	}
-	if opt.MicOffsets {
+	if opt.MicDist {
 		for i := 1; i < 6; i++ {
 			i := i
-			ps = append(ps, par{func(p *SimParams) float64 { return float64(p.MicOffsetNs[i]) },
+			ps = append(ps, par{func(p *SimParams) float64 { return float64(p.MicDistUm[i]) },
 				func(p *SimParams, v float64) {
-					p.MicOffsetNs[i] = int64(math.Round(math.Max(-micOfsMaxNs, math.Min(micOfsMaxNs, v))))
-				}, 300})
+					p.MicDistUm[i] = int64(math.Round(math.Max(-micDistMaxUm, math.Min(micDistMaxUm, v))))
+				}, 100})
 		}
 	}
 	if opt.Offset {
@@ -40,12 +38,12 @@ func zoneFitLM(in []zoneCalInput, start SimParams, opt PhotoCalOptions) ZoneSet 
 	start.Zones = nil
 	resid := func(p SimParams) []float64 {
 		r := make([]float64, 0, 2*len(in)+5)
-		// schwache Bindung der Offsets an den Basissatz (zoneRidgeNs je 1 mm
+		// schwache Bindung an den Basissatz (zoneRidgeUm je 1 mm
 		// Lagefehler): verhindert, dass bei wenigen Schuessen einzelne
-		// Offsets an die Firmware-Grenze laufen
-		if zoneRidgeNs > 0 && opt.MicOffsets {
+		// Korrekturen an die Firmware-Grenze laufen
+		if zoneRidgeUm > 0 && opt.MicDist {
 			for i := 1; i < 6; i++ {
-				r = append(r, float64(p.MicOffsetNs[i]-start.MicOffsetNs[i])/zoneRidgeNs)
+				r = append(r, float64(p.MicDistUm[i]-start.MicDistUm[i])/zoneRidgeUm)
 			}
 		}
 		for _, s := range in {
@@ -121,7 +119,6 @@ func zoneFitLM(in []zoneCalInput, start SimParams, opt PhotoCalOptions) ZoneSet 
 			for a, q := range ps {
 				q.set(&pp, q.get(&p)+d[a])
 			}
-			pp.SoundMps = math.Round(math.Max(300, math.Min(400, pp.SoundMps))*10) / 10
 			r := resid(pp)
 			if c := cost(r); c < c0-1e-9 {
 				p, cur, c0 = pp, r, c
@@ -135,7 +132,7 @@ func zoneFitLM(in []zoneCalInput, start SimParams, opt PhotoCalOptions) ZoneSet 
 			break
 		}
 	}
-	return ZoneSet{SoundMps: p.SoundMps, MicOffsetNs: p.MicOffsetNs, OffsetXUm: p.OffsetXUm, OffsetYUm: p.OffsetYUm}
+	return ZoneSet{MicDistUm: p.MicDistUm, OffsetXUm: p.OffsetXUm, OffsetYUm: p.OffsetYUm}
 }
 
 // gaussSolve: Gauss-Elimination mit Pivotsuche auf der erweiterten Matrix
@@ -208,7 +205,7 @@ func zoneCovered(zone string, zs []zoneCalInput) bool {
 // Verteilung (zoneFitOptions/zoneCovered); ab 5 Schuessen entscheidet eine
 // Kreuzpruefung (jeder Schuss einmal weggelassen, Fehler bei 5 mm gekappt),
 // ob und welcher eigene Satz besser ist als der Basissatz. Saetze mit
-// Offsets an der Firmware-Grenze werden verworfen. Liefert Satz (nil =
+// Entfernungskorrekturen an der Firmware-Grenze werden verworfen. Liefert Satz (nil =
 // Basissatz), Klartext und den mittleren Fehler der Kreuzpruefung.
 func zoneChooseFit(zone string, zs []zoneCalInput, global SimParams) (*ZoneSet, string, *float64) {
 	type cand struct {
@@ -221,20 +218,17 @@ func zoneChooseFit(zone string, zs []zoneCalInput, global SimParams) (*ZoneSet, 
 	}
 	covered := zoneCovered(zone, zs)
 	var cands []cand
-	if full.MicOffsets && covered {
-		cands = append(cands, cand{full, "Offsets, Nachkorrektur, Schallgeschwindigkeit"})
-	}
-	if len(zs) >= 4 {
-		cands = append(cands, cand{PhotoCalOptions{Offset: true, SoundSpeed: true}, "Nachkorrektur, Schallgeschwindigkeit"})
+	if full.MicDist && covered {
+		cands = append(cands, cand{full, "Entfernungskorrektur, Nachkorrektur"})
 	}
 	cands = append(cands, cand{PhotoCalOptions{Offset: true}, "nur Nachkorrektur"})
 	note := ""
-	if full.MicOffsets && !covered {
-		note = " (Offsets nicht angepasst: Schüsse nur auf einer Seite der Zone)"
+	if full.MicDist && !covered {
+		note = " (Entfernungen nicht angepasst: Schüsse nur auf einer Seite der Zone)"
 	}
 	atLimit := func(s ZoneSet) bool {
-		for _, o := range s.MicOffsetNs {
-			if math.Abs(float64(o)) >= micOfsMaxNs-100 {
+		for _, o := range s.MicDistUm {
+			if math.Abs(float64(o)) >= micDistMaxUm-35 {
 				return true
 			}
 		}
@@ -250,7 +244,7 @@ func zoneChooseFit(zone string, zs []zoneCalInput, global SimParams) (*ZoneSet, 
 	withSet := func(s ZoneSet) SimParams {
 		q := global
 		q.Zones = nil
-		q.SoundMps, q.MicOffsetNs, q.OffsetXUm, q.OffsetYUm = s.SoundMps, s.MicOffsetNs, s.OffsetXUm, s.OffsetYUm
+		q.MicDistUm, q.OffsetXUm, q.OffsetYUm = s.MicDistUm, s.OffsetXUm, s.OffsetYUm
 		return q
 	}
 	if len(zs) < 5 {

@@ -103,6 +103,26 @@ type vaPDFSection struct {
 	Title   string        `json:"title"`
 	Columns []vaPDFColumn `json:"columns"`
 	Rows    [][]string    `json:"rows"`
+	// RowStyles: optional je Zeile (gleicher Index wie Rows): "gruppe" =
+	// fette Kopfzeile einer Gruppe, "nicht" = grau/kursiv (zaehlt nicht)
+	RowStyles []string `json:"row_styles"`
+}
+
+func (s vaPDFSection) stil(n int) string {
+	if n < len(s.RowStyles) {
+		return s.RowStyles[n]
+	}
+	return ""
+}
+
+func vaPDFZeilenFont(stil string) string {
+	switch stil {
+	case "gruppe":
+		return "B"
+	case "nicht":
+		return "I"
+	}
+	return ""
 }
 
 type vaPDFRequest struct {
@@ -219,8 +239,8 @@ func buildVereinsabendPDF(req vaPDFRequest) *fpdf.Fpdf {
 		for i, c := range sec.Columns {
 			pdf.SetFont("Helvetica", "B", fontSize)
 			widths[i] = pdf.GetStringWidth(tr(c.Label))
-			pdf.SetFont("Helvetica", "", fontSize)
-			for _, r := range sec.Rows {
+			for n, r := range sec.Rows {
+				pdf.SetFont("Helvetica", vaPDFZeilenFont(sec.stil(n)), fontSize)
 				if i < len(r) {
 					if w := pdf.GetStringWidth(tr(r[i])); w > widths[i] {
 						widths[i] = w
@@ -256,12 +276,27 @@ func buildVereinsabendPDF(req vaPDFRequest) *fpdf.Fpdf {
 		}
 		header()
 		for n, r := range sec.Rows {
-			if pdf.GetY()+rowH > bottom-2 {
+			stil := sec.stil(n)
+			noetig := rowH
+			if stil == "gruppe" {
+				noetig = 2*rowH + 1.5 // nicht allein am Seitenende
+			}
+			if pdf.GetY()+noetig > bottom-2 {
 				pdf.AddPage()
 				header()
+			} else if stil == "gruppe" && n > 0 {
+				pdf.Ln(1.5)
 			}
-			fill := n%2 == 1
+			fill := n%2 == 1 && len(sec.RowStyles) == 0
 			pdf.SetFillColor(245, 246, 248)
+			if stil == "gruppe" {
+				fill = true
+				pdf.SetFillColor(236, 238, 242)
+			}
+			pdf.SetFont("Helvetica", vaPDFZeilenFont(stil), fontSize)
+			if stil == "nicht" {
+				pdf.SetTextColor(125, 125, 125)
+			}
 			for i, c := range sec.Columns {
 				v := ""
 				if i < len(r) {
@@ -274,6 +309,7 @@ func buildVereinsabendPDF(req vaPDFRequest) *fpdf.Fpdf {
 				pdf.CellFormat(widths[i], rowH, truncateToWidth(pdf, tr, v, widths[i]-1.5), "", 0, align, fill, 0, "")
 			}
 			pdf.Ln(-1)
+			pdf.SetTextColor(0, 0, 0)
 		}
 		if len(sec.Rows) == 0 {
 			pdf.SetFont("Helvetica", "I", fontSize)

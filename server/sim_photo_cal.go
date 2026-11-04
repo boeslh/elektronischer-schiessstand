@@ -1,22 +1,22 @@
 // ============================================================================
 // sim_photo_cal.go – optionale Foto-Kalibrierung fuer den Simulator.
 //
-// Ergaenzt (ersetzt NICHT) die bisherige Kalibrierung (CalibrateMicOffsets,
+// Ergaenzt (ersetzt NICHT) die bisherige Kalibrierung (CalibrateMicDist,
 // "CAL START"-Port): Dort gibt es keine Wahrheit, nur die Selbstkonsistenz
-// der Mikrofon-Laufzeiten - Mikrofon-Offsets lassen sich so bestimmen, eine
-// Verschiebung/Skalierung der Positionen aber nicht. Hier liefert ein Foto
+// der Mikrofon-Laufzeiten - die Entfernungskorrekturen lassen sich so
+// bestimmen, eine Verschiebung/Skalierung der Positionen aber nicht. Hier liefert ein Foto
 // der beschossenen Scheibe die tatsaechlichen Einschlagpositionen (in mm,
 // relativ zur Mitte des schwarzen Innenkreises, siehe web/simulator-foto.js),
 // und die Parameter werden so optimiert, dass die Neuberechnung (SolveShot,
 // d.h. exakt der Firmware-Nachbau) moeglichst genau auf diese Positionen
 // faellt.
 //
-// Optimiert werden je nach Auswahl OFS1-5, OFFSETX/Y, SOUNDSPEED,
-// STANDOFFPAPER und MICHALFX. Alle Werte werden schon WAEHREND der Suche auf
-// die Aufloesung der Firmware gerundet (SOUNDSPEED 0.1 m/s seit Firmware
-// 4.15.0, OFS/OFFSET
-// ganzzahlig in ns/um, Standoff/MicHalfX 0.01mm) - sonst waere das
-// optimierte Ergebnis im Simulator besser als spaeter auf dem Geraet.
+// Optimiert werden je nach Auswahl DIST1-5, OFFSETX/Y und TEMP (Firmware Rev
+// 4.20.0: die Mikrofon-Positionen sind fest, die Schallgeschwindigkeit kommt
+// nur aus der Temperatur). Alle Werte werden schon WAEHREND der Suche auf
+// die Aufloesung der Firmware gerundet (TEMP 0.1 Grad C, DIST/OFFSET ganzzahlig
+// in 0.001mm) - sonst waere das optimierte Ergebnis im Simulator besser als
+// spaeter auf dem Geraet.
 // ============================================================================
 package main
 
@@ -42,11 +42,9 @@ type PhotoCalShot struct {
 }
 
 type PhotoCalOptions struct {
-	MicOffsets bool `json:"mic_offsets"` // OFS1-5 (OFS0 bleibt Referenz)
-	Offset     bool `json:"offset"`      // OFFSETX/OFFSETY
-	SoundSpeed bool `json:"sound_speed"` // SOUNDSPEED
-	Standoff   bool `json:"standoff"`    // STANDOFFPAPER
-	MicHalfX   bool `json:"mic_half_x"`  // MICHALFX
+	MicDist bool `json:"mic_dist"` // DIST1-5 (DIST0 bleibt Referenz)
+	Offset  bool `json:"offset"`   // OFFSETX/OFFSETY
+	Temp    bool `json:"temp"`     // TEMP (Schallgeschwindigkeit)
 }
 
 type PhotoCalShotResult struct {
@@ -97,39 +95,23 @@ func (c photoCalParam) apply(p *SimParams, v float64) {
 
 func photoCalParams(opt PhotoCalOptions) []photoCalParam {
 	var ps []photoCalParam
-	if opt.MicOffsets {
+	if opt.MicDist {
 		for i := 1; i < 6; i++ {
 			i := i
 			ps = append(ps, photoCalParam{
-				name: fmt.Sprintf("OFS%d", i),
-				get:  func(p *SimParams) float64 { return float64(p.MicOffsetNs[i]) },
-				set:  func(p *SimParams, v float64) { p.MicOffsetNs[i] = int64(v) },
-				step: 2000, minStep: 2, lo: -micOfsMaxNs, hi: micOfsMaxNs, quantize: 1,
+				name: fmt.Sprintf("DIST%d", i),
+				get:  func(p *SimParams) float64 { return float64(p.MicDistUm[i]) },
+				set:  func(p *SimParams, v float64) { p.MicDistUm[i] = int64(v) },
+				step: 700, minStep: 1, lo: -micDistMaxUm, hi: micDistMaxUm, quantize: 1,
 			})
 		}
 	}
-	if opt.SoundSpeed {
+	if opt.Temp {
 		ps = append(ps, photoCalParam{
-			name: "SOUNDSPEED",
-			get:  func(p *SimParams) float64 { return p.SoundMps },
-			set:  func(p *SimParams, v float64) { p.SoundMps = v },
-			step: 8, minStep: 0.1, lo: 300, hi: 400, quantize: 0.1,
-		})
-	}
-	if opt.Standoff {
-		ps = append(ps, photoCalParam{
-			name: "STANDOFFPAPER",
-			get:  func(p *SimParams) float64 { return p.StandoffPaperMM },
-			set:  func(p *SimParams, v float64) { p.StandoffPaperMM = v },
-			step: 5, minStep: 0.02, lo: 5, hi: 100, quantize: 0.01,
-		})
-	}
-	if opt.MicHalfX {
-		ps = append(ps, photoCalParam{
-			name: "MICHALFX",
-			get:  func(p *SimParams) float64 { return p.MicHalfXMm },
-			set:  func(p *SimParams, v float64) { p.MicHalfXMm = v },
-			step: 5, minStep: 0.02, lo: 5, hi: 300, quantize: 0.01,
+			name: "TEMP",
+			get:  func(p *SimParams) float64 { return p.TempC },
+			set:  func(p *SimParams, v float64) { p.TempC = v },
+			step: 12, minStep: 0.1, lo: -20, hi: 50, quantize: 0.1,
 		})
 	}
 	return ps
@@ -154,10 +136,10 @@ func photoCalEval(shots []PhotoCalShot, p SimParams, opt PhotoCalOptions) (cost 
 			// Selbstkonsistenz aller Mikrofone (Rest-Fehler gegen die
 			// Kontroll-Mics, dasselbe Mass wie calCostClassicFn): ALGO=CLASSIC
 			// waehlt je Schuss die konsistenteste 3er-Kombination und
-			// ueberstimmt einzelne falsche Mikrofone - deren OFS wirken sich
-			// auf die Positionen dann kaum aus und waeren allein aus dem
-			// Foto nicht bestimmbar (Test: Positionen < 0.15mm genau, aber 3
-			// von 5 OFS um ~1000ns falsch).
+			// ueberstimmt einzelne falsche Mikrofone - deren DIST wirken
+			// sich auf die Positionen dann kaum aus und waeren allein aus dem
+			// Foto nicht bestimmbar (mit Timing-Offsets bis Firmware 4.19:
+			// Positionen < 0.15mm genau, aber 3 von 5 Offsets falsch).
 			c := float64(r.CorrResUm) / 1000
 			consistency += math.Min(c*c, photoCalCapMM*photoCalCapMM)
 		}
@@ -218,7 +200,7 @@ func photoCalEval(shots []PhotoCalShot, p SimParams, opt PhotoCalOptions) (cost 
 // Auswahl der Firmware nicht glatt). Erkundung je Parameter +-Schritt; nach
 // einer Verbesserung zusaetzlich ein Mustersprung in dieselbe Richtung
 // (entscheidend in den schmalen, schraeg liegenden Taelern, in denen sich
-// mehrere OFS/SOUNDSPEED gegenseitig kompensieren - reine Achsensuche kroch
+// mehrere DIST/TEMP gegenseitig kompensieren - reine Achsensuche kroch
 // dort vorzeitig fest). Nach Konvergenz wird mit den Anfangsschritten neu
 // gestartet, solange sich die Kosten noch spuerbar verbessern.
 func photoCalSearch(shots []PhotoCalShot, start SimParams, opt PhotoCalOptions, params []photoCalParam, evals *int) (SimParams, float64) {
@@ -298,8 +280,8 @@ func photoCalSearch(shots []PhotoCalShot, start SimParams, opt PhotoCalOptions, 
 }
 
 // PhotoCalibrate optimiert p gegen die Foto-Positionen. Gestartet wird
-// zweimal - bei den aktuellen Parametern und (falls OFS optimiert werden)
-// zusaetzlich bei OFS=0, wie bei "CAL START" - und das bessere Ergebnis
+// zweimal - bei den aktuellen Parametern und (falls DIST optimiert werden)
+// zusaetzlich bei DIST=0, wie bei "CAL START" - und das bessere Ergebnis
 // genommen, damit eine schlechte Ausgangskalibrierung nicht in einem
 // lokalen Minimum festhaelt.
 func PhotoCalibrate(shots []PhotoCalShot, p SimParams, opt PhotoCalOptions) (PhotoCalReport, error) {
@@ -335,9 +317,9 @@ func photoCalibrate(shots []PhotoCalShot, p SimParams, opt PhotoCalOptions, minE
 	}
 
 	bestP, bestCost := photoCalSearch(shots, p, opt, params, &rep.Evaluations)
-	if opt.MicOffsets && p.MicOffsetNs != [6]int64{} {
+	if opt.MicDist && p.MicDistUm != [6]int64{} {
 		zero := p
-		zero.MicOffsetNs = [6]int64{}
+		zero.MicDistUm = [6]int64{}
 		if p2, c2 := photoCalSearch(shots, zero, opt, params, &rep.Evaluations); c2 < bestCost {
 			bestP = p2
 		}

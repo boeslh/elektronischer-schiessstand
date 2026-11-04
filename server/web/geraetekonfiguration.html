@@ -107,7 +107,10 @@ const KIND = {erstmalig:'Erstsicherung', platinentausch:'Platinentausch', kalibr
 // Stand-PC-Admin-GUI, standpc/admin.go adminConfigKeys) - unbekannte
 // Schluessel landen unter "Sonstige".
 const GROUPS = [
-  ['Kalibrierung', ['STANDOFFPAPER','MICHALFX','OFFSETX','OFFSETY','SOUNDSPEED','OFS0','OFS1','OFS2','OFS3','OFS4','OFS5']],
+  // ab Firmware 4.20.0 DIST0-5/TEMP/MICLAYOUT; die alten Schluessel bleiben
+  // fuer den Verlauf aelterer Firmware stehen
+  ['Kalibrierung', ['MICLAYOUT','OFFSETX','OFFSETY','TEMP','DIST0','DIST1','DIST2','DIST3','DIST4','DIST5',
+                    'STANDOFFPAPER','MICHALFX','SOUNDSPEED','OFS0','OFS1','OFS2','OFS3','OFS4','OFS5']],
   ['Auswertung', ['ALGO','MINMICS','TDOA','RADIUS','OUTLIER','MINCLUSTER','MAXPRECISION','PELLETR','MAXSIGMA',
                   'BSHIFTPCT','BSHIFTCAP','CLUSTERCORR','CLUSTERITER','LSQ','LSQPELLETR','MICEN0','MICEN1','MICEN2','MICEN3','MICEN4','MICEN5']],
   ['Piezo', ['PIEZO','PIEZOMIN','PIEZOMAX']],

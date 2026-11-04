@@ -71,16 +71,16 @@ func TestSolveSimShot_WalkCorrection(t *testing.T) {
 }
 
 // Schallgeschwindigkeit je Schuss (DHT22): mit SoundFromShot gilt der beim
-// Schuss gespeicherte Wert statt SoundMps.
+// Schuss gespeicherte Wert statt der aus TempC.
 func TestSolveSimShot_SoundFromShot(t *testing.T) {
 	gen := DefaultSimParams()
-	gen.SoundMps = 347.3
+	gen.TempC = 27.5
 	truth := genCalAirNs(14.0, 9.0, [6]int64{}, gen)
-	snd := 347.3
+	snd := gen.soundMps()
 	sh := SimShotRaw{AirNs: truth, HasRaw: true, SoundActMps: &snd}
 
 	p := DefaultSimParams()
-	p.SoundMps = 342.5
+	p.TempC = 19.5
 	p.UsePiezo = new(bool)
 	gen.UsePiezo = p.UsePiezo
 	want := SolveShot(truth, nil, gen)
@@ -92,32 +92,32 @@ func TestSolveSimShot_SoundFromShot(t *testing.T) {
 		t.Errorf("SoundFromShot: %d/%d, erwartet %d/%d", got.XUm, got.YUm, want.XUm, want.YUm)
 	}
 	if fixed := SolveSimShot(sh, p); fixed.XUm == want.XUm && fixed.YUm == want.YUm {
-		t.Errorf("ohne SoundFromShot muss SoundMps=342.5 gelten (Ergebnis identisch zu 347.3)")
+		t.Errorf("ohne SoundFromShot muss TempC=19.5 gelten (Ergebnis identisch zu 27.5)")
 	}
-	// Kalibrierung mit Schall je Schuss (347.3, SoundMps 342.5) muss genau
-	// dasselbe liefern wie eine Kalibrierung mit 347.3 als globalem Wert.
-	ofs := [6]int64{0, 300, 0, 0, 0, 0}
+	// Kalibrierung mit Schall je Schuss muss genau dasselbe liefern wie eine
+	// Kalibrierung mit derselben Temperatur als globalem Wert.
+	dist := [6]int64{0, 900, 0, 0, 0, 0}
 	var air [][6][]int64
 	var sounds []float64
 	for _, xy := range [][2]float64{{-10, 8}, {12, -6}, {3, 15}, {-14, -12}, {7, 2}, {-2, -9}} {
-		air = append(air, genCalAirNs(xy[0], xy[1], ofs, gen))
-		sounds = append(sounds, 347.3)
+		air = append(air, genCalAirNs(xy[0], xy[1], dist, gen))
+		sounds = append(sounds, snd)
 	}
-	perShot, c1 := CalibrateMicOffsetsSound(air, sounds, q)
-	global, c2 := CalibrateMicOffsets(air, gen)
+	perShot, c1 := CalibrateMicDist(air, sounds, q)
+	global, c2 := CalibrateMicDist(air, nil, gen)
 	if perShot != global || math.Abs(c1-c2) > 1e-6 {
 		t.Errorf("je Schuss %v (%.4f) != global %v (%.4f)", perShot, c1, global, c2)
 	}
-	if fixed, _ := CalibrateMicOffsets(air, p); fixed == global {
-		t.Errorf("Kalibrierung mit 342.5 sollte sich unterscheiden")
+	if fixed, _ := CalibrateMicDist(air, nil, p); fixed == global {
+		t.Errorf("Kalibrierung mit 19.5 Grad sollte sich unterscheiden")
 	}
 }
 
-// Uebertragung an den Stand: SOUNDSPEED mit Nachkommastelle, WALKK nur wenn
-// gesetzt, Erfassungsmodus wird mitgegeben.
+// Uebertragung an den Stand: TEMP mit Nachkommastelle, WALKK nur wenn
+// gesetzt.
 func TestFirmwareSettings_Firmware415(t *testing.T) {
 	p := DefaultSimParams()
-	p.SoundMps = 342.46
+	p.TempC = 18.46
 	has := func(key string) (string, bool) {
 		for _, s := range firmwareSettings(p) {
 			if s.Key == key {
@@ -126,8 +126,8 @@ func TestFirmwareSettings_Firmware415(t *testing.T) {
 		}
 		return "", false
 	}
-	if v, _ := has("SOUNDSPEED"); v != "342.5" {
-		t.Errorf("SOUNDSPEED=%s, erwartet 342.5", v)
+	if v, _ := has("TEMP"); v != "18.5" {
+		t.Errorf("TEMP=%s, erwartet 18.5", v)
 	}
 	if _, ok := has("WALKK"); ok {
 		t.Error("WALKK=0 darf nicht uebertragen werden")

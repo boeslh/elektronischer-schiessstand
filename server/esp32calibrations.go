@@ -25,34 +25,48 @@ type ESP32Calibration struct {
 	// Schallgeschwindigkeit (sound_mps ist gerundet), WALKK und der
 	// Erfassungsmodus ("isr"|"mcpwm"), in dem die Offsets bestimmt wurden -
 	// nil bei aelteren Sicherungen.
-	SoundSetMps *float64   `json:"sound_set_mps"`
-	WalkK       *float64   `json:"walk_k"`
-	Capture     *string    `json:"capture"`
-	LaneNo      *int       `json:"lane_no,omitempty"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"` // nur beim Lesen gesetzt
+	SoundSetMps *float64 `json:"sound_set_mps"`
+	// DistUm: Entfernungskorrekturen DIST0-5 (Firmware Rev 4.20.0, siehe
+	// migrations/094) - nil bei Sicherungen aelterer Firmware (Timing-
+	// Offsets), die nicht zur neuen Geometrie passen.
+	DistUm    *[6]int    `json:"dist_um,omitempty"`
+	WalkK     *float64   `json:"walk_k"`
+	Capture   *string    `json:"capture"`
+	LaneNo    *int       `json:"lane_no,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"` // nur beim Lesen gesetzt
 }
 
-const esp32CalColumns = `mac, offsets_ns, sound_mps, sound_set_mps::float8, walk_k::float8, capture, lane_no, updated_at`
+const esp32CalColumns = `mac, offsets_ns, sound_mps, sound_set_mps::float8, dist_um, walk_k::float8, capture, lane_no, updated_at`
 
 func scanESP32Calibration(row interface{ Scan(...any) error }) (*ESP32Calibration, error) {
 	var c ESP32Calibration
-	var offsets []int
-	if err := row.Scan(&c.MAC, &offsets, &c.SoundMps, &c.SoundSetMps, &c.WalkK, &c.Capture, &c.LaneNo, &c.UpdatedAt); err != nil {
+	var offsets, dist []int
+	if err := row.Scan(&c.MAC, &offsets, &c.SoundMps, &c.SoundSetMps, &dist, &c.WalkK, &c.Capture, &c.LaneNo, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
 	copy(c.OffsetsNs[:], offsets)
+	if len(dist) == 6 {
+		var d [6]int
+		copy(d[:], dist)
+		c.DistUm = &d
+	}
 	return &c, nil
 }
 
 func (s *Store) UpsertESP32Calibration(ctx context.Context, c ESP32Calibration) error {
+	var dist []int
+	if c.DistUm != nil {
+		dist = c.DistUm[:]
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO esp32_calibrations (mac, offsets_ns, sound_mps, sound_set_mps, walk_k, capture, lane_no, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NULLIF($6,''), $7, now())
+		INSERT INTO esp32_calibrations (mac, offsets_ns, sound_mps, sound_set_mps, dist_um, walk_k, capture, lane_no, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7,''), $8, now())
 		ON CONFLICT (mac) DO UPDATE SET
 		  offsets_ns=EXCLUDED.offsets_ns, sound_mps=EXCLUDED.sound_mps,
-		  sound_set_mps=EXCLUDED.sound_set_mps, walk_k=EXCLUDED.walk_k, capture=EXCLUDED.capture,
+		  sound_set_mps=EXCLUDED.sound_set_mps, dist_um=EXCLUDED.dist_um,
+		  walk_k=EXCLUDED.walk_k, capture=EXCLUDED.capture,
 		  lane_no=EXCLUDED.lane_no, updated_at=now()`,
-		c.MAC, c.OffsetsNs[:], c.SoundMps, c.SoundSetMps, c.WalkK, c.Capture, c.LaneNo)
+		c.MAC, c.OffsetsNs[:], c.SoundMps, c.SoundSetMps, dist, c.WalkK, c.Capture, c.LaneNo)
 	return err
 }
 

@@ -205,6 +205,12 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/auswertungen", a.h(a.listSavedAuswertungen))
 	mux.HandleFunc("POST /api/auswertungen", a.h(a.createSavedAuswertung))
 	mux.HandleFunc("DELETE /api/auswertungen/{id}", a.h(a.deleteSavedAuswertung))
+	mux.HandleFunc("GET /api/variable-auswertung/optionen", a.h(a.getVariableOptionen))
+	mux.HandleFunc("POST /api/variable-auswertung/berechnen", a.h(a.postVariableBerechnen))
+	mux.HandleFunc("POST /api/variable-auswertung/pdf", a.postVariablePDF)
+	mux.HandleFunc("GET /api/variable-auswertungen", a.h(a.listVariableAuswertungen))
+	mux.HandleFunc("PUT /api/variable-auswertungen", a.h(a.putVariableAuswertung))
+	mux.HandleFunc("DELETE /api/variable-auswertungen/{id}", a.h(a.deleteVariableAuswertung))
 	mux.HandleFunc("GET /api/results", a.h(a.listResults))
 	mux.HandleFunc("GET /api/competitions", a.h(a.listCompetitions))
 	mux.HandleFunc("GET /api/competitions/{id}", a.h(a.getCompetition))
@@ -344,6 +350,7 @@ func (a *APIServer) Run(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/sessions/{id}/photo/markers", a.h(a.putSessionPhotoMarkers))
 	mux.HandleFunc("DELETE /api/sessions/{id}/photo", a.h(a.deleteSessionPhoto))
 	mux.Handle("GET /simulator-foto.js", http.FileServer(http.FS(webSub)))
+	mux.Handle("GET /variable-auswertung.js", http.FileServer(http.FS(webSub)))
 	mux.HandleFunc("GET /api/simulator-configs", a.h(a.listSimulatorConfigs))
 	mux.HandleFunc("POST /api/simulator-configs", a.h(a.saveSimulatorConfig))
 	mux.HandleFunc("DELETE /api/simulator-configs/{id}", a.h(a.deleteSimulatorConfig))
@@ -898,8 +905,8 @@ func (a *APIServer) simulateSession(w http.ResponseWriter, r *http.Request) (any
 	}, nil
 }
 
-// calibrateSession berechnet neue Mikrofon-Timing-Offsets (OFS0-OFS5) aus
-// den vom Nutzer ausgewaehlten Kalibrier-Schuessen (siehe CalibrateMicOffsets,
+// calibrateSession berechnet neue Entfernungskorrekturen (DIST0-DIST5) aus
+// den vom Nutzer ausgewaehlten Kalibrier-Schuessen (siehe CalibrateMicDist,
 // simulator.go) - Server-Pendant zu "CAL START" der Firmware, nur mit frei
 // waehlbaren statt automatisch "naechste N" gesammelten Schuessen.
 func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (any, error) {
@@ -916,16 +923,16 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 		return nil, err
 	}
 
-	offsets, cost := CalibrateMicOffsetsSound(airNs, sounds, body.Params)
+	dist, cost := CalibrateMicDist(airNs, sounds, body.Params)
 	after := body.Params
-	after.MicOffsetNs = offsets
+	after.MicDistUm = dist
 	resp := map[string]any{
-		"mic_offset_ns": offsets,
-		"cost":          cost,
-		"shots_used":    len(airNs),
+		"mic_dist_um": dist,
+		"cost":        cost,
+		"shots_used":  len(airNs),
 	}
-	// Σ9-Mittelwert der Kalibrier-Schuesse vorher (aktuelle Offsets) und
-	// nachher (neue Offsets) - zur Einordnung des Ergebnisses.
+	// Σ9-Mittelwert der Kalibrier-Schuesse vorher (aktuelle Korrekturen) und
+	// nachher (neue Korrekturen) - zur Einordnung des Ergebnisses.
 	if before, ok := meanClusterSum(airNs, piezoNs, sounds, body.Params); ok {
 		resp["cluster_sum_before_mm"] = before
 	}
@@ -938,7 +945,7 @@ func (a *APIServer) calibrateSession(w http.ResponseWriter, r *http.Request) (an
 // calibrationShots liefert die Rohdaten der ausgewaehlten Kalibrier-Schuesse
 // einer Session (mind. 3 mit Rohdaten) - bereits mit der Pulsbreiten-
 // Korrektur aus p (SimShotRaw.airFor) - sowie je Schuss die Schall-
-// geschwindigkeit bei p.SoundFromShot (0 = p.SoundMps).
+// geschwindigkeit bei p.SoundFromShot (0 = aus p.TempC).
 func (a *APIServer) calibrationShots(r *http.Request, sessionID string, shotNos []int, p SimParams) ([][6][]int64, []*int64, []float64, error) {
 	if len(shotNos) < 3 {
 		return nil, nil, nil, errBadRequest("mindestens 3 Kalibrier-Schuesse noetig")
@@ -967,7 +974,7 @@ func (a *APIServer) calibrationShots(r *http.Request, sessionID string, shotNos 
 	return airNs, piezoNs, sounds, nil
 }
 
-// calibrateCluster9 optimiert Offsets und (je nach Auswahl) Geometrie-/
+// calibrateCluster9 optimiert Entfernungskorrekturen und (je nach Auswahl)
 // Korrekturparameter auf minimalen Schnittpunkt-Cluster Σ9 - siehe
 // sim_optimize.go.
 func (a *APIServer) calibrateCluster9(w http.ResponseWriter, r *http.Request) (any, error) {
@@ -979,7 +986,7 @@ func (a *APIServer) calibrateCluster9(w http.ResponseWriter, r *http.Request) (a
 	if err != nil {
 		return nil, errBadRequest("ungueltiger Body: " + err.Error())
 	}
-	// Sigma9-Optimierung bestimmt die Schallgeschwindigkeit selbst - je
+	// Sigma9-Optimierung bestimmt die Temperatur selbst - je
 	// Schuss gespeicherte Werte (SoundFromShot) gelten hier nicht.
 	airNs, _, _, err := a.calibrationShots(r, r.PathValue("id"), body.ShotNos, body.Params)
 	if err != nil {
@@ -1004,7 +1011,7 @@ func meanClusterSum(airNs [][6][]int64, piezoNs []*int64, sounds []float64, p Si
 		}
 		q := p
 		if k < len(sounds) && sounds[k] > 0 {
-			q.SoundMps = sounds[k]
+			q.soundOverride = sounds[k]
 		}
 		if r := SolveShot(shot, pz, q); r.PosValid && r.ClusterSumUm != nil {
 			sum += float64(*r.ClusterSumUm) / 1000

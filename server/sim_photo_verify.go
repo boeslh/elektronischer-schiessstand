@@ -13,7 +13,7 @@
 //     sich aus der Fotoposition ergibt. Weil der Abschusszeitpunkt unbekannt
 //     ist, zaehlen nur die Unterschiede zwischen den Mikrofonen (Mittel der
 //     beteiligten Mics abgezogen). Ein ueber viele Schuesse gleichbleibender
-//     Rest eines Mikrofons zeigt einen Offset- (OFS) oder Geometriefehler.
+//     Rest eines Mikrofons zeigt einen Entfernungs- (DIST) oder Geometriefehler.
 //
 // Zusaetzlich lassen sich beliebige Parametervarianten (anderes Verfahren
 // der Endposition, WALKK, Pulsbreiten-Regel ...) auf dieselben Schuesse
@@ -131,7 +131,7 @@ type verifyShot struct {
 	SimXMM     float64           `json:"sim_x_mm"`
 	SimYMM     float64           `json:"sim_y_mm"`
 	SimErr     *float64          `json:"sim_err_mm,omitempty"`
-	SoundMps   float64           `json:"sound_mps"` // fuer diesen Schuss verwendet
+	SoundMps   float64           `json:"sound_mps"` // fuer diesen Schuss verwendet (aus TEMP bzw. dem Schuss)
 	Candidates []verifyCandidate `json:"candidates"`
 	Mics       [6]verifyMic      `json:"mics"`
 	// Varianten: Abweichung je Variante (nil = ungueltig), gleiche
@@ -145,10 +145,11 @@ type verifyMicStat struct {
 	MeanRimNs float64 `json:"mean_rim_ns"`
 	StdRimNs  float64 `json:"std_rim_ns"`
 	MeanCtrNs float64 `json:"mean_center_ns"`
-	// SuggestOfsNs: OFS, bei dem der mittlere Rim-Rest dieses Mics (relativ
-	// zu Mic 0) verschwaende - reine Diagnose, die eigentliche Optimierung
-	// macht "Parameter optimieren".
-	SuggestOfsNs int64 `json:"suggest_ofs_ns"`
+	// SuggestDistUm: DIST, bei dem der mittlere Rim-Rest dieses Mics
+	// (relativ zu Mic 0) etwa verschwaende (Laufzeit-Rest x Schall-
+	// geschwindigkeit, gilt nahe der Scheibenmitte) - reine Diagnose, die
+	// eigentliche Optimierung macht "Parameter optimieren".
+	SuggestDistUm int64 `json:"suggest_dist_um"`
 }
 
 type verifyVariantResult struct {
@@ -158,8 +159,8 @@ type verifyVariantResult struct {
 
 // micTimeResiduals: Laufzeit-Reste der beteiligten Mics gegen die Position
 // (plate-Koordinaten, mm), Mittel abgezogen. pelletR=0 -> Punktquelle.
-func micTimeResiduals(tNs [6]int64, seen [6]bool, x, y float64, micX, micY [6]float32,
-	standoffMM, soundMmPerNs float32, pelletR float64) (out [6]*float64) {
+func micTimeResiduals(tNs [6]int64, seen [6]bool, x, y float64, g micGeom,
+	soundMmPerNs float32, pelletR float64) (out [6]*float64) {
 	var res [6]float64
 	var sum float64
 	n := 0
@@ -167,9 +168,9 @@ func micTimeResiduals(tNs [6]int64, seen [6]bool, x, y float64, micX, micY [6]fl
 		if !seen[i] {
 			continue
 		}
-		dxy := math.Hypot(x-float64(micX[i]), y-float64(micY[i]))
+		dxy := math.Hypot(x-float64(g.X[i]), y-float64(g.Y[i]))
 		dxy = math.Max(0, dxy-pelletR)
-		d := math.Sqrt(dxy*dxy + float64(standoffMM)*float64(standoffMM))
+		d := math.Sqrt(dxy*dxy + float64(g.Z[i])*float64(g.Z[i]))
 		res[i] = float64(tNs[i]) - d/float64(soundMmPerNs)
 		sum += res[i]
 		n++
@@ -238,12 +239,12 @@ func photoVerify(byNo map[int]SimShotRaw, p SimParams, pairs []photoVerifyPair, 
 		// bei Zonen-Kalibrierung: Werte der Zone, in der das Loch liegt
 		pz := p
 		if p.zonedEnabled() {
-			pz = zoneParamsFor(p, p.SoundMps, p.Zones.set(p.Zones.ZoneOf(pr.XMM, pr.YMM)))
+			pz = zoneParamsFor(p, p.Zones.set(p.Zones.ZoneOf(pr.XMM, pr.YMM)))
 			pz.Zones = nil
 		}
 		offX, offY := float64(pz.OffsetXUm)/1000, float64(pz.OffsetYUm)/1000
 		pp := sh.paramsFor(pz)
-		vs.SoundMps = pp.SoundMps
+		vs.SoundMps = pp.soundMps()
 		res, cands, _ := SolveSimShotDetail(sh, p)
 		cx, cy := float64(res.EffOffsetXUm)/1000, float64(res.EffOffsetYUm)/1000
 		vs.SimValid = res.PosValid
@@ -266,8 +267,8 @@ func photoVerify(byNo map[int]SimShotRaw, p SimParams, pairs []photoVerifyPair, 
 			vs.Candidates = append(vs.Candidates, vc)
 		}
 
-		// Rohzeiten je Mic (inkl. WALKK-Korrektur, abzueglich OFS - wie
-		// die Loesung sie sieht) gegen die Fotoposition (Blechkoordinaten)
+		// Rohzeiten je Mic (inkl. WALKK-Korrektur - wie die Loesung sie
+		// sieht) gegen die Fotoposition (Blechkoordinaten)
 		air := sh.airFor(p)
 		enabled := p.micEnabled()
 		var tNs [6]int64
@@ -276,13 +277,13 @@ func photoVerify(byNo map[int]SimShotRaw, p SimParams, pairs []photoVerifyPair, 
 			vs.Mics[i].Mic = i
 			if len(air[i]) > 0 && enabled[i] {
 				seen[i] = true
-				tNs[i] = air[i][0] - pz.MicOffsetNs[i]
+				tNs[i] = air[i][0]
 			}
 		}
-		micX, micY, standoff, sound, _ := solveParams(pp)
+		g, sound, _ := solveParams(pp)
 		px, py := pr.XMM-offX, pr.YMM-offY
-		rim := micTimeResiduals(tNs, seen, px, py, micX, micY, standoff, sound, pelletR)
-		ctr := micTimeResiduals(tNs, seen, px, py, micX, micY, standoff, sound, 0)
+		rim := micTimeResiduals(tNs, seen, px, py, g, sound, pelletR)
+		ctr := micTimeResiduals(tNs, seen, px, py, g, sound, 0)
 		var widths [6]*int64
 		if sh.Raw.usable() {
 			_, widths = sh.Raw.airFromRaw(p)
@@ -338,14 +339,14 @@ func photoVerify(byNo map[int]SimShotRaw, p SimParams, pairs []photoVerifyPair, 
 		}
 		micStats[i] = ms
 	}
-	// Vorschlag: Rest relativ zu Mic 0 (Referenz, OFS0 fest 0) in OFS
-	// verschieben - ein spaet gemessenes Mic (positiver Rest) braucht ein
-	// groesseres OFS.
+	// Vorschlag: Rest relativ zu Mic 0 (Referenz, DIST0 fest 0) in DIST
+	// verschieben - ein spaet gemessenes Mic (positiver Rest) steht weiter
+	// weg als angenommen und braucht ein groesseres DIST.
+	umPerNs := p.soundMps() * 1e-3 // m/s -> 0.001mm/ns
 	for i := 0; i < 6; i++ {
+		micStats[i].SuggestDistUm = p.MicDistUm[i]
 		if micStats[i].N > 0 {
-			micStats[i].SuggestOfsNs = p.MicOffsetNs[i] + int64(math.Round(micStats[i].MeanRimNs-micStats[0].MeanRimNs))
-		} else {
-			micStats[i].SuggestOfsNs = p.MicOffsetNs[i]
+			micStats[i].SuggestDistUm += int64(math.Round((micStats[i].MeanRimNs - micStats[0].MeanRimNs) * umPerNs))
 		}
 	}
 

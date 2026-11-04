@@ -1294,9 +1294,8 @@ function renderPairs() {
 async function optimize() {
   const pairs = F.pairs.filter(p => p.include).map(p => ({shot_no: p.shot_no, x_mm: p.x_mm, y_mm: p.y_mm}));
   const optimizeOpts = {
-    mic_offsets: $('foto-opt-ofs').checked, offset: $('foto-opt-offset').checked,
-    sound_speed: $('foto-opt-sound').checked, standoff: $('foto-opt-standoff').checked,
-    mic_half_x: $('foto-opt-michalfx').checked,
+    mic_dist: $('foto-opt-dist').checked, offset: $('foto-opt-offset').checked,
+    temp: $('foto-opt-temp').checked,
   };
   $('foto-optstatus').textContent = 'Optimiere…';
   try {
@@ -1321,15 +1320,13 @@ function renderResult() {
   const a = F.paramsBefore || {}, b = r.params;
   const rows = [];
   const cmp = (name, va, vb, unit) => { if (va !== vb) rows.push(`<tr><td>${name}</td><td>${va}</td><td>${vb}</td><td>${unit}</td></tr>`); };
-  for (let i = 1; i < 6; i++) cmp(`OFS${i}`, a.mic_offset_ns?.[i], b.mic_offset_ns[i], 'ns');
+  for (let i = 1; i < 6; i++) cmp(`DIST${i}`, a.mic_dist_um?.[i], b.mic_dist_um[i], 'µm');
   cmp('OFFSETX', a.offset_x_um, b.offset_x_um, 'µm');
   cmp('OFFSETY', a.offset_y_um, b.offset_y_um, 'µm');
-  cmp('SOUNDSPEED', a.sound_mps, b.sound_mps, 'm/s');
-  cmp('STANDOFFPAPER', a.standoff_paper_mm, +b.standoff_paper_mm.toFixed(2), 'mm');
-  cmp('MICHALFX', a.mic_half_x_mm, +b.mic_half_x_mm.toFixed(2), 'mm');
+  cmp('TEMP', a.temp_set_c, +b.temp_set_c.toFixed(1), '°C');
   const warn = [];
   if (Math.abs(r.rotation_deg) > 0.5) warn.push(`Restverdrehung ${r.rotation_deg.toFixed(2)}° - sind die Schrauben achsparallel zur Mikrofonanordnung markiert (Reihenfolge oben links → oben rechts → unten rechts → unten links)?`);
-  if (r.scale && Math.abs(r.scale - 1) > 0.01) warn.push(`Restmaßstab ${r.scale.toFixed(4)} - Referenzdurchmesser prüfen oder SOUNDSPEED/STANDOFF mit optimieren.`);
+  if (r.scale && Math.abs(r.scale - 1) > 0.01) warn.push(`Restmaßstab ${r.scale.toFixed(4)} - Referenzdurchmesser prüfen oder die Temperatur mit optimieren.`);
   if (r.invalid_after) warn.push(`${r.invalid_after} Schuss/Schüsse sind mit den neuen Parametern ungültig.`);
   const outliers = r.shots.filter(s => s.after_err_mm != null && s.after_err_mm > Math.max(1, 3 * r.rms_after_mm));
   if (outliers.length) warn.push(`Auffällig große Abweichung bei ${outliers.map(s => '#' + s.shot_no).join(', ')} - evtl. falsch zugeordnetes Loch: abwählen und erneut optimieren.`);
@@ -1374,9 +1371,8 @@ async function oneClickCalibrate() {
     blend_mm: parseFloat(document.getElementById('z-blend').value) || 2.25,
   };
   const optimizeOpts = {
-    mic_offsets: $('foto-opt-ofs').checked, offset: $('foto-opt-offset').checked,
-    sound_speed: $('foto-opt-sound').checked, standoff: $('foto-opt-standoff').checked,
-    mic_half_x: $('foto-opt-michalfx').checked,
+    mic_dist: $('foto-opt-dist').checked, offset: $('foto-opt-offset').checked,
+    temp: $('foto-opt-temp').checked,
   };
   const before = currentParams();
   // Der Server ordnet selbst zu (sim_zone_assign.go): alle Loecher, die
@@ -1438,14 +1434,14 @@ function renderZoneResult() {
   const rows = r.zones.map(z => `<tr><td><strong>${z.zone}</strong> ${names[z.zone]}</td><td>${z.shots}</td><td>${esc(z.fitted)}</td>
     <td>${st(z.before)}</td><td>${st(z.after)}</td>
     <td>${z.check_mm != null ? `Ø ${z.check_mm.toFixed(2)} mm` : '–'}</td>
-    <td>${z.set ? `${z.set.sound_mps.toFixed(1)} m/s` : '–'}</td></tr>`).join('');
+    <td>${z.set ? z.set.mic_dist_um.join(', ') : '–'}</td></tr>`).join('');
   const weak = r.zones.filter(z => z.shots < 6).map(z => z.zone);
   const bad = (r.shots || []).filter(x => x.after_err_mm != null && x.after_err_mm > 3);
   box.innerHTML = `
     <div><strong>One-Click-Kalibrierung:</strong> vorher ${st(r.before)} → nur Grundwerte ${st(r.base_only)} →
       <strong>mit Zonen ${st(r.after)}</strong></div>
     <table style="margin-top:6px;width:auto"><thead><tr><th>Zone</th><th>Schüsse</th><th>angepasst</th><th>vorher</th><th>nachher</th>
-      <th title="Jeder Schuss der Zone einmal weggelassen, mit den übrigen kalibriert und an ihm gemessen (Fehler bei 5 mm gekappt) – Maß für die Übertragbarkeit auf neue Schüsse">Kreuzprüfung</th><th>Schall</th></tr></thead>
+      <th title="Jeder Schuss der Zone einmal weggelassen, mit den übrigen kalibriert und an ihm gemessen (Fehler bei 5 mm gekappt) – Maß für die Übertragbarkeit auf neue Schüsse">Kreuzprüfung</th><th>DIST0–5 (µm)</th></tr></thead>
       <tbody>${rows}</tbody></table>
     ${bad.length ? `<div style="color:#ffb347;margin-top:6px">⚠ Mehr als 3 mm daneben: ${bad.map(x => `#${x.shot_no} (${x.after_err_mm.toFixed(1)} mm)`).join(', ')} – Loch und Zuordnung prüfen, ggf. abwählen und erneut kalibrieren.</div>` : ''}
     <div class="hint" style="margin-top:4px">Werte an denselben Schüssen, an denen kalibriert wurde – auf neue Schüsse übertragen ist das Ergebnis etwas schlechter
@@ -1519,13 +1515,13 @@ function renderVerify() {
   const mics = `<table style="width:auto;margin-top:10px"><thead><tr><th>Mic</th><th>Schüsse</th>
       <th title="gemessene minus aus der Fotoposition erwartete Laufzeit (Schall vom Lochrand), Mittel der beteiligten Mics je Schuss abgezogen">mittl. Rest Lochrand (ns)</th>
       <th>Streuung (ns)</th><th title="dasselbe mit Schall von der Lochmitte">mittl. Rest Lochmitte (ns)</th>
-      <th title="OFS, bei dem der mittlere Rest relativ zu Mic 0 verschwände">OFS aktuell → Vorschlag</th></tr></thead><tbody>
+      <th title="DIST, bei dem der mittlere Rest relativ zu Mic 0 etwa verschwände (gilt nahe der Scheibenmitte)">DIST aktuell → Vorschlag (µm)</th></tr></thead><tbody>
       ${ms.map(m => `<tr><td>${m.mic}</td><td>${m.n}</td><td>${m.n ? m.mean_rim_ns.toFixed(0) : '–'}</td>
         <td>${m.n > 1 ? m.std_rim_ns.toFixed(0) : '–'}</td><td>${m.n ? m.mean_center_ns.toFixed(0) : '–'}</td>
-        <td>${(F.verifyParams.mic_offset_ns || [])[m.mic]} → ${m.suggest_ofs_ns}</td></tr>`).join('')}</tbody></table>
+        <td>${(F.verifyParams.mic_dist_um || [])[m.mic]} → ${m.suggest_dist_um}</td></tr>`).join('')}</tbody></table>
     <div class="row-actions" style="margin-top:6px">
-      <button class="btn-sec" id="foto-ofs-apply">OFS-Vorschlag übernehmen</button>
-      <span class="hint">Ein gleichbleibender Rest eines Mikrofons deutet auf einen falschen Offset; große Streuung auf Störungen (Echo, Pulsbreite) oder Geometrie.
+      <button class="btn-sec" id="foto-ofs-apply">DIST-Vorschlag übernehmen</button>
+      <span class="hint">Ein gleichbleibender Rest eines Mikrofons deutet auf eine falsche Entfernung; große Streuung auf Störungen (Echo, Pulsbreite) oder Geometrie.
         Den Vorschlag danach mit „Prüfen“ kontrollieren – die eigentliche Optimierung macht „Parameter optimieren“.</span>
     </div>`;
 
@@ -1546,8 +1542,8 @@ function renderVerify() {
 
   box.innerHTML = stats + mics + shots;
   $('foto-ofs-apply').onclick = () => {
-    applyParams({mic_offset_ns: v.mic_stats.map(m => m.suggest_ofs_ns)});
-    $('foto-verifystatus').textContent = 'OFS übernommen – erneut „Prüfen“ zum Kontrollieren.';
+    applyParams({mic_dist_um: v.mic_stats.map(m => m.suggest_dist_um)});
+    $('foto-verifystatus').textContent = 'DIST übernommen – erneut „Prüfen“ zum Kontrollieren.';
   };
   box.querySelectorAll('tr[data-shot]').forEach(tr => tr.onclick = () => {
     const no = +tr.dataset.shot;

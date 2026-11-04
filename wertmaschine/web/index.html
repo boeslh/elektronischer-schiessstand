@@ -41,7 +41,7 @@
 </style>
 </head>
 <body>
-<h1>Disag-Wertmaschine</h1>
+<h1 id="title">Disag-Wertmaschine</h1>
 
 <div class="card" id="start-card">
   <label for="mode">Modus</label>
@@ -371,6 +371,12 @@ es.addEventListener('raw', e => appendDebugLine(JSON.parse(e.data)));
 
 updateModeFields();
 loadPreisschiessenListe();
+// Name dieser Wertmaschine (mehrere parallel, install-service.sh --name)
+fetch('/info').then(r => r.json()).then(i => {
+  if (!i.name) return;
+  document.getElementById('title').textContent = 'Disag-Wertmaschine – ' + i.name;
+  document.title = 'Wertmaschine – ' + i.name;
+}).catch(() => {});
 fetch('/status').then(r => r.json()).then(s => { state = s; render(); if (s.mode) document.getElementById('live-card').style.display = 'block'; });
 </script>
 </body>

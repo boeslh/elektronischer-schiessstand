@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,26 +57,35 @@ type StatusTelegram struct {
 // komplett entfernt, Papier ist die einzige Geometrie) - seit Rev 4.11.0 neu:
 // RejectLockoutMs/Algo/PelletRMm/MaxSigmaUm (SET REJECTLOCK/ALGO/PELLETR/MAXSIGMA).
 type ConfigTelegram struct {
-	Type             string  `json:"type"`
-	MAC              string  `json:"mac"`
-	Lane             int     `json:"lane"`
-	DebounceMs       int     `json:"debounce_ms"`
-	RejectLockoutMs  int     `json:"reject_lockout_ms"`
-	WindowMs         int     `json:"window_ms"`
-	Debug            int     `json:"debug"`
-	OutlierUm        int     `json:"outlier_um"`
-	ClusterRadiusUm  int     `json:"cluster_radius_um"`
-	MinClusterHits   int     `json:"min_cluster_hits"`
-	MaxPrecisionUm   int     `json:"max_precision_um"`
-	MinMics          int     `json:"min_mics"`
-	TDOAUs           int     `json:"tdoa_us"`
-	MicOffsetNs      [6]int  `json:"mic_offset_ns"`
-	MicEnabled       [6]int  `json:"mic_enabled"`
-	CalShots         int     `json:"cal_shots"`
-	StandoffPaperMm  float64 `json:"standoff_paper_mm"`
-	MicHalfXMm       float64 `json:"mic_half_x_mm"`
-	BulletShiftPct   int     `json:"bullet_shift_pct"`
-	BulletShiftCapMm float64 `json:"bullet_shift_cap_mm"`
+	Type            string `json:"type"`
+	MAC             string `json:"mac"`
+	Lane            int    `json:"lane"`
+	DebounceMs      int    `json:"debounce_ms"`
+	RejectLockoutMs int    `json:"reject_lockout_ms"`
+	WindowMs        int    `json:"window_ms"`
+	Debug           int    `json:"debug"`
+	OutlierUm       int    `json:"outlier_um"`
+	ClusterRadiusUm int    `json:"cluster_radius_um"`
+	MinClusterHits  int    `json:"min_cluster_hits"`
+	MaxPrecisionUm  int    `json:"max_precision_um"`
+	MinMics         int    `json:"min_mics"`
+	TDOAUs          int    `json:"tdoa_us"`
+	MicEnabled      [6]int `json:"mic_enabled"`
+	CalShots        int    `json:"cal_shots"`
+	// Seit Firmware Rev 4.20.0: feste Mikrofon-Anordnung ("angled"|"flat"),
+	// Entfernungskorrektur je Mikrofon (SET DIST0..5, 0.001mm) und
+	// Ersatztemperatur (SET TEMP) - nil bei aelterer Firmware.
+	MicLayout string   `json:"mic_layout,omitempty"`
+	MicDistUm *[6]int  `json:"mic_dist_um,omitempty"`
+	TempSetC  *float64 `json:"temp_set_c,omitempty"`
+	// Bis Firmware Rev 4.19 (nil ab 4.20.0): Timing-Offsets, Standoff,
+	// Mic-Halbabstand und Schallgeschwindigkeit (SET OFS0..5/STANDOFFPAPER/
+	// MICHALFX/SOUNDSPEED).
+	MicOffsetNs      *[6]int  `json:"mic_offset_ns,omitempty"`
+	StandoffPaperMm  *float64 `json:"standoff_paper_mm,omitempty"`
+	MicHalfXMm       *float64 `json:"mic_half_x_mm,omitempty"`
+	BulletShiftPct   int      `json:"bullet_shift_pct"`
+	BulletShiftCapMm float64  `json:"bullet_shift_cap_mm"`
 	// Endpositions-Verfahren (Firmware Rev 4.12.0, SET CLUSTERCORR/
 	// CLUSTERITER/LSQ/LSQPELLETR) - nil bei aelterer Firmware.
 	ClusterCorr       *int     `json:"cluster_corr,omitempty"`
@@ -91,7 +101,7 @@ type ConfigTelegram struct {
 	TestCooldownMs    int      `json:"test_cooldown_ms"`
 	OffsetXUm         int      `json:"offset_x_um"`
 	OffsetYUm         int      `json:"offset_y_um"`
-	SoundMps          int      `json:"sound_mps"` // seit Rev 4.15.0 gerundet, genau: SoundSetMps
+	SoundMps          *int     `json:"sound_mps,omitempty"` // Rev 4.15-4.19 gerundet, genau: SoundSetMps; ab 4.20.0 entfallen
 	PaperFeedMm       float64  `json:"paper_feed_mm"`
 	PaperSpeedMmps    float64  `json:"paper_speed_mmps"`
 	PaperAuto         int      `json:"paper_auto"`
@@ -101,7 +111,8 @@ type ConfigTelegram struct {
 	// Seit Firmware Rev 4.13-4.15 (nil bei aelterer Firmware): eingestellte
 	// Erfassung (SET CAPTURE, wirkt erst nach Neustart - aktiv: status.capture),
 	// Pulsbreiten-Korrektur (SET WALKK/WALKCAL/WALKMAX), genaue
-	// Schallgeschwindigkeit (SET SOUNDSPEED mit Nachkommastelle) und DHT22.
+	// Schallgeschwindigkeit (SET SOUNDSPEED mit Nachkommastelle, bis 4.19) und
+	// DHT22.
 	Capture     string   `json:"capture,omitempty"`
 	WalkK       *float64 `json:"walk_k,omitempty"`
 	WalkCal     *int     `json:"walk_cal,omitempty"`
@@ -138,10 +149,12 @@ type ZonesTelegram struct {
 	C        *ZoneSetValue `json:"c"`
 }
 
-// ZoneSetValue: Satz einer Zone (SET ZCAL).
+// ZoneSetValue: Satz einer Zone (SET ZCAL). Ab Firmware Rev 4.20.0
+// Entfernungskorrekturen, vorher Schallgeschwindigkeit + Timing-Offsets.
 type ZoneSetValue struct {
-	SoundMps    float64 `json:"sound_mps"`
-	MicOffsetNs [6]int  `json:"mic_offset_ns"`
+	MicDistUm   *[6]int `json:"mic_dist_um,omitempty"`
+	SoundMps    float64 `json:"sound_mps,omitempty"`
+	MicOffsetNs [6]int  `json:"mic_offset_ns,omitempty"`
 	OffsetXUm   int     `json:"offset_x_um"`
 	OffsetYUm   int     `json:"offset_y_um"`
 }
@@ -152,9 +165,16 @@ func (z *ZoneSetValue) zcalValue() string {
 	if z == nil {
 		return "OFF"
 	}
-	parts := []string{strconv.FormatFloat(z.SoundMps, 'f', 1, 64)}
-	for _, o := range z.MicOffsetNs {
-		parts = append(parts, strconv.Itoa(o))
+	var parts []string
+	if z.MicDistUm != nil {
+		for _, d := range z.MicDistUm {
+			parts = append(parts, strconv.Itoa(d))
+		}
+	} else {
+		parts = append(parts, strconv.FormatFloat(z.SoundMps, 'f', 1, 64))
+		for _, o := range z.MicOffsetNs {
+			parts = append(parts, strconv.Itoa(o))
+		}
 	}
 	parts = append(parts, strconv.Itoa(z.OffsetXUm), strconv.Itoa(z.OffsetYUm))
 	return strings.Join(parts, ",")
@@ -183,18 +203,20 @@ type ConfignetTelegram struct {
 }
 
 // CalTelegram: siehe Abschnitt 4.6. "mac" bei state="done" seit Rev 4.9.0 -
-// zusammen mit offsets_ns/sound_mps Grundlage fuer das Kalibrierungs-Backup
-// (siehe uploadCalibrationBackup in calibration_backup.go).
+// zusammen mit dist_um (ab Rev 4.20.0, vorher offsets_ns/sound_mps)
+// Grundlage fuer das Kalibrierungs-Backup (siehe uploadCalibrationBackup in
+// calibration_backup.go).
 type CalTelegram struct {
-	Type      string `json:"type"`
-	State     string `json:"state"`
-	Need      int    `json:"need"`
-	Progress  int    `json:"progress"`
-	Reason    string `json:"reason"`
-	MAC       string `json:"mac"`
-	OffsetsNs [6]int `json:"offsets_ns"`
-	SoundMps  int    `json:"sound_mps"` // gerundet - genau: SoundSetMps (Rev 4.15.0)
-	Shots     int    `json:"shots"`
+	Type      string  `json:"type"`
+	State     string  `json:"state"`
+	Need      int     `json:"need"`
+	Progress  int     `json:"progress"`
+	Reason    string  `json:"reason"`
+	MAC       string  `json:"mac"`
+	DistUm    *[6]int `json:"dist_um,omitempty"`
+	OffsetsNs [6]int  `json:"offsets_ns"`
+	SoundMps  int     `json:"sound_mps"` // gerundet - genau: SoundSetMps (Rev 4.15.0)
+	Shots     int     `json:"shots"`
 	// Seit Rev 4.14/4.15 (nil bei aelterer Firmware), siehe Abschnitt 4.6.
 	SoundSetMps *float64 `json:"sound_set_mps,omitempty"`
 	SoundActMps *float64 `json:"sound_act_mps,omitempty"`
@@ -311,11 +333,28 @@ func (d *DeviceState) ShotContext() ShotContext {
 	}
 	if d.config != nil {
 		c.WalkK = d.config.WalkK
-		if c.SoundActMps == nil && d.config.SoundSetMps != nil && (d.config.Dht == nil || *d.config.Dht == 0) {
-			c.SoundActMps = d.config.SoundSetMps
+		if c.SoundActMps == nil && (d.config.Dht == nil || *d.config.Dht == 0) {
+			if d.config.TempSetC != nil { // ab Firmware 4.20.0: aus der Ersatztemperatur
+				v := speedOfSoundMps(*d.config.TempSetC)
+				c.SoundActMps = &v
+			} else if d.config.SoundSetMps != nil {
+				c.SoundActMps = d.config.SoundSetMps
+			}
 		}
 	}
 	return c
+}
+
+// speedOfSoundMps: Schallgeschwindigkeit wie die Firmware ab Rev 4.20.0
+// (trockene Luft, nur Temperatur), auf 0.01 m/s wie sound_act_mps.
+func speedOfSoundMps(tempC float64) float64 {
+	return math.Round(331.3*math.Sqrt(1+tempC/273.15)*100) / 100
+}
+
+// fw420: Geraet mit Firmware ab Rev 4.20.0 (Entfernungskorrektur statt
+// Timing-Offsets).
+func (c *ConfigTelegram) fw420() bool {
+	return c != nil && c.MicDistUm != nil
 }
 
 // DHTActive: ob laut letztem config-Telegramm die DHT22-Messung aktiv ist

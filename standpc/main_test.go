@@ -31,10 +31,11 @@ func testScorer(t *testing.T) *Scorer {
 }
 
 // TestProcessShot_ExampleTelegrams verarbeitet die realen Firmware-Telegramme
-// aus firmware/example_telegrams.txt (Rev 4.6.1, type=shot) und prueft, dass
+// aus firmware/old/example_telegrams.txt (Rev 4.6.1, type=shot - das shot-
+// Format ist seither unveraendert) und prueft, dass
 // x_um/y_um korrekt nach x_mm/y_mm uebernommen und gewertet werden.
 func TestProcessShot_ExampleTelegrams(t *testing.T) {
-	f, err := os.Open("firmware/example_telegrams.txt")
+	f, err := os.Open("firmware/old/example_telegrams.txt")
 	if err != nil {
 		t.Fatalf("example_telegrams.txt: %v", err)
 	}

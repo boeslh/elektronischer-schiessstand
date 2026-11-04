@@ -198,15 +198,15 @@
         <div>
           <h4>Wie ein Treffer berechnet wird</h4>
           <ol>
-            <li>Mit den <b>Grundwerten</b> (Geometrie, Schallgeschwindigkeit, OFS0–OFS5, Nachkorrektur OFFSETX/Y)
+            <li>Mit den <b>Grundwerten</b> (Mikrofon-Anordnung, Temperatur, Entfernungskorrektur DIST0–DIST5, Nachkorrektur OFFSETX/Y)
               und dem <b>Auswerteverfahren</b> wird die Lage bestimmt.</li>
             <li>Sind <b>Zonen</b> eingeschaltet, legt diese Lage die Zone fest (A im Loch der Vorsatzscheibe,
               B neben dem Schussband, C Band + Vorsatzscheibe). Der Treffer wird mit dem Satz dieser Zone neu
-              gerechnet: Schallgeschwindigkeit, OFS0–OFS5 und OFFSETX/Y der Zone <b>ersetzen</b> die Grundwerte,
-              Geometrie und Auswerteverfahren gelten weiter. Zonen ohne eigenen Satz rechnen mit den Grundwerten;
+              gerechnet: DIST0–DIST5 und OFFSETX/Y der Zone <b>ersetzen</b> die Grundwerte,
+              Anordnung, Temperatur und Auswerteverfahren gelten weiter. Zonen ohne eigenen Satz rechnen mit den Grundwerten;
               an den Grenzen wird überblendet.</li>
           </ol>
-          <p>Die OFS-Werte der Grundwerte gelten also immer ohne Zonen – mit Zonen für die erste Lagebestimmung
+          <p>Die DIST-Werte der Grundwerte gelten also immer ohne Zonen – mit Zonen für die erste Lagebestimmung
             und in Zonen ohne eigenen Satz.</p>
         </div>
         <div>
@@ -215,8 +215,8 @@
             <tr><th>Weg</th><th>setzt</th><th>Maßstab</th></tr>
             <tr><td><b>One-Click-Kalibrierung</b> (Abschnitt 3, empfohlen)</td><td>Grundwerte <b>und</b> Zonen A/B/C, speichert die Kalibrierung</td><td>Foto = wahre Trefferlage</td></tr>
             <tr><td>Foto: nur Grundwerte optimieren</td><td>die angehakten Grundwerte</td><td>Foto, ohne Zonen</td></tr>
-            <tr><td>Rest-Fehler (Abschnitt 4)</td><td>nur OFS1–OFS5</td><td>widerspruchsfreie Laufzeiten, ohne Zonen</td></tr>
-            <tr><td>Σ9 (Abschnitt 4)</td><td>OFS1–OFS5 + gewählte Parameter</td><td>enge Schnittpunkte (nicht die wahre Lage), ohne Zonen</td></tr>
+            <tr><td>Rest-Fehler (Abschnitt 4)</td><td>nur DIST1–DIST5</td><td>widerspruchsfreie Laufzeiten, ohne Zonen</td></tr>
+            <tr><td>Σ9 (Abschnitt 4)</td><td>DIST1–DIST5 + gewählte Parameter</td><td>enge Schnittpunkte (nicht die wahre Lage), ohne Zonen</td></tr>
             <tr><td>Laden, SHOW-Import, Eingabe</td><td>alles bzw. einzelne Felder</td><td>–</td></tr>
           </table>
           <p class="ov-warn">Die Wege ohne Zonen ändern nur die Grundwerte. Sind Zonen eingeschaltet, bleiben deren Sätze
@@ -241,14 +241,14 @@
     <span style="margin-left:14px">Filter: <select id="cfgLaneFilter" onchange="setCfgLaneFilter(this.value)"></select></span>
   </div>
   <table id="cfgTable" style="margin-bottom:14px">
-    <thead><tr><th>Name</th><th>Stand</th><th title="Erfassungsmodus der Schüsse, aus denen die Kalibrierung bestimmt wurde - die Offsets passen nur zu einem Gerät im selben Modus">Erfassung</th><th title="Zonen-Kalibrierung (je Bereich eigener Satz)">Zonen</th><th>Gespeichert am</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Stand</th><th title="Erfassungsmodus der Schüsse, aus denen die Kalibrierung bestimmt wurde - sie passt nur zu einem Gerät im selben Modus">Erfassung</th><th title="Zonen-Kalibrierung (je Bereich eigener Satz)">Zonen</th><th>Gespeichert am</th><th></th></tr></thead>
     <tbody id="cfgTbody"></tbody>
   </table>
   <div class="row-actions">
     <div class="filter-group" style="flex:1;min-width:400px">
       <label>SHOW-Ausgabe der Firmware einfügen (optional)</label>
       <textarea id="showText" rows="2" style="width:100%"
-        placeholder='{"type":"config","mic_offset_ns":[...],"standoff_paper_mm":...,...}'></textarea>
+        placeholder='{"type":"config","mic_dist_um":[...],"mic_layout":"angled","temp_set_c":...,...}'></textarea>
     </div>
     <button class="btn-sec" onclick="importShow()">Übernehmen</button>
   </div>
@@ -260,24 +260,24 @@
     <summary>Grundwerte – gelten für jeden Treffer <span class="grp-sum" id="sum-base"></span></summary>
     <div class="grp-body">
   <div class="params-grid" id="classicParams">
-    <div class="filter-group"><label>Standoff (mm)</label><input type="number" id="p-standoffPaper" step="0.1" value="28.0"></div>
-    <div class="filter-group"><label>Mic-Halbabstand X (mm)</label><input type="number" id="p-micHalfX" step="0.1" value="115.0"></div>
-    <div class="filter-group"><label>Schallgeschw. (m/s)</label><input type="number" id="p-sound" step="0.1" value="343"></div>
+    <div class="filter-group"><label title="Fest in der Firmware (board_layout.h MIC_LAYOUT), im SHOW als mic_layout - Schüsse von vor Firmware 4.20.0 wurden mit der flachen Anordnung gemessen">Mikrofon-Anordnung</label>
+      <select id="p-micLayout"><option value="angled">schräg zur Mitte (ab Firmware 4.20)</option><option value="flat">flach in der Seitenwand (bis 4.19)</option></select></div>
+    <div class="filter-group"><label title="SET TEMP: Ersatztemperatur, daraus die Schallgeschwindigkeit (ohne DHT22 bzw. ohne gültige Messung)">Temperatur (°C) <span id="p-soundInfo" class="hint"></span></label><input type="number" id="p-temp" step="0.1" value="20.0"></div>
     <div class="filter-group"><label title="Nachkorrektur: verschiebt jede berechnete Lage">Offset X (0.001mm)</label><input type="number" id="p-offsetX" step="1" value="0"></div>
     <div class="filter-group"><label title="Nachkorrektur: verschiebt jede berechnete Lage">Offset Y (0.001mm)</label><input type="number" id="p-offsetY" step="1" value="0"></div>
   </div>
-  <div class="filter-group" style="margin-bottom:6px"><label>Mikrofon-Timing-Offsets OFS0–OFS5 (ns)</label></div>
+  <div class="filter-group" style="margin-bottom:6px"><label title="SET DIST0..DIST5: verschiebt jedes Mikrofon entlang seiner Linie zur Scheibenmitte, positiv = weiter weg (nahe der Mitte 1 mm ≈ 2,9 µs Laufzeit)">Entfernungskorrektur DIST0–DIST5 (0.001mm, ±10000)</label></div>
   <div class="ofs-grid">
-    <div class="filter-group"><input type="number" id="p-ofs0" step="1" value="0"></div>
-    <div class="filter-group"><input type="number" id="p-ofs1" step="1" value="0"></div>
-    <div class="filter-group"><input type="number" id="p-ofs2" step="1" value="0"></div>
-    <div class="filter-group"><input type="number" id="p-ofs3" step="1" value="0"></div>
-    <div class="filter-group"><input type="number" id="p-ofs4" step="1" value="0"></div>
-    <div class="filter-group"><input type="number" id="p-ofs5" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-dist0" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-dist1" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-dist2" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-dist3" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-dist4" step="1" value="0"></div>
+    <div class="filter-group"><input type="number" id="p-dist5" step="1" value="0"></div>
   </div>
   <div style="margin:6px 0 0;font-size:12px">
-    <label title="Mit DHT22: je Schuss die damals aktive Schallgeschwindigkeit aus Temperatur/Luftfeuchte verwenden. Gilt für Neuberechnen und Kalibrierung; Σ9- und Foto-Kalibrierung bestimmen die Schallgeschwindigkeit selbst und nutzen den Wert oben.">
-      <input type="checkbox" id="p-soundFromShot"> Schallgeschwindigkeit je Schuss verwenden (gespeicherter Gerätewert, z.B. aus DHT22-Messung) – sonst gilt der Wert oben</label>
+    <label title="Mit DHT22: je Schuss die damals aktive Schallgeschwindigkeit (aus der gemessenen Temperatur) verwenden. Gilt für Neuberechnen und Kalibrierung; Σ9- und Foto-Kalibrierung bestimmen die Temperatur selbst und nutzen den Wert oben.">
+      <input type="checkbox" id="p-soundFromShot"> Schallgeschwindigkeit je Schuss verwenden (gespeicherter Gerätewert, z.B. aus DHT22-Messung) – sonst gilt die Temperatur oben</label>
   </div>
     </div>
   </details>
@@ -300,7 +300,7 @@
           <input type="number" id="z-blend" step="0.05" min="0" max="10" value="2.25"></div>
       </div>
       <table style="width:auto;margin-top:6px" id="zoneTable">
-        <thead><tr><th>Zone</th><th>eigener Satz</th><th>Schall <span style="text-transform:none">(m/s)</span></th><th>OFS0</th><th>OFS1</th><th>OFS2</th><th>OFS3</th><th>OFS4</th><th>OFS5</th><th>OFFSETX <span style="text-transform:none">(µm)</span></th><th>OFFSETY <span style="text-transform:none">(µm)</span></th></tr></thead>
+        <thead><tr><th>Zone</th><th>eigener Satz</th><th>DIST0</th><th>DIST1</th><th>DIST2</th><th>DIST3</th><th>DIST4</th><th>DIST5 <span style="text-transform:none">(µm)</span></th><th>OFFSETX <span style="text-transform:none">(µm)</span></th><th>OFFSETY <span style="text-transform:none">(µm)</span></th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="hint">A = im Loch der Vorsatzscheibe (nur Band) · B = neben dem Schussband (nur Vorsatzscheibe) · C = Band + Vorsatzscheibe. Ohne eigenen Satz gelten die Werte oben.</div>
@@ -313,7 +313,7 @@
     <summary>Auswerteverfahren <span class="grp-sum" id="sum-algo"></span></summary>
     <div class="grp-body">
   <div class="hint" style="margin-bottom:8px">Wie aus den Laufzeiten die Lage wird – gilt in allen Zonen gleich. Werden von den
-    Kalibrierungen nur verändert, wenn ausdrücklich gewählt (Σ9-Grenzen, Foto „Standoff“/„Mic-Halbabstand“ gehören zu den Grundwerten).</div>
+    Kalibrierungen nur verändert, wenn ausdrücklich gewählt (Σ9-Grenzen).</div>
   <div class="params-grid">
     <div class="filter-group"><label>Kugeldurchm.-Korrektur (%)</label><input type="number" id="p-bshiftPct" step="1" min="0" max="100" value="30"></div>
     <div class="filter-group"><label>Korrektur-Kappung (mm)</label><input type="number" id="p-bshiftCap" step="0.1" min="0" value="3.0"></div>
@@ -368,7 +368,7 @@
         WALKMAX <input type="number" id="p-walkMax" min="5" max="500" step="1" placeholder="vom Schuss" style="width:80px"> µs</label>
       <label title="Firmware: letzte fallende Flanke vor der nächsten steigenden. Variante nur im Simulator.">
         Pulsbreite bis <select id="p-walkRule"><option value="">letzte fallende Flanke (Firmware)</option><option value="first">erste fallende Flanke (Variante)</option></select></label>
-      <button class="btn-sec" type="button" onclick="applyShotParams()" title="Offsets, aktive Mikrofone, WALKK, WALKMAX und Schallgeschwindigkeit so einstellen, wie sie beim Schuss am Gerät aktiv waren">Parameter vom Schusszeitpunkt übernehmen</button>
+      <button class="btn-sec" type="button" onclick="applyShotParams()" title="Anordnung, Entfernungskorrekturen, aktive Mikrofone, WALKK, WALKMAX und Schallgeschwindigkeit so einstellen, wie sie beim Schuss am Gerät aktiv waren">Parameter vom Schusszeitpunkt übernehmen</button>
     </div>
   </div>
     </div>
@@ -452,11 +452,9 @@
       </div>
       <div class="hint" style="margin:8px 0 4px">Grundwerte, die dabei mitoptimiert werden (Startwerte = Abschnitt 2; gilt auch für den Einzelschritt unten):</div>
       <div class="row-actions" style="flex-wrap:wrap;gap:14px">
-        <label><input type="checkbox" id="foto-opt-ofs" checked> Mikrofon-Offsets OFS1–5</label>
+        <label><input type="checkbox" id="foto-opt-dist" checked> Entfernungskorrektur DIST1–5</label>
         <label><input type="checkbox" id="foto-opt-offset" checked> Nachkorrektur OFFSETX/Y</label>
-        <label><input type="checkbox" id="foto-opt-sound"> Schallgeschwindigkeit</label>
-        <label><input type="checkbox" id="foto-opt-standoff"> Standoff Papier</label>
-        <label><input type="checkbox" id="foto-opt-michalfx"> Mikrofon-Halbabstand X</label>
+        <label title="Massstab: die Schallgeschwindigkeit kommt nur aus der Temperatur (SET TEMP)"><input type="checkbox" id="foto-opt-temp"> Temperatur</label>
       </div>
       <span id="foto-oneclick-status" class="hint" style="display:block"></span>
     </div>
@@ -509,14 +507,14 @@
   <div class="hint" style="margin-bottom:8px">
     Schüsse zum Anklicken auswählen (mind. 3, nur Schüsse mit Rohdaten möglich) - entspricht
     „CAL START" der Firmware, nur mit frei wählbaren statt automatisch nächsten N Schüssen.
-    Mic0 bleibt als Referenz immer 0.
+    Mic0 bleibt als Referenz immer 0 (DIST0).
   </div>
   <div id="calShotList" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
   <div class="row-actions" style="align-items:center;margin-bottom:8px">
     <span class="hint">Optimierungsziel</span>
     <select id="calMode" onchange="onCalModeChange()">
-      <option value="residual">Rest-Fehler (wie Firmware CAL START, nur Offsets)</option>
-      <option value="cluster9">Schnittpunkt-Cluster Σ9 (Offsets + Parameter, mehrere Durchläufe)</option>
+      <option value="residual">Rest-Fehler (wie Firmware CAL START, nur Entfernungen)</option>
+      <option value="cluster9">Schnittpunkt-Cluster Σ9 (Entfernungen + Parameter, mehrere Durchläufe)</option>
     </select>
   </div>
   <div id="c9Opts" style="display:none;margin-bottom:10px">
@@ -530,17 +528,13 @@
     </div>
     <table class="c9-bounds">
       <tr><th>optimieren</th><th>Parameter</th><th>min</th><th>max</th></tr>
-      <tr><td><input type="checkbox" id="c9-offsets" checked disabled></td><td>Mic-Offsets OFS1–5</td><td colspan="2" class="hint">±20000 ns, OFS0 bleibt 0</td></tr>
-      <tr><td><input type="checkbox" id="c9-standoff-en" checked></td><td>Standoff (mm)</td>
-          <td><input type="number" id="c9-standoff-min" value="27" step="0.1"></td><td><input type="number" id="c9-standoff-max" value="30" step="0.1"></td></tr>
-      <tr><td><input type="checkbox" id="c9-michalfx-en" checked></td><td>Mic-Halbabstand X (mm)</td>
-          <td><input type="number" id="c9-michalfx-min" value="114" step="0.1"></td><td><input type="number" id="c9-michalfx-max" value="117" step="0.1"></td></tr>
+      <tr><td><input type="checkbox" id="c9-dist" checked disabled></td><td>Entfernungskorrektur DIST1–5</td><td colspan="2" class="hint">±10000 µm, DIST0 bleibt 0</td></tr>
       <tr><td><input type="checkbox" id="c9-bpct-en" checked></td><td>Kugeldurchm.-Korrektur (%)</td>
           <td><input type="number" id="c9-bpct-min" value="30" step="1"></td><td><input type="number" id="c9-bpct-max" value="60" step="1"></td></tr>
       <tr><td><input type="checkbox" id="c9-bcap-en" checked></td><td>Korrektur-Kappung (mm)</td>
           <td><input type="number" id="c9-bcap-min" value="3" step="0.1"></td><td><input type="number" id="c9-bcap-max" value="5" step="0.1"></td></tr>
-      <tr><td><input type="checkbox" id="c9-sound-en" checked></td><td>Schallgeschwindigkeit (m/s)</td>
-          <td><input type="number" id="c9-sound-min" value="340" step="0.5"></td><td><input type="number" id="c9-sound-max" value="346" step="0.5"></td></tr>
+      <tr><td><input type="checkbox" id="c9-temp-en" checked></td><td>Temperatur (°C)</td>
+          <td><input type="number" id="c9-temp-min" value="14" step="0.5"></td><td><input type="number" id="c9-temp-max" value="24" step="0.5"></td></tr>
     </table>
     <div class="hint" style="margin-top:4px">Σ9 misst, wie eng die Schnittpunkte beieinander liegen – nicht, ob die
       Position stimmt. Mehrere Parameter-Kombinationen können ähnlich gute Werte liefern (siehe Alternativen);
@@ -725,19 +719,23 @@ function applyShotParams() {
   const p = {};
   const notes = [];
   if (ref) {
-    p.mic_offset_ns = ref.ofs_ns;
+    // ab Firmware 4.20.0 Entfernungskorrekturen + Anordnung, vorher
+    // Timing-Offsets (die es im Simulator nicht mehr gibt)
+    if (Array.isArray(ref.mic_dist_um)) p.mic_dist_um = ref.mic_dist_um;
+    else if (ref.ofs_ns) notes.push('Schüsse von vor Firmware 4.20.0: deren Timing-Offsets gibt es nicht mehr – Anordnung „flach“ wählen und neu kalibrieren.');
+    if (ref.mic_layout) p.mic_layout = ref.mic_layout;
     p.mic_enabled = ref.mic_en.map(v => !!v);
     if (ref.walk_max_us != null) p.walk_max_us = ref.walk_max_us;
-    const differs = withRaw.some(s => JSON.stringify(s.raw.ofs_ns) !== JSON.stringify(ref.ofs_ns)
+    const differs = withRaw.some(s => JSON.stringify(s.raw.mic_dist_um) !== JSON.stringify(ref.mic_dist_um)
       || JSON.stringify(s.raw.mic_en) !== JSON.stringify(ref.mic_en));
-    if (differs) notes.push('Offsets/aktive Mikrofone unterscheiden sich zwischen den Schüssen – übernommen wurden die des ersten Schusses.');
+    if (differs) notes.push('Entfernungskorrekturen/aktive Mikrofone unterscheiden sich zwischen den Schüssen – übernommen wurden die des ersten Schusses.');
   }
   const wk = (ref && ref.walk_k != null) ? ref.walk_k : (raw.find(s => s.walk_k != null) || {}).walk_k;
   if (wk != null) p.walk_k = wk;
   const snd = raw.map(s => s.sound_act_mps != null ? s.sound_act_mps : (s.raw && s.raw.sound_act_mps)).filter(v => v != null);
   if (snd.length) {
     const lo = Math.min(...snd), hi = Math.max(...snd);
-    p.sound_mps = +((lo + hi) / 2).toFixed(1);
+    p.temp_set_c = +tempForSound((lo + hi) / 2).toFixed(1);
     p.sound_from_shot = hi - lo >= 0.05;
     if (p.sound_from_shot) notes.push(`Schallgeschwindigkeit schwankt (${lo.toFixed(2)}–${hi.toFixed(2)} m/s) – „je Schuss“ wurde eingeschaltet.`);
   }
@@ -907,43 +905,47 @@ async function selectSession(tr, r) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const el = document.getElementById('p-sound');
-  if (el) el.title = soundSpeedTooltip();
+  const el = document.getElementById('p-temp');
+  if (el) {
+    el.title = soundSpeedTooltip();
+    el.addEventListener('input', updateSoundInfo);
+  }
+  updateSoundInfo();
   initGroups();
 });
 
 // ── 2. Parameter / Config / SHOW-Import ─────────────────────────────────
-// soundSpeedTooltip: Schallgeschwindigkeit in Luft fuer 8-26 °C in 2-Grad-
-// Schritten als Hilfe fuer SOUNDSPEED - gleiche Formel wie die Firmware
-// (Rev 4.15.0, SET DHT): c = 331,3·√(1 + T/273,15)·(1 + 0,16·x_w),
-// Wasserdampfanteil x_w aus Sättigungsdampfdruck (Magnus) bei 1013,25 hPa.
+// Schallgeschwindigkeit aus der Temperatur wie die Firmware (Rev 4.20.0,
+// speedOfSoundMps: trockene Luft) und die Umkehrung fuer Werte in m/s.
+const soundForTemp = t => 331.3 * Math.sqrt(1 + t / 273.15);
+const tempForSound = c => 273.15 * ((c / 331.3) ** 2 - 1);
+
 function soundSpeedTooltip() {
-  const c = (t, rh) => {
-    const ps = 6.112 * Math.exp(17.62 * t / (243.12 + t));
-    return 331.3 * Math.sqrt(1 + t / 273.15) * (1 + 0.16 * rh * ps / 1013.25);
-  };
   const f = v => v.toFixed(1).replace('.', ',');
-  const lines = ['Schallgeschwindigkeit in Luft (Formel wie Firmware):', 'Temp.   trocken   50 % rF'];
-  for (let t = 8; t <= 26; t += 2) {
-    lines.push(`${String(t).padStart(2, ' ')} °C   ${f(c(t, 0))}   ${f(c(t, 0.5))} m/s`);
-  }
+  const lines = ['Schallgeschwindigkeit (Formel wie Firmware, trockene Luft):'];
+  for (let t = 8; t <= 26; t += 2) lines.push(`${String(t).padStart(2, ' ')} °C   ${f(soundForTemp(t))} m/s`);
   return lines.join('\n');
+}
+
+function updateSoundInfo() {
+  const el = document.getElementById('p-soundInfo');
+  const t = parseFloat(document.getElementById('p-temp').value);
+  if (el) el.textContent = isFinite(t) ? `= ${soundForTemp(t).toFixed(1).replace('.', ',')} m/s` : '';
 }
 
 function currentParams() {
   return {
-    standoff_paper_mm: parseFloat(document.getElementById('p-standoffPaper').value) || 0,
-    mic_half_x_mm: parseFloat(document.getElementById('p-micHalfX').value) || 0,
+    mic_layout: document.getElementById('p-micLayout').value,
+    temp_set_c: (v => isFinite(v) ? v : 20)(parseFloat(document.getElementById('p-temp').value)),
     offset_x_um: parseInt(document.getElementById('p-offsetX').value) || 0,
     offset_y_um: parseInt(document.getElementById('p-offsetY').value) || 0,
-    sound_mps: parseFloat(document.getElementById('p-sound').value) || 0,
     walk_k: Math.max(0, Math.min(1, parseFloat(document.getElementById('p-walkK').value) || 0)),
     sound_from_shot: document.getElementById('p-soundFromShot').checked,
     capture: sessionCapture,
     tdoa_us: parseInt(document.getElementById('p-tdoa').value) || 0,
     walk_max_us: parseInt(document.getElementById('p-walkMax').value) || 0,
     walk_width_rule: document.getElementById('p-walkRule').value,
-    mic_offset_ns: [0,1,2,3,4,5].map(i => parseInt(document.getElementById('p-ofs'+i).value) || 0),
+    mic_dist_um: [0,1,2,3,4,5].map(i => parseInt(document.getElementById('p-dist'+i).value) || 0),
     bullet_shift_pct: parseInt(document.getElementById('p-bshiftPct').value) || 0,
     bullet_shift_cap_mm: parseFloat(document.getElementById('p-bshiftCap').value) || 0,
     cluster_radius_um: parseInt(document.getElementById('p-clusterRadius').value) || 0,
@@ -981,18 +983,19 @@ function onUsePiezoChange() {
 function applyParams(p) {
   if (!p) return;
   setTimeout(updateGroupSummaries, 0);
-  if (p.standoff_paper_mm != null) document.getElementById('p-standoffPaper').value = p.standoff_paper_mm;
-  if (p.mic_half_x_mm != null) document.getElementById('p-micHalfX').value = p.mic_half_x_mm;
+  if (p.mic_layout) document.getElementById('p-micLayout').value = p.mic_layout === 'flat' ? 'flat' : 'angled';
   if (p.offset_x_um != null) document.getElementById('p-offsetX').value = p.offset_x_um;
   if (p.offset_y_um != null) document.getElementById('p-offsetY').value = p.offset_y_um;
-  if (p.sound_mps != null) document.getElementById('p-sound').value = p.sound_mps;
+  // Parametersaetze von vor Firmware 4.20.0 tragen sound_mps statt temp_set_c
+  const temp = p.temp_set_c != null ? p.temp_set_c : (p.sound_mps >= 300 && p.sound_mps <= 400 ? +tempForSound(p.sound_mps).toFixed(1) : null);
+  if (temp != null) { document.getElementById('p-temp').value = temp; updateSoundInfo(); }
   if (p.walk_k != null) document.getElementById('p-walkK').value = p.walk_k;
   if (p.tdoa_us != null) document.getElementById('p-tdoa').value = p.tdoa_us;
   if (p.walk_max_us != null) document.getElementById('p-walkMax').value = p.walk_max_us || '';
   if (p.walk_width_rule != null) document.getElementById('p-walkRule').value = p.walk_width_rule;
   if (p.sound_from_shot != null) document.getElementById('p-soundFromShot').checked = !!p.sound_from_shot;
-  if (Array.isArray(p.mic_offset_ns)) {
-    p.mic_offset_ns.forEach((v,i) => { const el = document.getElementById('p-ofs'+i); if (el) el.value = v; });
+  if (Array.isArray(p.mic_dist_um)) {
+    p.mic_dist_um.forEach((v,i) => { const el = document.getElementById('p-dist'+i); if (el) el.value = v; });
   }
   if (p.bullet_shift_pct != null) document.getElementById('p-bshiftPct').value = p.bullet_shift_pct;
   if (p.bullet_shift_cap_mm != null) document.getElementById('p-bshiftCap').value = p.bullet_shift_cap_mm;
@@ -1027,7 +1030,7 @@ const ZONES = [['A', 'Loch Vorsatzscheibe'], ['B', 'neben Band'], ['C', 'Band + 
   const num = (id, step, w) => `<td><input type="number" id="${id}" step="${step}" style="width:${w}px"></td>`;
   tb.innerHTML = ZONES.map(([z, name]) => `<tr><td><strong>${z}</strong> <span class="hint">${name}</span></td>
     <td><input type="checkbox" id="z-${z}-on" onchange="renderZoneBox()"></td>
-    ${num(`z-${z}-sound`, 0.1, 70)}${[0,1,2,3,4,5].map(i => num(`z-${z}-ofs${i}`, 1, 88)).join('')}
+    ${[0,1,2,3,4,5].map(i => num(`z-${z}-dist${i}`, 1, 80)).join('')}
     ${num(`z-${z}-offx`, 1, 80)}${num(`z-${z}-offy`, 1, 80)}</tr>`).join('');
 })();
 
@@ -1079,8 +1082,9 @@ function updateGroupSummaries() {
   const v = id => document.getElementById(id)?.value ?? '';
   const ck = id => !!document.getElementById(id)?.checked;
   const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt ? '– ' + txt : ''; };
-  const ofs = [0,1,2,3,4,5].map(i => v('p-ofs' + i) || '0').join(' / ');
-  set('sum-base', `Schall ${v('p-sound')} m/s · OFS ${ofs} · Offset ${v('p-offsetX')}/${v('p-offsetY')} µm`
+  const dist = [0,1,2,3,4,5].map(i => v('p-dist' + i) || '0').join(' / ');
+  const layout = v('p-micLayout') === 'flat' ? 'flach' : 'schräg';
+  set('sum-base', `${layout} · ${v('p-temp')} °C · DIST ${dist} · Offset ${v('p-offsetX')}/${v('p-offsetY')} µm`
     + (ck('p-soundFromShot') ? ' · Schall je Schuss' : ''));
   const zon = ck('z-enabled');
   const own = zon ? ZONES.map(([z]) => z).filter(z => ck(`z-${z}-on`)) : [];
@@ -1110,8 +1114,7 @@ function readZones() {
   for (const [k] of ZONES) {
     if (!document.getElementById(`z-${k}-on`).checked) continue;
     z[k.toLowerCase()] = {
-      sound_mps: parseFloat(v(`z-${k}-sound`)) || 0,
-      mic_offset_ns: [0,1,2,3,4,5].map(i => parseInt(v(`z-${k}-ofs${i}`)) || 0),
+      mic_dist_um: [0,1,2,3,4,5].map(i => parseInt(v(`z-${k}-dist${i}`)) || 0),
       offset_x_um: parseInt(v(`z-${k}-offx`)) || 0,
       offset_y_um: parseInt(v(`z-${k}-offy`)) || 0,
     };
@@ -1128,11 +1131,11 @@ function writeZones(z) {
     set('z-blend', z.blend_mm || 2.25);
   }
   for (const [k] of ZONES) {
-    const s = z && z[k.toLowerCase()];
+    // Saetze von vor Firmware 4.20.0 (Timing-Offsets) passen nicht mehr
+    const s = z && z[k.toLowerCase()] && Array.isArray(z[k.toLowerCase()].mic_dist_um) ? z[k.toLowerCase()] : null;
     document.getElementById(`z-${k}-on`).checked = !!s;
     if (!s) continue;
-    set(`z-${k}-sound`, s.sound_mps);
-    s.mic_offset_ns.forEach((o, i) => set(`z-${k}-ofs${i}`, o));
+    s.mic_dist_um.forEach((o, i) => set(`z-${k}-dist${i}`, o));
     set(`z-${k}-offx`, s.offset_x_um);
     set(`z-${k}-offy`, s.offset_y_um);
   }
@@ -1267,13 +1270,19 @@ function importShow() {
       weighted: false, lsq: cfg.lsq === 1,
       lsq_pellet_r_mm: cfg.lsq_pellet_r_mm != null ? cfg.lsq_pellet_r_mm : 2.25,
     };
-    // Firmware ab 4.15.0: sound_mps ist gerundet, der genaue Wert steht in
-    // sound_set_mps; walk_k (ab 4.14.0) traegt im SHOW denselben Namen.
-    if (cfg.sound_set_mps != null) cfg.sound_mps = cfg.sound_set_mps;
+    // Firmware ab 4.20.0: mic_layout/mic_dist_um/temp_set_c tragen im SHOW
+    // dieselben Namen wie die Parameter; aeltere Firmware meldet Timing-
+    // Offsets und Schallgeschwindigkeit (sound_set_mps genau ab 4.15.0).
+    if (cfg.mic_dist_um == null) {
+      cfg.mic_layout = 'flat';
+      if (cfg.sound_set_mps != null) cfg.sound_mps = cfg.sound_set_mps;
+    }
     // bei DHT=1 nutzt das Geraet die gemessene Schallgeschwindigkeit
     if (cfg.dht != null) cfg.sound_from_shot = cfg.dht === 1;
     applyParams(cfg);
-    status.textContent = 'Übernommen.';
+    status.textContent = cfg.mic_dist_um == null
+      ? 'Übernommen (Firmware vor 4.20.0: Anordnung „flach“, Timing-Offsets gibt es nicht mehr – DIST bitte kalibrieren).'
+      : 'Übernommen.';
     status.style.color = 'var(--green)';
   } catch(e) {
     status.textContent = 'Konnte SHOW-Ausgabe nicht lesen: ' + e.message;
@@ -1281,7 +1290,7 @@ function importShow() {
   }
 }
 
-// ── 3. Kalibrierung (Mic-Offsets aus ausgewaehlten Schuessen) ───────────
+// ── 3. Kalibrierung (Entfernungskorrekturen aus ausgewaehlten Schuessen) ─
 function renderCalShotList() {
   const box = document.getElementById('calShotList');
   box.innerHTML = '';
@@ -1322,7 +1331,7 @@ function c9Range(key) {
   };
 }
 
-// runCluster9Calibration: Offsets + Parameter auf minimalen Schnittpunkt-
+// runCluster9Calibration: DIST + Parameter auf minimalen Schnittpunkt-
 // Cluster Σ9 optimieren (server/sim_optimize.go) - Ergebnis als Tabelle
 // (vorher / bestes / Alternativen), jede Zeile einzeln übernehmbar.
 async function runCluster9Calibration() {
@@ -1332,9 +1341,8 @@ async function runCluster9Calibration() {
       !confirm(`Cluster-Radius (RADIUS) ist nur ${params.cluster_radius_um || 200} µm - damit liegen kaum Schnittpunkte im Radius und Σ9 ist praktisch immer 45 mm.\nTrotzdem starten? (Empfehlung: RADIUS z.B. 4000)`)) return;
   const corrected = document.getElementById('c9Variant').value === 'corr';
   const options = {
-    corrected, offsets: true,
-    standoff: c9Range('standoff'), mic_half_x: c9Range('michalfx'),
-    bullet_shift_pct: c9Range('bpct'), bullet_shift_cap: c9Range('bcap'), sound: c9Range('sound'),
+    corrected, dist: true,
+    bullet_shift_pct: c9Range('bpct'), bullet_shift_cap: c9Range('bcap'), temp: c9Range('temp'),
   };
   box.style.display = '';
   box.textContent = 'Optimiere Σ9 (mehrere Durchläufe, kann einige Sekunden dauern)…';
@@ -1347,15 +1355,15 @@ async function runCluster9Calibration() {
       ...resp.alternates.map((c, i) => [`Alternative ${i+1}`, c, false])];
     let html = `Σ9 ${corrected ? 'nach Kugeldurchm.-Korrektur' : 'roh'} · ${resp.starts} Startpunkte, `
       + `${resp.evals.toLocaleString('de-DE')} Auswertungen, ${(resp.duration_ms/1000).toFixed(1)} s`
-      + `<table class="c9-res"><tr><th></th><th>Σ9 Ø (mm)</th><th>&lt;10 mm</th><th>Standoff</th><th>Mic-X</th>`
-      + `<th>Korr. %</th><th>Kappung</th><th>Schall</th><th>OFS0–5 (ns)</th><th></th></tr>`;
+      + `<table class="c9-res"><tr><th></th><th>Σ9 Ø (mm)</th><th>&lt;10 mm</th>`
+      + `<th>Korr. %</th><th>Kappung</th><th>Temp. (°C)</th><th>DIST0–5 (µm)</th><th></th></tr>`;
     rows.forEach(([label, c, strong], i) => {
       const p = c.params;
       html += `<tr${strong ? ' style="font-weight:700"' : ''}><td>${label}</td>`
         + `<td class="${cluster9Class(c.mean_sum_mm)}">${c.mean_sum_mm.toFixed(2)}</td>`
-        + `<td>${c.good}/${c.solved}</td><td>${p.standoff_paper_mm.toFixed(2)}</td><td>${p.mic_half_x_mm.toFixed(2)}</td>`
-        + `<td>${p.bullet_shift_pct}</td><td>${p.bullet_shift_cap_mm.toFixed(2)}</td><td>${p.sound_mps.toFixed(2)}</td>`
-        + `<td>${p.mic_offset_ns.join(', ')}</td>`
+        + `<td>${c.good}/${c.solved}</td>`
+        + `<td>${p.bullet_shift_pct}</td><td>${p.bullet_shift_cap_mm.toFixed(2)}</td><td>${p.temp_set_c.toFixed(1)}</td>`
+        + `<td>${p.mic_dist_um.join(', ')}</td>`
         + `<td>${i > 0 ? `<button class="btn-sec" style="padding:2px 8px;font-size:11px" data-c9="${i}">Übernehmen</button>` : ''}</td></tr>`;
     });
     html += '</table>';
@@ -1368,9 +1376,8 @@ async function runCluster9Calibration() {
     box.querySelectorAll('button[data-c9]').forEach(b => b.onclick = () => {
       const p = rows[+b.dataset.c9][1].params;
       applyParams({
-        standoff_paper_mm: +p.standoff_paper_mm.toFixed(2), mic_half_x_mm: +p.mic_half_x_mm.toFixed(2),
-        sound_mps: +p.sound_mps.toFixed(2), bullet_shift_pct: p.bullet_shift_pct,
-        bullet_shift_cap_mm: +p.bullet_shift_cap_mm.toFixed(2), mic_offset_ns: p.mic_offset_ns,
+        temp_set_c: +p.temp_set_c.toFixed(1), bullet_shift_pct: p.bullet_shift_pct,
+        bullet_shift_cap_mm: +p.bullet_shift_cap_mm.toFixed(2), mic_dist_um: p.mic_dist_um,
       });
     });
   } catch (e) {
@@ -1390,18 +1397,18 @@ async function runCalibration() {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({params: params, shot_nos: Array.from(calSelected)})
     });
-    const ofs = resp.mic_offset_ns;
+    const dist = resp.mic_dist_um;
     const costLabel = `Rest-Fehlersumme ${resp.cost.toFixed(3)} mm`;
     const c9 = (resp.cluster_sum_before_mm != null && resp.cluster_sum_after_mm != null)
       ? ` Σ9 Ø der Kalibrier-Schüsse: ${resp.cluster_sum_before_mm.toFixed(2)} mm → `
         + `<strong class="${cluster9Class(resp.cluster_sum_after_mm)}">${resp.cluster_sum_after_mm.toFixed(2)} mm</strong>.`
       : '';
-    box.innerHTML = `Neue Offsets (ns): <strong>${ofs.join(', ')}</strong> · `
+    box.innerHTML = `Neue Entfernungskorrekturen (µm): <strong>${dist.join(', ')}</strong> · `
       + `${costLabel} über ${resp.shots_used} Schuss/Schüsse.${c9} `;
     const applyBtn = document.createElement('button');
     applyBtn.className = 'btn-sec';
-    applyBtn.textContent = 'In OFS0–5 übernehmen';
-    applyBtn.onclick = () => applyParams({mic_offset_ns: ofs});
+    applyBtn.textContent = 'In DIST0–5 übernehmen';
+    applyBtn.onclick = () => applyParams({mic_dist_um: dist});
     box.appendChild(applyBtn);
   } catch(e) {
     box.textContent = 'Fehler: ' + e.message;
@@ -1410,21 +1417,18 @@ async function runCalibration() {
 
 // buildSetCommands: alle aktuell im Formular stehenden Parameter als SET-
 // Befehle fuer die serielle Konsole der Firmware - Feld->Befehl 1:1 nach dem
-// SET-Kommandoparser (schiessstand_firmware.ino, siehe HELP-Text). SET
-// TARGET/STANDOFFSTEEL gibt es nicht mehr - seit Firmware Rev 4.11.2
-// komplett entfernt (Papier ist die einzige Geometrie, ebenso im Simulator
-// nachgezogen, siehe simulator.go).
+// SET-Kommandoparser (schiessstand_firmware.ino, siehe HELP-Text). Ab
+// Firmware Rev 4.20.0: DIST0-5 (per CAL IMPORT) und TEMP statt OFS0-5/
+// SOUNDSPEED; die Mikrofon-Anordnung ist fest in der Firmware (kein SET) -
+// sie muss am Geraet zu p.mic_layout passen.
 function buildSetCommands() {
   const p = currentParams();
   const lines = [
-    `SET STANDOFFPAPER=${p.standoff_paper_mm}`,
-    `SET MICHALFX=${p.mic_half_x_mm}`,
     `SET OFFSETX=${p.offset_x_um}`,
     `SET OFFSETY=${p.offset_y_um}`,
-    // Nachkommastelle erst ab Firmware 4.15.0 - aeltere Firmware: ganzzahlig
-    `SET SOUNDSPEED=${(+p.sound_mps).toFixed(1)}`,
+    `SET TEMP=${(+p.temp_set_c).toFixed(1)}`,
   ];
-  p.mic_offset_ns.forEach((v,i) => lines.push(`SET OFS${i}=${v}`));
+  lines.push('CAL IMPORT ' + p.mic_dist_um.map((v, i) => `DIST${i}=${v}`).join(','));
   lines.push(`SET BSHIFTPCT=${p.bullet_shift_pct}`);
   lines.push(`SET BSHIFTCAP=${p.bullet_shift_cap_mm}`);
   lines.push(`SET RADIUS=${p.cluster_radius_um}`);
@@ -1449,7 +1453,7 @@ function buildSetCommands() {
     lines.push(`SET ZBLEND=${Math.round((z.blend_mm || 2.25) * 1000)}`);
     for (const k of ['a', 'b', 'c']) {
       const s = z[k];
-      lines.push(s ? `SET ZCAL=${k.toUpperCase()},${(+s.sound_mps).toFixed(1)},${s.mic_offset_ns.join(',')},${s.offset_x_um},${s.offset_y_um}`
+      lines.push(s ? `SET ZCAL=${k.toUpperCase()},${s.mic_dist_um.join(',')},${s.offset_x_um},${s.offset_y_um}`
                    : `SET ZCAL=${k.toUpperCase()},OFF`);
     }
     lines.push('SET ZONES=1');

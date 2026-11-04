@@ -12,10 +12,9 @@
 //	B  neben dem Schussband (nur die Vorsatzscheibe)     |x| > BandHalfMM
 //	C  Schussband + Vorsatzscheibe                       sonst
 //
-// Je Zone gibt es einen eigenen Satz aus Schallgeschwindigkeit, Mikrofon-
-// Offsets und Nachkorrektur (die Mikrofon-Geometrie ist fuer alle Zonen
-// gleich - die Mikrofone haengen ja fest). Fehlt der Satz einer Zone, gelten
-// die Basiswerte.
+// Je Zone gibt es einen eigenen Satz aus Entfernungskorrekturen (DIST0-5)
+// und Nachkorrektur, seit Firmware Rev 4.20.0 ohne eigene Schall-
+// geschwindigkeit. Fehlt der Satz einer Zone, gelten die Basiswerte.
 //
 // Ablauf je Schuss (so auch fuer die Firmware vorgesehen):
 //  1. Lage mit den Basiswerten bestimmen.
@@ -30,14 +29,16 @@
 // ============================================================================
 package main
 
-import "math"
+import (
+	"encoding/json"
+	"math"
+)
 
 // ZoneSet: zonenabhaengige Werte (wie die gleichnamigen SimParams-Felder).
 type ZoneSet struct {
-	SoundMps    float64  `json:"sound_mps"`
-	MicOffsetNs [6]int64 `json:"mic_offset_ns"`
-	OffsetXUm   int64    `json:"offset_x_um"`
-	OffsetYUm   int64    `json:"offset_y_um"`
+	MicDistUm [6]int64 `json:"mic_dist_um"`
+	OffsetXUm int64    `json:"offset_x_um"`
+	OffsetYUm int64    `json:"offset_y_um"`
 }
 
 // ZoneParams: Zonengrenzen und je Zone der Parametersatz (nil = Basiswerte).
@@ -49,6 +50,29 @@ type ZoneParams struct {
 	A            *ZoneSet `json:"a,omitempty"`
 	B            *ZoneSet `json:"b,omitempty"`
 	C            *ZoneSet `json:"c,omitempty"`
+}
+
+// UnmarshalJSON verwirft Saetze von vor Firmware Rev 4.20.0 (sound_mps/
+// mic_offset_ns statt mic_dist_um) - sie passen nicht zur neuen Geometrie und
+// muessen neu bestimmt werden.
+func (z *ZoneParams) UnmarshalJSON(b []byte) error {
+	type plain ZoneParams
+	q := plain(*z)
+	if err := json.Unmarshal(b, &q); err != nil {
+		return err
+	}
+	var raw map[string]map[string]json.RawMessage
+	_ = json.Unmarshal(b, &raw)
+	for name, set := range map[string]**ZoneSet{"a": &q.A, "b": &q.B, "c": &q.C} {
+		if *set == nil {
+			continue
+		}
+		if _, ok := raw[name]["mic_dist_um"]; !ok {
+			*set = nil
+		}
+	}
+	*z = ZoneParams(q)
+	return nil
 }
 
 const (
@@ -119,27 +143,20 @@ func (z *ZoneParams) ZoneOf(x, y float64) string {
 	return zoneNames[k]
 }
 
-// zoneParamsFor: p mit den Werten der Zone (nil-Satz = p unveraendert).
-// Die Schallgeschwindigkeit wird als Differenz zur Basis uebernommen, damit
-// eine je Schuss gemessene Schallgeschwindigkeit (SoundFromShot) erhalten
-// bleibt: pp traegt bereits die wirksame Schallgeschwindigkeit des Schusses,
-// base.SoundMps ist der eingestellte Basiswert.
-func zoneParamsFor(pp SimParams, baseSound float64, s *ZoneSet) SimParams {
+// zoneParamsFor: p mit den Werten der Zone (nil-Satz = p unveraendert); die
+// Schallgeschwindigkeit bleibt die des Schusses.
+func zoneParamsFor(pp SimParams, s *ZoneSet) SimParams {
 	if s == nil {
 		return pp
 	}
-	if s.SoundMps > 0 {
-		pp.SoundMps += s.SoundMps - baseSound
-	}
-	pp.MicOffsetNs = s.MicOffsetNs
+	pp.MicDistUm = s.MicDistUm
 	pp.OffsetXUm, pp.OffsetYUm = s.OffsetXUm, s.OffsetYUm
 	return pp
 }
 
 // solveZoned: Ablauf siehe Dateikopf. air/piezo wie SolveShotDetail, pp =
-// Parameter mit der wirksamen Schallgeschwindigkeit des Schusses, baseSound
-// = eingestellte Basis-Schallgeschwindigkeit.
-func solveZoned(air [6][]int64, piezo *int64, pp SimParams, baseSound float64) (SimResult, []airCandidate, []bulletShiftMic, SimParams) {
+// Parameter mit der wirksamen Schallgeschwindigkeit des Schusses.
+func solveZoned(air [6][]int64, piezo *int64, pp SimParams) (SimResult, []airCandidate, []bulletShiftMic, SimParams) {
 	z := pp.Zones
 	res, cands, bs := SolveShotDetail(air, piezo, pp)
 	eff := pp
@@ -164,7 +181,7 @@ func solveZoned(air [6][]int64, piezo *int64, pp SimParams, baseSound float64) (
 			if w[k] <= 0 {
 				continue
 			}
-			zp := zoneParamsFor(pp, baseSound, z.set(zoneNames[k]))
+			zp := zoneParamsFor(pp, z.set(zoneNames[k]))
 			r, c, b := SolveShotDetail(air, piezo, zp)
 			if !r.PosValid {
 				continue

@@ -165,3 +165,21 @@ func TestBuildVereinsabendPDF(t *testing.T) {
 		t.Errorf("Seiten %d, Groesse %d", pdf.PageNo(), buf.Len())
 	}
 }
+
+// Gruppenzeilen und nicht gewertete Zeilen, lange Listen laufen ueber Seiten.
+func TestBuildPDFZeilenStile(t *testing.T) {
+	sec := vaPDFSection{Title: "Gruppenwertung – Vereine",
+		Columns: []vaPDFColumn{{Label: "Platz"}, {Label: "Name"}, {Label: "Ringe", Num: true}}}
+	for i := 0; i < 60; i++ {
+		sec.Rows = append(sec.Rows, []string{fmt.Sprintf("%d.", i+1), "SG Größlhausen", "1.009"})
+		sec.RowStyles = append(sec.RowStyles, []string{"gruppe", "", "nicht"}[i%3])
+	}
+	var buf bytes.Buffer
+	pdf := buildVereinsabendPDF(vaPDFRequest{Title: "Test", Sections: []vaPDFSection{sec}})
+	if err := pdf.Output(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if pdf.PageNo() < 2 {
+		t.Errorf("Seiten %d", pdf.PageNo())
+	}
+}

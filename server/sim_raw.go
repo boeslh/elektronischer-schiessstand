@@ -17,25 +17,65 @@
 // ============================================================================
 package main
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"math"
+)
 
 // RawEdges: Inhalt des raw-Telegramms (Feldnamen wie im Telegramm).
 type RawEdges struct {
-	Seq         int        `json:"seq"`
-	Algo        string     `json:"algo"`
-	Ref         string     `json:"ref"` // "first" (CLASSIC) | "piezo" (RIM)
-	Capture     string     `json:"capture"`
-	SoundActMps *float64   `json:"sound_act_mps"`
-	WalkK       *float64   `json:"walk_k"`
-	WalkMaxUs   *int       `json:"walk_max_us"`
-	WinPreNs    int64      `json:"win_pre_ns"`
-	WinPostNs   int64      `json:"win_post_ns"`
-	OfsNs       [6]int64   `json:"ofs_ns"`
-	MicEn       [6]int     `json:"mic_en"`
-	PiezoNs     *int64     `json:"piezo_ns"`
-	RiseNs      [6][]int64 `json:"rise_ns"`
-	FallNs      [6][]int64 `json:"fall_ns"`
-	Truncated   int        `json:"truncated"`
+	Seq         int      `json:"seq"`
+	Algo        string   `json:"algo"`
+	Ref         string   `json:"ref"` // "first" (CLASSIC) | "piezo" (RIM)
+	Capture     string   `json:"capture"`
+	SoundActMps *float64 `json:"sound_act_mps"`
+	WalkK       *float64 `json:"walk_k"`
+	WalkMaxUs   *int     `json:"walk_max_us"`
+	WinPreNs    int64    `json:"win_pre_ns"`
+	WinPostNs   int64    `json:"win_post_ns"`
+	// bis Firmware 4.19: Timing-Offsets; ab Rev 4.20.0 Entfernungs-
+	// korrekturen und die damit tatsaechlich gerechneten Mikrofon-Positionen
+	// [x,y,z] (0.001mm), siehe rawMicLayout
+	OfsNs     *[6]int64    `json:"ofs_ns,omitempty"`
+	MicDistUm *[6]int64    `json:"mic_dist_um,omitempty"`
+	MicPosUm  *[6][3]int64 `json:"mic_pos_um,omitempty"`
+	// MicLayout: daraus erkannte Anordnung (rawMicLayout), nur fuer die
+	// Simulator-Oberflaeche - kein Telegrammfeld
+	MicLayout string     `json:"mic_layout,omitempty"`
+	MicEn     [6]int     `json:"mic_en"`
+	PiezoNs   *int64     `json:"piezo_ns"`
+	RiseNs    [6][]int64 `json:"rise_ns"`
+	FallNs    [6][]int64 `json:"fall_ns"`
+	Truncated int        `json:"truncated"`
+}
+
+// rawMicLayout: Mikrofon-Anordnung, mit der das Geraet laut raw-Telegramm
+// gerechnet hat (Firmware ab Rev 4.20.0, mic_pos_um + mic_dist_um) - die
+// Anordnung, deren Soll-Positionen mit den Korrekturen auf hoechstens 5 um
+// genau die gemeldeten Positionen ergeben; "" = unbekannt (aeltere Firmware).
+func (r *RawEdges) rawMicLayout() string {
+	if r == nil || r.MicPosUm == nil || r.MicDistUm == nil {
+		return ""
+	}
+	var d [6]float32
+	for i, v := range r.MicDistUm {
+		d[i] = float32(v)
+	}
+	for _, name := range []string{micLayoutAngled, micLayoutFlat} {
+		g := micGeometryDist(name, d)
+		ok := true
+		for i := 0; i < 6 && ok; i++ {
+			for k, v := range [3]float32{g.X[i], g.Y[i], g.Z[i]} {
+				if math.Abs(float64(v)*1000-float64(r.MicPosUm[i][k])) > 5 {
+					ok = false
+				}
+			}
+		}
+		if ok {
+			return name
+		}
+	}
+	return ""
 }
 
 func parseRawEdges(b []byte) *RawEdges {
@@ -46,6 +86,7 @@ func parseRawEdges(b []byte) *RawEdges {
 	if json.Unmarshal(b, &r) != nil {
 		return nil
 	}
+	r.MicLayout = r.rawMicLayout()
 	return &r
 }
 

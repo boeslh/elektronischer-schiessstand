@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 )
@@ -72,13 +73,15 @@ func TestSolveShot_RegressionAgainstDevice(t *testing.T) {
 	}
 
 	// Keine harte Gleichheit erwartet (siehe Kommentar oben) - die
-	// tatsaechlich am Geraet aktiven OFS/Standoff/Soundspeed-Werte zum
+	// tatsaechlich am Geraet aktiven Kalibrierwerte (damals noch flache
+	// Anordnung und Timing-Offsets, Firmware vor 4.20.0) zum
 	// Aufnahmezeitpunkt sind unbekannt (nicht im Telegramm gespeichert,
 	// vermutlich per CAL START individuell kalibriert). Nur grobe
 	// Plausibilitaet (gleiche Groessenordnung, gueltige Loesung) pruefen -
 	// die eigentliche Korrektheit der Portierung verifiziert
 	// TestSolveShot_SyntheticGroundTruth unten mit bekannter Soll-Position.
 	p := DefaultSimParams()
+	p.MicLayout = micLayoutFlat     // Aufnahme mit Firmware vor 4.20.0
 	p.UsePiezo = piezoNotRequired() // Testdaten liefern keine piezoNs
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -113,61 +116,38 @@ func TestSolveShot_SyntheticGroundTruth(t *testing.T) {
 	cases := []struct {
 		name           string
 		xMM, yMM       float64
-		standoffMM     float64
-		soundMps       float64
-		micHalfXMm     float64
-		micOffsetNs    [6]int64
+		layout         string
+		tempC          float64
+		distUm         [6]int64
 		bulletShiftPct int
 		bulletShiftCap float64
 	}{
-		{name: "center", xMM: 3, yMM: -2, standoffMM: 28, soundMps: 343, micHalfXMm: 115},
-		{name: "offcenter", xMM: 40, yMM: -55, standoffMM: 28, soundMps: 343, micHalfXMm: 115},
-		{name: "offcenter2", xMM: -20, yMM: 30, standoffMM: 28, soundMps: 343, micHalfXMm: 115},
-		{name: "with_mic_offsets", xMM: 10, yMM: 10, standoffMM: 28, soundMps: 348, micHalfXMm: 115,
-			micOffsetNs: [6]int64{120, -80, 50, 0, -150, 30}},
-		{name: "custom_mic_half_x", xMM: -8, yMM: 15, standoffMM: 28, soundMps: 343, micHalfXMm: 120},
-		// Kugeldurchmesser-Korrektur (Default 50%/3mm) darf bei sauberen,
+		{name: "center", xMM: 3, yMM: -2, tempC: 20},
+		{name: "offcenter", xMM: 40, yMM: -55, tempC: 20},
+		{name: "offcenter2", xMM: -20, yMM: 30, tempC: 20},
+		{name: "with_dist", xMM: 10, yMM: 10, tempC: 28,
+			distUm: [6]int64{0, -420, 300, 110, -30, 15}},
+		{name: "flat_layout", xMM: -8, yMM: 15, layout: micLayoutFlat, tempC: 20},
+		// Kugeldurchmesser-Korrektur (50%/3mm) darf bei sauberen,
 		// widerspruchsfreien Daten (Rest-Fehler ~0 fuer alle Kombinationen)
 		// die Position nicht relevant verschieben.
-		{name: "with_bullet_shift", xMM: 5, yMM: -5, standoffMM: 28, soundMps: 343, micHalfXMm: 115,
+		{name: "with_bullet_shift", xMM: 5, yMM: -5, tempC: 20,
 			bulletShiftPct: 50, bulletShiftCap: 3.0},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			p := SimParams{
-				StandoffPaperMM:  c.standoffMM,
-				MicHalfXMm:       c.micHalfXMm,
-				SoundMps:         c.soundMps,
-				MicOffsetNs:      c.micOffsetNs,
+				MicLayout:        c.layout,
+				TempC:            c.tempC,
+				MicDistUm:        c.distUm,
 				BulletShiftPct:   c.bulletShiftPct,
 				BulletShiftCapMm: c.bulletShiftCap,
 				UsePiezo:         piezoNotRequired(), // Testdaten liefern keine piezoNs
 			}
-
-			micX, micY, standoffMM := micGeometry(p)
-			soundMmPerNs := c.soundMps * 1.0e-6
-
-			// Fuer jedes Mic: exakte Laufzeit (inkl. Standoff-Z) in ns,
-			// PLUS den simulierten Mic-Offset (wird von SolveShot wieder
-			// abgezogen - muss also hier draufgerechnet werden, damit die
-			// Rundtrip-Rechnung konsistent ist).
-			raw := make([]int64, 6)
-			minT := int64(1<<63 - 1)
-			for i := 0; i < 6; i++ {
-				dx := c.xMM - float64(micX[i])
-				dy := c.yMM - float64(micY[i])
-				dist := math.Sqrt(dx*dx + dy*dy + float64(standoffMM)*float64(standoffMM))
-				tNs := int64(math.Round(dist/soundMmPerNs)) + c.micOffsetNs[i]
-				raw[i] = tNs
-				if tNs < minT {
-					minT = tNs
-				}
-			}
-			var airNs [6][]int64
-			for i := 0; i < 6; i++ {
-				airNs[i] = []int64{raw[i] - minT}
-			}
+			// Laufzeiten exakt aus der Geometrie, die das Geraet mit diesen
+			// Entfernungskorrekturen verwendet (genCalAirNs)
+			airNs := genCalAirNs(c.xMM, c.yMM, c.distUm, p)
 
 			got := SolveShot(airNs, nil, p)
 			if !got.PosValid {
@@ -184,6 +164,57 @@ func TestSolveShot_SyntheticGroundTruth(t *testing.T) {
 			}
 			t.Logf("ok: got=%+v want_x_um=%d want_y_um=%d", got, wantXUm, wantYUm)
 		})
+	}
+}
+
+// TestMicGeometry_MatchesDevice: die Geometrie (applyMicGeometry-Port) muss
+// die Mikrofon-Positionen ergeben, die das Geraet im raw-Telegramm meldet
+// (Beispiel aus protokoll-referenz.md 4.5c, Rev 4.20.0), und die Soll-
+// Entfernungen der Anordnung "angled" (134,47 / 115,73 mm).
+func TestMicGeometry_MatchesDevice(t *testing.T) {
+	r := RawEdges{
+		MicDistUm: &[6]int64{0, -420, 300, 110, -30, 15},
+		MicPosUm: &[6][3]int64{{-109000, -75000, 24000}, {108660, -74766, 23925}, {-109243, 75167, 24054},
+			{109089, 75061, 24020}, {-112971, 0, 24994}, {113015, 0, 25003}},
+	}
+	if got := r.rawMicLayout(); got != micLayoutAngled {
+		t.Fatalf("rawMicLayout = %q, want angled", got)
+	}
+	g := micNominal(micLayoutAngled)
+	for i, want := range []float64{134.47, 134.47, 134.47, 134.47, 115.73, 115.73} {
+		d := math.Sqrt(float64(g.X[i]*g.X[i] + g.Y[i]*g.Y[i] + g.Z[i]*g.Z[i]))
+		if math.Abs(d-want) > 0.01 {
+			t.Errorf("Mic%d Entfernung %.3f, want %.2f", i, d, want)
+		}
+	}
+	if v := speedOfSound(20); math.Abs(v-343.2) > 0.05 {
+		t.Errorf("speedOfSound(20) = %.2f, want ~343.2", v)
+	}
+}
+
+// TestSimParams_LegacyJSON: gespeicherte Parameter von vor Firmware 4.20.0
+// (sound_mps statt temp_set_c) ergeben die gleichwertige Temperatur, alte
+// Zonen-Saetze (Timing-Offsets) werden verworfen.
+func TestSimParams_LegacyJSON(t *testing.T) {
+	var p SimParams
+	if err := json.Unmarshal([]byte(`{"sound_mps":343.2,"mic_offset_ns":[0,1,2,3,4,5],
+		"zones":{"enabled":true,"hole_radius_mm":15.25,"a":{"sound_mps":340,"mic_offset_ns":[0,1,2,3,4,5]},
+		"b":{"mic_dist_um":[0,10,0,0,0,0]}}}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(p.TempC-20) > 0.15 {
+		t.Errorf("TempC = %.2f, want ~20 (aus sound_mps 343.2)", p.TempC)
+	}
+	if p.Zones == nil || p.Zones.A != nil || p.Zones.B == nil || p.Zones.B.MicDistUm[1] != 10 {
+		t.Errorf("Zonen = %+v, want A verworfen, B behalten", p.Zones)
+	}
+	var q SimParams
+	if err := json.Unmarshal([]byte(`{"offset_x_um":5}`), &q); err != nil || q.TempC != simDefaultTempC {
+		t.Errorf("ohne Temperatur: TempC = %.1f, want %.1f", q.TempC, simDefaultTempC)
+	}
+	var r SimParams
+	if err := json.Unmarshal([]byte(`{"temp_set_c":0}`), &r); err != nil || r.TempC != 0 {
+		t.Errorf("temp_set_c 0 muss erhalten bleiben, got %.1f", r.TempC)
 	}
 }
 
@@ -228,25 +259,8 @@ func TestSolveShot_MicEnabled(t *testing.T) {
 	p := DefaultSimParams()
 	p.UsePiezo = piezoNotRequired() // Testdaten liefern keine piezoNs
 
-	micX, micY, standoffMM := micGeometry(p)
-	soundMmPerNs := p.SoundMps * 1.0e-6
 	xMM, yMM := 6.0, -9.0
-
-	raw := make([]int64, 6)
-	minT := int64(1<<63 - 1)
-	for i := 0; i < 6; i++ {
-		dx := xMM - float64(micX[i])
-		dy := yMM - float64(micY[i])
-		dist := math.Sqrt(dx*dx + dy*dy + float64(standoffMM)*float64(standoffMM))
-		raw[i] = int64(math.Round(dist / soundMmPerNs))
-		if raw[i] < minT {
-			minT = raw[i]
-		}
-	}
-	var airNs [6][]int64
-	for i := 0; i < 6; i++ {
-		airNs[i] = []int64{raw[i] - minT}
-	}
+	airNs := genCalAirNs(xMM, yMM, p.MicDistUm, p)
 
 	t.Run("default_all_enabled", func(t *testing.T) {
 		got := SolveShot(airNs, nil, p) // MicEnabled nil -> alle aktiv
@@ -289,25 +303,8 @@ func TestSolveShot_MicEnabled(t *testing.T) {
 func TestSolveShot_RequiresPiezoByDefault(t *testing.T) {
 	p := DefaultSimParams() // UsePiezo unbelegt -> usePiezo()==true (Default)
 
-	micX, micY, standoffMM := micGeometry(p)
-	soundMmPerNs := p.SoundMps * 1.0e-6
 	xMM, yMM := 6.0, -9.0
-
-	raw := make([]int64, 6)
-	minT := int64(1<<63 - 1)
-	for i := 0; i < 6; i++ {
-		dx := xMM - float64(micX[i])
-		dy := yMM - float64(micY[i])
-		dist := math.Sqrt(dx*dx + dy*dy + float64(standoffMM)*float64(standoffMM))
-		raw[i] = int64(math.Round(dist / soundMmPerNs))
-		if raw[i] < minT {
-			minT = raw[i]
-		}
-	}
-	var airNs [6][]int64
-	for i := 0; i < 6; i++ {
-		airNs[i] = []int64{raw[i] - minT}
-	}
+	airNs := genCalAirNs(xMM, yMM, p.MicDistUm, p)
 
 	t.Run("no_piezo_ns_invalid", func(t *testing.T) {
 		got := SolveShot(airNs, nil, p)
@@ -344,22 +341,22 @@ func TestSolveShot_RequiresPiezoByDefault(t *testing.T) {
 	})
 }
 
-// genCalAirNs erzeugt synthetische Rohdaten (wie im Telegramm, VOR
-// Offset-Korrektur) fuer eine bekannte Trefferposition unter der Annahme,
-// dass die Mikrofone tatsaechlich die angegebenen (unbekannten, zu
-// findenden) Timing-Fehler trueOffsetNs haben - analog zu den anderen
-// Ground-Truth-Tests, aber mit absichtlich verfaelschten ("unkalibrierten")
-// Zeiten statt bereits korrekter.
-func genCalAirNs(xMM, yMM float64, trueOffsetNs [6]int64, p SimParams) [6][]int64 {
-	micX, micY, standoffMM, soundMmPerNs, _ := solveParams(p)
+// genCalAirNs erzeugt synthetische Rohdaten (wie im Telegramm) fuer eine
+// bekannte Trefferposition: die Mikrofone stehen tatsaechlich an den mit
+// trueDistUm verschobenen Positionen der Anordnung aus p (Schallgeschwindigkeit
+// aus p) - die Kalibrierung muss trueDistUm wiederfinden, eine Rechnung mit
+// p.MicDistUm == trueDistUm muss die Position exakt treffen.
+func genCalAirNs(xMM, yMM float64, trueDistUm [6]int64, p SimParams) [6][]int64 {
+	q := p
+	q.MicDistUm = trueDistUm
+	g, soundMmPerNs, _ := solveParams(q)
 	raw := make([]int64, 6)
 	minT := int64(1<<63 - 1)
 	for i := 0; i < 6; i++ {
-		dx := xMM - float64(micX[i])
-		dy := yMM - float64(micY[i])
-		dist := math.Sqrt(dx*dx + dy*dy + float64(standoffMM)*float64(standoffMM))
-		exact := int64(math.Round(dist / float64(soundMmPerNs)))
-		raw[i] = exact + trueOffsetNs[i] // "unkalibriert" - der zu findende Fehler steckt noch drin
+		dx := xMM - float64(g.X[i])
+		dy := yMM - float64(g.Y[i])
+		dist := math.Sqrt(dx*dx + dy*dy + float64(g.Z[i])*float64(g.Z[i]))
+		raw[i] = int64(math.Round(dist / float64(soundMmPerNs)))
 		if raw[i] < minT {
 			minT = raw[i]
 		}
@@ -371,106 +368,82 @@ func genCalAirNs(xMM, yMM float64, trueOffsetNs [6]int64, p SimParams) [6][]int6
 	return airNs
 }
 
-// TestCalibrateMicOffsets_RecoversKnownOffsets verifiziert die Portierung
-// von calCost()/runCalibration(): aus mehreren Kalibrier-Schuessen mit
-// bekannten (aber absichtlich falschen) Mikrofon-Timing-Fehlern muss die
-// Optimierung diese Fehler wiederfinden. Mic0 bleibt Referenz (immer 0).
-// Hinweis zur Testphilosophie: Bei GLEICHZEITIGEN Timing-Fehlern auf mehreren
-// Mikrofonen kann die gieriege Koordinatensuche (1:1 aus der Firmware
-// uebernommen, siehe runCalibration()-Kommentar zu "kann ... einfrieren")
-// in ein ANDERES, aehnlich gutes lokales statt das globale Optimum laufen -
-// das ist eine echte Eigenschaft des Original-Algorithmus (durch einen
-// Vergleichstest mit einem einzelnen verstellten Mikrofon unten separat als
-// korrekt bestaetigt), keine Portierungsabweichung. Der Mehrfach-Offset-Test
-// prueft deshalb bewusst nur, was der Algorithmus tatsaechlich GARANTIERT
-// (Kosten sinken/bleiben mindestens so gut wie ohne Kalibrierung), nicht die
-// exakte Wiederherstellung der eingespeisten Werte.
+// Kalibrier-Tests (Port von calCost()/runCalibration(), Rev 4.20.0): aus
+// mehreren Kalibrier-Schuessen mit bekannten (absichtlich falschen)
+// Mikrofon-Entfernungen muss die Optimierung diese Fehler wiederfinden.
+// Mic0 bleibt Referenz (immer 0). Bei GLEICHZEITIGEN Fehlern auf mehreren
+// Mikrofonen kann die gierige Koordinatensuche (1:1 aus der Firmware) in ein
+// anderes, aehnlich gutes lokales Optimum laufen - der Mehrfach-Test prueft
+// deshalb nur, was der Algorithmus garantiert (Kosten nicht schlechter als
+// ohne Kalibrierung).
 
-// TestCalibrateMicOffsets_SingleOffsetRecovered: bei genau EINEM verstellten
-// Mikrofon ist das Problem eindeutig loesbar - hier muss die Optimierung den
-// eingespeisten Fehler nahezu exakt wiederfinden. Bestaetigt die Korrektheit
-// von calCost()/runCalibration() unabhaengig von der oben beschriebenen
-// Mehrdeutigkeit bei mehreren gleichzeitigen Fehlern.
-func TestCalibrateMicOffsets_SingleOffsetRecovered(t *testing.T) {
+var calTestPositions = [][2]float64{
+	{3, -2}, {40, -55}, {-20, 30}, {10, 10}, {-35, -40}, {25, 40},
+}
+
+// TestCalibrateMicDist_SingleRecovered: bei genau EINEM verstellten
+// Mikrofon ist das Problem eindeutig loesbar.
+func TestCalibrateMicDist_SingleRecovered(t *testing.T) {
 	p := DefaultSimParams()
-	trueOffsetNs := [6]int64{0, 180, 0, 0, 0, 0}
-
-	positions := [][2]float64{
-		{3, -2}, {40, -55}, {-20, 30}, {10, 10}, {-35, -40}, {25, 40},
-	}
+	trueDist := [6]int64{0, 1500, 0, 0, 0, 0}
 	var airNs [][6][]int64
-	for _, pos := range positions {
-		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueOffsetNs, p))
+	for _, pos := range calTestPositions {
+		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueDist, p))
 	}
 
-	gotOffsets, cost := CalibrateMicOffsets(airNs, p)
-	t.Logf("gotOffsets=%v cost=%.4f want=%v", gotOffsets, cost, trueOffsetNs)
+	got, cost := CalibrateMicDist(airNs, nil, p)
+	t.Logf("got=%v cost=%.4f want=%v", got, cost, trueDist)
 
-	const tolNs = 30 // Endschrittweite der Koordinatensuche ~9.8ns, grosszuegige Toleranz
+	const tolUm = 30 // Endschrittweite ~4.9um, Nanosekunden-Rundung der Testdaten
 	for i := 0; i < 6; i++ {
-		if abs64(gotOffsets[i]-trueOffsetNs[i]) > tolNs {
-			t.Errorf("Mic%d Offset = %d, want ~%d (diff %d)", i, gotOffsets[i], trueOffsetNs[i],
-				abs64(gotOffsets[i]-trueOffsetNs[i]))
+		if abs64(got[i]-trueDist[i]) > tolUm {
+			t.Errorf("Mic%d DIST = %d, want ~%d", i, got[i], trueDist[i])
 		}
 	}
 }
 
-// TestCalibrateMicOffsets_ImprovesOverNoCalibration prueft die bei
-// GLEICHZEITIGEN Mehrfach-Offsets tatsaechlich garantierte Eigenschaft: die
-// gefundene Loesung darf nicht schlechter sein als gar keine Kalibrierung
-// (Offsets 0), da die Koordinatensuche bei jedem Schritt nur Aenderungen
-// uebernimmt, die die Kosten senken oder gleich lassen (siehe runCalibration()).
-func TestCalibrateMicOffsets_ImprovesOverNoCalibration(t *testing.T) {
+// TestCalibrateMicDist_ImprovesOverNoCalibration: die gefundene Loesung darf
+// nicht schlechter sein als gar keine Kalibrierung (DIST 0).
+func TestCalibrateMicDist_ImprovesOverNoCalibration(t *testing.T) {
 	p := DefaultSimParams()
 	p.UsePiezo = piezoNotRequired() // zeroCost-Baseline unten nutzt SolveShot() ohne piezoNs
-	trueOffsetNs := [6]int64{0, 180, -240, 90, -60, 310}
-
-	positions := [][2]float64{
-		{3, -2}, {40, -55}, {-20, 30}, {10, 10}, {-35, -40}, {25, 40},
-	}
+	trueDist := [6]int64{0, 600, -800, 300, -200, 1000}
 	var airNs [][6][]int64
-	for _, pos := range positions {
-		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueOffsetNs, p))
+	for _, pos := range calTestPositions {
+		airNs = append(airNs, genCalAirNs(pos[0], pos[1], trueDist, p))
 	}
 
-	gotOffsets, cost := CalibrateMicOffsets(airNs, p)
-	t.Logf("gotOffsets=%v cost=%.4f want(eingespeist)=%v", gotOffsets, cost, trueOffsetNs)
-
-	if gotOffsets[0] != 0 {
-		t.Errorf("Mic0 (Referenz) = %d, want 0", gotOffsets[0])
+	got, cost := CalibrateMicDist(airNs, nil, p)
+	t.Logf("got=%v cost=%.4f want(eingespeist)=%v", got, cost, trueDist)
+	if got[0] != 0 {
+		t.Errorf("Mic0 (Referenz) = %d, want 0", got[0])
 	}
 
-	// Kosten ohne jede Kalibrierung (Offsets 0) als Vergleichsbasis - CorrResUm
-	// (nicht PosResUm), da CalibrateMicOffsets/calCostClassicFn seit Einbeziehung
-	// der Kugeldurchmesser-Korrektur gegen corrResMM statt resMM optimiert
-	// (siehe calCostClassicFn-Kommentar in simulator.go).
+	// Kosten ohne Kalibrierung (CorrResUm wie calCostClassicFn)
 	var zeroCost float64
 	for _, shot := range airNs {
-		r := SolveShot(shot, nil, p) // p.MicOffsetNs ist hier der Nullwert
+		r := SolveShot(shot, nil, p) // p.MicDistUm ist hier der Nullwert
 		if r.PosValid {
 			zeroCost += float64(r.CorrResUm) / 1000.0
 		} else {
 			zeroCost += 1000.0
 		}
 	}
-
-	const tolMM = 0.01 // Rundungstoleranz zwischen den beiden Kostenberechnungen
+	const tolMM = 0.01
 	if cost > zeroCost+tolMM {
-		t.Errorf("Kalibrierte Kosten (%.4f) schlechter als unkalibriert (%.4f) - "+
-			"die Optimierung darf sich nie verschlechtern", cost, zeroCost)
+		t.Errorf("Kalibrierte Kosten (%.4f) schlechter als unkalibriert (%.4f)", cost, zeroCost)
 	}
 }
 
-// TestCalibrateMicOffsets_TooFewShots stellt sicher, dass zu wenige/
-// unloesbare Kalibrier-Schuesse nicht zu einer Panik fuehren (Strafwert-Pfad
-// in calCost() statt Absturz) - kein Erwartungswert an das Ergebnis selbst.
-func TestCalibrateMicOffsets_TooFewShots(t *testing.T) {
+// TestCalibrateMicDist_TooFewShots: unloesbare Kalibrier-Schuesse fuehren
+// zum Strafwert statt zu einer Panik.
+func TestCalibrateMicDist_TooFewShots(t *testing.T) {
 	p := DefaultSimParams()
 	airNs := [][6][]int64{
 		{{0}, {100}, nil, nil, nil, nil}, // nur 2 Mics -> in jedem Kalibrier-Schuss unloesbar
 	}
-	offsets, cost := CalibrateMicOffsets(airNs, p)
-	t.Logf("offsets=%v cost=%.3f (Strafwert-Pfad erwartet, kein Crash)", offsets, cost)
+	dist, cost := CalibrateMicDist(airNs, nil, p)
+	t.Logf("dist=%v cost=%.3f (Strafwert-Pfad erwartet, kein Crash)", dist, cost)
 	if cost < 1000.0 {
 		t.Errorf("cost = %.3f, erwartet >=1000 (Strafwert fuer unloesbaren Schuss)", cost)
 	}
@@ -485,18 +458,22 @@ func TestCalibrateMicOffsets_TooFewShots(t *testing.T) {
 func TestSolveShotDetail_Candidates(t *testing.T) {
 	p := DefaultSimParams() // BulletShiftPct=50 (Firmware-Default)
 	p.UsePiezo = piezoNotRequired() // Testdaten liefern keine piezoNs
-	airNs := genCalAirNs(6, -4, [6]int64{}, p) // trueOffset=0 -> bereits "kalibrierte" Zeiten
+	airNs := genCalAirNs(6, -4, [6]int64{}, p) // DIST=0 -> bereits "kalibrierte" Zeiten
 
 	res, candidates, bulletShift := SolveShotDetail(airNs, nil, p)
 	if !res.PosValid {
 		t.Fatalf("PosValid=false, erwartet true")
 	}
-	// 18 statt der theoretischen C(6,3)=20: 2 Kombinationen sind bei dieser
-	// Mic-Geometrie strukturell singulaer (kollinear) und liefern nie eine
-	// Loesung - bereits in TestSolveShot_SyntheticGroundTruth durchgaengig
-	// als ClusterHits=18 beobachtet, unabhaengig von der Trefferposition.
-	if len(candidates) != 18 {
-		t.Errorf("len(candidates) = %d, want 18", len(candidates))
+	// Anordnung "angled": alle C(6,3)=20 Kombinationen loesbar. Bei der
+	// flachen Anordnung (bis Firmware 4.19) lagen die drei Mics einer Seite
+	// auf einer Linie - die beiden kollinearen Kombinationen fielen weg (18).
+	if len(candidates) != 20 {
+		t.Errorf("len(candidates) = %d, want 20", len(candidates))
+	}
+	pf := p
+	pf.MicLayout = micLayoutFlat
+	if _, cf, _ := SolveShotDetail(genCalAirNs(6, -4, [6]int64{}, pf), nil, pf); len(cf) != 18 {
+		t.Errorf("flach: len(candidates) = %d, want 18", len(cf))
 	}
 
 	xMM, yMM := float64(res.XUm)/1000, float64(res.YUm)/1000

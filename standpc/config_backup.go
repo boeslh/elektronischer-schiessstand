@@ -2,8 +2,9 @@
 // config_backup.go – Sicherung und Verlauf der kompletten ESP32-Konfiguration
 // beim Server (server/esp32_config_history.go).
 //
-// Die Kalibrier-Sicherung (calibration_backup.go) enthaelt nur OFS0-5 und
-// SOUNDSPEED - alle uebrigen Einstellungen (OFFSETX/Y, Standoff, ALGO,
+// Die Kalibrier-Sicherung (calibration_backup.go) enthaelt nur DIST0-5 (bis
+// Firmware 4.19 OFS0-5 und SOUNDSPEED) - alle uebrigen Einstellungen
+// (OFFSETX/Y, TEMP, ALGO,
 // Piezo, Papiervorschub, ...) standen bisher nur auf der Platine selbst und
 // waren nach einem Platinentausch verloren. Deshalb meldet der Stand-PC jede
 // empfangene Konfiguration (SHOW-Antwort, egal wodurch ausgeloest) als
@@ -46,6 +47,12 @@ func deviceConfigSettings(c *ConfigTelegram) map[string]string {
 		if v, ok := currentSettingValue(c, k.Key); ok {
 			out[k.Key] = v
 		}
+	}
+	// Mikrofon-Anordnung (fest in der Firmware, kein SET): eine
+	// Wiederherstellung auf ein Geraet mit anderer Anordnung lehnt
+	// applySettings ab
+	if v, ok := currentSettingValue(c, "MICLAYOUT"); ok {
+		out["MICLAYOUT"] = v
 	}
 	return out
 }

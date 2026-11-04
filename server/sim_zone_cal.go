@@ -101,21 +101,21 @@ type zoneCalInput struct {
 }
 
 // zoneFullFitMin: ab dieser Schusszahl werden in einer Zone auch die
-// Mikrofon-Offsets angepasst.
+// Entfernungskorrekturen der Mikrofone angepasst.
 var zoneFullFitMin = 6
 
-// zoneRidgeNs: Offset-Abweichung vom Basissatz, die so viel kostet wie 1 mm
-// Lagefehler (0 = keine Bindung). 12000 ns war in der Leave-one-out-Pruefung
-// (Serie 12.10.2026) am besten: 72 % < 1 mm gegenueber 62 % ohne Bindung.
-var zoneRidgeNs = 12000.0
+// zoneRidgeUm: Abweichung der Entfernungskorrektur vom Basissatz, die so viel
+// kostet wie 1 mm Lagefehler (0 = keine Bindung). Mit Timing-Offsets bis
+// Firmware 4.19 waren 12000 ns in der Leave-one-out-Pruefung (Serie
+// 12.10.2026) am besten (72 % < 1 mm gegenueber 62 % ohne Bindung) - hier
+// der gleichwertige Weg bei 343 m/s.
+var zoneRidgeUm = 4100.0
 
 // zoneFitOptions: freie Werte einer Zone abhaengig von der Schusszahl.
 func zoneFitOptions(n int) (PhotoCalOptions, string, bool) {
 	switch {
 	case n >= zoneFullFitMin:
-		return PhotoCalOptions{MicOffsets: true, Offset: true, SoundSpeed: true}, "Offsets, Nachkorrektur, Schallgeschwindigkeit", true
-	case n >= 4:
-		return PhotoCalOptions{Offset: true, SoundSpeed: true}, "Nachkorrektur, Schallgeschwindigkeit", true
+		return PhotoCalOptions{MicDist: true, Offset: true}, "Entfernungskorrektur, Nachkorrektur", true
 	case n >= 3:
 		return PhotoCalOptions{Offset: true}, "nur Nachkorrektur", true
 	}

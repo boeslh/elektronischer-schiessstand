@@ -120,6 +120,62 @@
   .rank-rings{font-size:15px;font-weight:700;text-align:right}
   .rank-shooters{color:var(--dim);font-size:12px;text-align:right;padding-right:4px}
 
+  /* Variable Auswertung */
+  .va-save-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .va-steps{display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  .va-step{background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--dim);
+           font-size:13px;font-weight:600;padding:8px 16px;cursor:pointer}
+  .va-step.active{border-color:var(--acc);color:var(--acc)}
+  .va-gruppe-zeile td{background:rgba(127,140,160,.14);font-weight:600;border-top:8px solid var(--panel)}
+  .va-nicht td{color:var(--dim);font-style:italic}
+  .va-nicht .va-wert{color:var(--dim);font-weight:400}
+  .va-tag{font-size:11px;margin-left:8px;font-style:normal;white-space:nowrap}
+  .va-checks{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:8px}
+  .va-check{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+  .va-check input{width:auto;flex:none;margin:0}
+  .va-quer{margin-top:12px}
+  .va-export{display:flex;gap:6px;justify-content:flex-end;margin-bottom:10px}
+  .va-export[hidden]{display:none}
+  .va-box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 20px;margin-bottom:12px}
+  .va-box summary{cursor:pointer;font-size:13px}
+  .va-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:12px}
+  .va-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .va-field[hidden]{display:none}
+  .va-field label{font-size:12px;color:var(--dim)}
+  #pane-variabel input[type=text],#pane-variabel input[type=number],#pane-variabel input[type=date]{
+    background:#0e1218;border:1px solid var(--line);border-radius:6px;color:var(--text);
+    font-size:13px;padding:7px 10px;min-width:0}
+  #va-name{flex:1;max-width:320px}
+  .va-field input,.va-field select{width:100%}
+  .va-check{font-size:13px;display:flex;gap:8px;align-items:center;cursor:pointer}
+  .va-dim{color:var(--dim);font-size:12px;line-height:1.45}
+  .va-h3{font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+  .va-hinweis{background:#2a2416;border:1px solid #4a3c1a;color:var(--warn);border-radius:6px;
+              padding:8px 12px;font-size:12px;margin-bottom:8px}
+  .va-ms{position:relative}
+  .va-ms-btn{width:100%;background:#0e1218;border:1px solid var(--line);border-radius:6px;color:var(--dim);
+             font-size:13px;padding:7px 10px;cursor:pointer;text-align:left;overflow:hidden;
+             white-space:nowrap;text-overflow:ellipsis}
+  .va-ms-btn.va-aktiv{color:var(--acc);border-color:var(--acc)}
+  .va-ms-pop{position:absolute;z-index:20;top:100%;left:0;width:100%;min-width:260px;margin-top:4px;
+             background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px;
+             box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  .va-ms-pop[hidden]{display:none}
+  .va-ms-search{width:100%}
+  .va-ms-actions{text-align:right;margin:4px 0}
+  .va-ms-none{background:none;border:none;color:var(--dim);font-size:11px;cursor:pointer}
+  .va-ms-none:hover{color:var(--text)}
+  .va-ms-list{max-height:240px;overflow-y:auto}
+  .va-ms-item{display:flex;gap:6px;align-items:flex-start;font-size:12px;padding:4px 2px;cursor:pointer}
+  .va-ms-item input{width:auto;flex:none;margin-top:2px}
+  .va-table{width:100%;border-collapse:collapse;font-size:13px}
+  .va-table th{text-align:left;font-size:11px;color:var(--dim);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+  .va-table td{padding:6px 8px;border-bottom:1px solid #1f2a35;vertical-align:top}
+  .va-table .va-num{text-align:right;white-space:nowrap}
+  .va-faktoren input{width:90px}
+  .va-platz{font-weight:700;color:var(--acc);white-space:nowrap}
+  .va-wert{font-weight:700}
+  .va-scroll{max-height:420px;overflow:auto;margin-top:10px}
   .msg-err{color:var(--err);font-size:13px;padding:12px 0}
   .spinner{color:var(--dim);font-size:13px;padding:12px 0}
 </style>
@@ -276,9 +332,136 @@
 
   <!-- ── Variable Auswertung ────────────────────────────────────────────── -->
   <div class="pane" id="pane-variabel">
-    <div class="soon-box">
-      <strong>Variable Auswertung</strong>
-      Frei konfigurierbare Auswertung mit wählbaren Filtern und Gruppierungen – in Entwicklung.
+    <div class="saved-bar" style="display:block">
+      <div class="saved-bar-head"><h3>Gespeicherte Auswertungen</h3></div>
+      <div class="saved-list" id="va-saved-list"></div>
+      <div class="va-save-row">
+        <input type="text" id="va-name" placeholder="Name der Auswertung">
+        <button type="button" class="btn" id="va-speichern">Speichern</button>
+        <button type="button" class="btn-sec" id="va-neu">Neu</button>
+        <span id="va-meldung" style="font-size:12px"></span>
+      </div>
+    </div>
+
+    <div class="va-steps">
+      <button type="button" class="va-step active" data-step="1" id="va-step-1">1 Auswahl</button>
+      <button type="button" class="va-step" data-step="2">2 Wertung</button>
+      <button type="button" class="va-step" data-step="3">3 Ergebnis</button>
+      <span id="va-status" class="va-dim"></span>
+    </div>
+
+    <!-- Schritt 1: Auswahl der Scheiben -->
+    <div class="va-panel" data-step="1">
+      <div class="va-box">
+        <div class="va-grid">
+          <div class="va-field"><label for="va-von">Datum von</label><input type="date" id="va-von"></div>
+          <div class="va-field"><label for="va-bis">Datum bis</label><input type="date" id="va-bis"></div>
+        </div>
+        <div class="va-grid" id="va-multis"></div>
+        <label class="va-check"><input type="checkbox" id="va-voll"> Nur vollständige Scheiben (alle Wertungsschüsse der Disziplin)</label>
+        <p class="va-dim" style="margin-top:8px">Mehrere Einträge eines Kriteriums gelten als „oder“, verschiedene Kriterien als „und“.
+          Wettkampf, Preisschießen und Scheibe beschreiben die Herkunft und ergänzen sich.</p>
+      </div>
+      <details class="va-box">
+        <summary><b id="va-anz-scheiben">0</b> Scheiben in der Auswahl anzeigen</summary>
+        <div class="va-scroll">
+          <table class="va-table">
+            <thead><tr><th>Datum</th><th>Name</th><th>Verein</th><th>Klasse</th><th>Disziplin</th><th>Scheibe</th><th>Herkunft</th><th class="va-num">Schuss</th></tr></thead>
+            <tbody id="va-scheiben-body"></tbody>
+          </table>
+        </div>
+        <p class="va-dim" id="va-scheiben-mehr"></p>
+      </details>
+    </div>
+
+    <!-- Schritt 2: Wertung -->
+    <div class="va-panel" data-step="2" hidden>
+      <div class="va-box">
+        <div class="va-grid">
+          <div class="va-field"><label for="va-wertung">Wertung</label>
+            <select id="va-wertung">
+              <option value="ringe">Ringe</option>
+              <option value="zehntel">Zehntel</option>
+              <option value="teiler">Teiler</option>
+              <option value="adler">Adler (Ringe und Teiler im Wechsel)</option>
+              <option value="vor_nach">Spaß: Vor- und Nachkomma</option>
+              <option value="nachkomma">Spaß: nur Nachkomma</option>
+            </select></div>
+          <div class="va-field" id="va-basis-feld"><label for="va-basis">Je Scheibe zählt</label>
+            <select id="va-basis">
+              <option value="summe">Summe aller Schüsse</option>
+              <option value="bester_schuss">bester Schuss</option>
+            </select></div>
+          <div class="va-field" id="va-ziel-feld"><label for="va-ziel">Zielergebnis (optional)</label>
+            <input type="text" inputmode="decimal" id="va-ziel" placeholder="z. B. 222"></div>
+          <div class="va-field"><label for="va-mehrfach">Mehrere Ergebnisse je Teilnehmer</label>
+            <select id="va-mehrfach">
+              <option value="summe_beste">Summe der besten</option>
+              <option value="mittelwert">Mittelwert</option>
+            </select></div>
+          <div class="va-field" id="va-anz-feld"><label for="va-anz">Anzahl beste Ergebnisse</label>
+            <input type="number" id="va-anz" min="1" value="1"></div>
+        </div>
+        <p class="va-dim" id="va-wertung-hilfe"></p>
+        <p class="va-dim">Mit Zielergebnis gewinnt, wer am nächsten daran liegt, z. B. Teiler und Ziel 222: Wer ist am nächsten an einem 222-Teiler.</p>
+      </div>
+
+      <details class="va-box">
+        <summary>Faktoren für Ringe und Teiler (<span id="va-faktoren-sum">keine</span>)</summary>
+        <p class="va-dim" style="margin:8px 0">Der Wert wird mit dem Faktor multipliziert, z. B. um LG und LP vergleichbar zu machen.
+          Leer = 1. Eine Scheibe hat Vorrang vor ihrer Disziplin.</p>
+        <table class="va-table va-faktoren">
+          <thead><tr><th>Disziplin / Scheibe</th><th></th><th>Faktor Ringe</th><th>Faktor Teiler</th></tr></thead>
+          <tbody id="va-faktoren-body"></tbody>
+        </table>
+      </details>
+
+      <div class="va-box" id="va-gruppe-box">
+        <div class="va-grid">
+          <div class="va-field"><label for="va-gruppe">Gruppenwertung</label>
+            <select id="va-gruppe">
+              <option value="">keine</option>
+              <option value="mannschaft">Mannschaften</option>
+              <option value="verein">Vereine</option>
+              <option value="gau">Gaue</option>
+              <option value="klasse">Sportklassen</option>
+              <option value="altersklasse">Altersklassen (männlich + weiblich)</option>
+            </select></div>
+          <div class="va-field" id="va-besten-feld"><label for="va-besten">Max. Mitglieder in der Wertung</label>
+            <input type="number" id="va-besten" min="0" placeholder="alle"></div>
+        </div>
+        <p class="va-dim">Mannschaften und Klassen kommen aus den Startern der Wettkämpfe bzw. den Teilnehmern der Preisschießen. Es zählen die besten Ergebnisse je Gruppe; leer = alle. Gruppen mit weniger gewerteten Schützen stehen hinter vollständigen.</p>
+      </div>
+    </div>
+
+    <!-- Schritt 3: Ergebnis -->
+    <div class="va-panel" data-step="3" hidden>
+      <div class="va-export" id="va-export" hidden>
+        <button type="button" class="btn-sec" id="va-pdf">PDF</button>
+        <button type="button" class="btn-sec" id="va-csv-einzel">CSV</button>
+        <button type="button" class="btn-sec" id="va-csv-gruppen">CSV Gruppen</button>
+      </div>
+      <details class="va-box" id="va-pdf-opt" hidden>
+        <summary>PDF-Liste: <span id="va-pdf-sum"></span></summary>
+        <p class="va-dim">Platz, Name und Ergebnis stehen immer im PDF, mit Gruppenwertung auch die Gruppe. Die CSV-Dateien enthalten alle Spalten.</p>
+        <div class="va-checks" id="va-pdf-spalten"></div>
+        <label class="va-check va-quer"><input type="checkbox" id="va-pdf-quer"> Querformat</label>
+      </details>
+      <div id="va-hinweise"></div>
+      <div class="va-box" id="va-gruppen-box" hidden>
+        <h3 class="va-h3" id="va-gruppen-titel">Gruppen</h3>
+        <table class="va-table">
+          <thead><tr id="va-gruppen-kopf"></tr></thead>
+          <tbody id="va-gruppen-body"></tbody>
+        </table>
+      </div>
+      <div class="va-box" id="va-einzel-box">
+        <h3 class="va-h3">Einzelwertung</h3>
+        <table class="va-table">
+          <thead><tr id="va-einzel-kopf"></tr></thead>
+          <tbody id="va-einzel-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -980,6 +1163,7 @@ function renderGruppe(data, bestOf, wertungSel) {
   return rankHTML + detailHTML;
 }
 </script>
+<script src="/variable-auswertung.js"></script>
 <script src="/role.js"></script>
 
 </body>

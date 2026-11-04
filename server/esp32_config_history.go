@@ -31,7 +31,7 @@ type ConfigHistoryEntry struct {
 	Previous  map[string]string `json:"previous"`
 	CreatedAt time.Time         `json:"created_at"`
 	// Kind: grobe Einordnung fuer die Anzeige - "erstmalig", "platinentausch",
-	// "kalibrierung" (Mikrofon-Offsets geaendert) oder "einstellungen".
+	// "kalibrierung" (Mikrofon-Kalibrierung geaendert) oder "einstellungen".
 	Kind string `json:"kind"`
 }
 
@@ -42,13 +42,14 @@ func classifyConfigChange(first, macChanged bool, changes map[string]string) str
 	case macChanged:
 		return "platinentausch"
 	}
-	// Nur die Mikrofon-Offsets: CAL START aendert ausschliesslich diese
-	// (SOUNDSPEED ist laut Firmware "rein manuell") - eine reine
-	// Schallgeschwindigkeits-/Offset-Korrektur zaehlt als Einstellung.
+	// Nur die Mikrofon-Kalibrierung: CAL START aendert ausschliesslich die
+	// Entfernungskorrekturen DIST0-5 (Firmware Rev 4.20.0, vorher Timing-
+	// Offsets OFS0-5) - Temperatur (TEMP, vorher SOUNDSPEED) und
+	// Nachkorrektur zaehlen als Einstellung.
 	for k := range changes {
 		// WALKK aendert CAL START mit, wenn SET WALKCAL=1 (Firmware 4.14.0)
 		// Zonen-Saetze (ZCALA/B/C, Firmware 4.17.0) sind Kalibrierwerte
-		if strings.HasPrefix(k, "OFS") || k == "WALKK" || strings.HasPrefix(k, "ZCAL") {
+		if strings.HasPrefix(k, "OFS") || strings.HasPrefix(k, "DIST") || k == "WALKK" || strings.HasPrefix(k, "ZCAL") {
 			return "kalibrierung"
 		}
 	}

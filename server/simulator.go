@@ -1,12 +1,14 @@
 // ============================================================================
 // simulator.go – Server-seitiger Nachbau der ESP32-Firmware-Trilateration
-// (Rev 4.11.2, ALGO=CLASSIC-Pfad; ALGO=RIM wird bewusst nicht nachgebildet) fuer
+// (Rev 4.20.0, ALGO=CLASSIC-Pfad; ALGO=RIM wird bewusst nicht nachgebildet) fuer
 // den Kalibrier-Simulator.
 //
 // Portiert 1:1 aus standpc/firmware/schiessstand_firmware.ino:
-//   - Geometrie-Konstanten:            Zeilen ~985-995
-//   - solveAirPair()/solveAirPosition: Zeilen ~1080-1330
+//   - Mikrofon-Anordnung:              board_layout.h MIC_LAYOUT, applyMicGeometry()
+//   - Schallgeschwindigkeit:           speedOfSoundMps() (nur Temperatur)
+//   - solveAirPair()/solveAirPosition: eigenes z je Mikrofon
 //     (inkl. Kugeldurchmesser-Korrektur SET BSHIFTPCT/BSHIFTCAP, Rev 4.7.0)
+//   - runCalibration()/calCost():      Entfernungskorrektur DIST1-5
 //
 // Bewusst mit float32 gerechnet (wie die Firmware "float", nicht "double"),
 // um das Rundungsverhalten moeglichst exakt nachzubilden - ein Wechsel auf
@@ -14,30 +16,26 @@
 // abweichende Ergebnisse liefern als das reale Geraet.
 //
 // Aus den gespeicherten air_ns-Rohdaten (siehe migrations/013) wird damit
-// nachgerechnet, wie sich veraenderte Kalibrierparameter (Standoff, Mic-
-// Halbabstand X, Mic-Timing-Offsets, Schallgeschwindigkeit, Nachkorrektur-
-// Offset, Kugeldurchmesser-Korrektur) auf die berechnete Trefferposition
-// ausgewirkt haetten - ohne erneuten Schuss.
+// nachgerechnet, wie sich veraenderte Kalibrierparameter (Mikrofon-Anordnung,
+// Entfernungskorrektur je Mikrofon, Temperatur, Nachkorrektur-Offset,
+// Kugeldurchmesser-Korrektur) auf die berechnete Trefferposition ausgewirkt
+// haetten - ohne erneuten Schuss.
 //
-// Nicht Teil des Ports: runCalibration() (CAL START, Rev 4.7.2 auf 11 statt
-// 9 Runden erhoeht) - der Simulator laesst OFS0-5 manuell einstellen bzw.
-// per SHOW-Import uebernehmen, reproduziert aber nicht den automatischen
-// Kalibrier-ABLAUF selbst (aendert nichts an solveAirPosition()).
+// Seit Firmware Rev 4.20.0 gibt es keine Timing-Offsets (OFS<i>), keinen
+// Standoff (STANDOFFPAPER) und keinen Mic-Halbabstand (MICHALFX) mehr: die
+// Mikrofone stehen je Anordnung fest (x/y/z je Mikrofon), die Kalibrierung
+// verschiebt jedes entlang seiner Linie zur Scheibenmitte (DIST<i>).
 // ============================================================================
 package main
 
 import (
+	"encoding/json"
 	"math"
 	"sort"
 )
 
 // Fixe Geometrie-Konstanten (nicht konfigurierbar, siehe .ino ~985-993).
 const (
-	// micHalfYPaper: TARGET_STEEL seit Firmware Rev 4.11.2 komplett entfernt
-	// (Papier ist die einzige, fest verdrahtete Geometrie) - siehe
-	// shot_locator.go-Dateikopf. Der Simulator zieht nach.
-	micHalfYPaper float32 = 85.0
-
 	// SET RADIUS Firmware-Default (0.001mm-Einheit -> 200 = 0.2mm) - greift
 	// nur als Fallback, wenn SimParams.ClusterRadiusUm nicht gesetzt ist
 	// (0, z.B. alte gespeicherte Configs vor Einfuehrung dieses Parameters).
@@ -57,12 +55,22 @@ const (
 // "SHOW"-Ausgabe der Firmware (sendShowConfig(), .ino ~907-965), damit der
 // SHOW-Import ohne Mapping funktioniert.
 type SimParams struct {
-	StandoffPaperMM float64  `json:"standoff_paper_mm"`
-	MicHalfXMm      float64  `json:"mic_half_x_mm"` // SET MICHALFX, Rev 4.7.3 (vorher fix 115.0)
-	OffsetXUm       int64    `json:"offset_x_um"`
-	OffsetYUm       int64    `json:"offset_y_um"`
-	SoundMps        float64  `json:"sound_mps"`
-	MicOffsetNs     [6]int64 `json:"mic_offset_ns"`
+	// MicLayout: Mikrofon-Anordnung der Firmware (board_layout.h MIC_LAYOUT,
+	// "mic_layout" im SHOW) - "angled" (ab Rev 4.20.0, Default) oder "flat"
+	// (bis Rev 4.19, fuer aeltere Schuesse), "" = angled.
+	MicLayout string `json:"mic_layout,omitempty"`
+	// MicDistUm: Entfernungskorrektur je Mikrofon (SET DIST0..DIST5, 0.001mm
+	// entlang der Linie zur Scheibenmitte), siehe micGeometry.
+	MicDistUm [6]int64 `json:"mic_dist_um"`
+	// TempC: Ersatztemperatur (SET TEMP, Grad C) - daraus die Schall-
+	// geschwindigkeit, siehe speedOfSound.
+	TempC     float64 `json:"temp_set_c"`
+	OffsetXUm int64   `json:"offset_x_um"`
+	OffsetYUm int64   `json:"offset_y_um"`
+	// soundOverride: wirksame Schallgeschwindigkeit eines einzelnen Schusses
+	// in m/s (SoundFromShot bzw. je Schuss vorgegeben), 0 = aus TempC. Nur
+	// intern, nicht Teil der gespeicherten Parameter.
+	soundOverride float64
 
 	// Kugeldurchmesser-Korrektur der Stufe-1-Loesung (SET BSHIFTPCT/
 	// BSHIFTCAP, Rev 4.7.0) - siehe airPosition().
@@ -120,16 +128,16 @@ type SimParams struct {
 	// WalkK: Pulsbreiten-Korrektur (SET WALKK, Firmware Rev 4.14.0, 0 = aus) -
 	// Feldname wie im SHOW-Telegramm ("walk_k"), siehe walkCorrectedAir.
 	WalkK float64 `json:"walk_k"`
-	// SoundFromShot: statt SoundMps die zum Schusszeitpunkt aktive
-	// Schallgeschwindigkeit des Geraets verwenden (bei SET DHT=1 aus
-	// Temperatur/Luftfeuchte, Firmware Rev 4.15.0) - fuer Schuesse ohne
-	// gespeicherten Wert gilt weiter SoundMps. Wirkt bei Neuberechnung und
-	// Offset-Kalibrierung; Sigma9-Optimierung und Foto-Kalibrierung bestimmen
-	// die Schallgeschwindigkeit selbst und nutzen daher immer SoundMps.
+	// SoundFromShot: statt der Schallgeschwindigkeit aus TempC die zum
+	// Schusszeitpunkt aktive des Geraets verwenden (bei SET DHT=1 aus der
+	// gemessenen Temperatur) - fuer Schuesse ohne gespeicherten Wert gilt
+	// weiter TempC. Wirkt bei Neuberechnung und Entfernungs-Kalibrierung;
+	// Sigma9-Optimierung und Foto-Kalibrierung bestimmen die Temperatur
+	// selbst und nutzen daher immer TempC.
 	SoundFromShot bool `json:"sound_from_shot,omitempty"`
 	// Capture: Erfassungsmodus ("isr"|"mcpwm") der Schuesse, aus denen die
 	// Parameter bestimmt wurden - nur Information fuer die Uebernahme an
-	// den Stand (Offsets passen nur zum selben Modus), "" = unbekannt.
+	// den Stand (die Kalibrierung passt nur zum selben Modus), "" = unbekannt.
 	Capture string `json:"capture,omitempty"`
 
 	// Nur fuer Schuesse mit Rohdaten-Telegramm (SET RAWLOG=1, Firmware
@@ -154,8 +162,8 @@ type SimParams struct {
 // Mikrofone dieses Schusses. Mics ohne gueltige Breite (null, ISR-Betrieb)
 // bleiben unkorrigiert. Korrigiert wird nur die erste Flanke (die fuer die
 // Loesung verwendete); air wird nicht veraendert (Kopie der betroffenen
-// Kanaele). Die Firmware rechnet t = roh - OFS + round(walk) - hier wird
-// round(walk) auf die Rohzeit addiert, OFS zieht solveShotInternal ab.
+// Kanaele). Die Firmware rechnet t = roh + round(walk) (seit Rev 4.20.0 ohne
+// Timing-Offset).
 func walkCorrectedAir(air [6][]int64, w [6]*int64, k float64, enabled [6]bool) [6][]int64 {
 	if k == 0 {
 		return air
@@ -203,7 +211,7 @@ func (sh SimShotRaw) airFor(p SimParams) [6][]int64 {
 }
 
 // soundFor: wirksame Schallgeschwindigkeit fuer diesen Schuss (siehe
-// SimParams.SoundFromShot) - 0 = p.SoundMps verwenden.
+// SimParams.SoundFromShot) - 0 = aus p.TempC.
 func (sh SimShotRaw) soundFor(p SimParams) float64 {
 	if !p.SoundFromShot {
 		return 0
@@ -221,7 +229,7 @@ func (sh SimShotRaw) soundFor(p SimParams) float64 {
 // paramsFor: p mit der fuer diesen Schuss wirksamen Schallgeschwindigkeit.
 func (sh SimShotRaw) paramsFor(p SimParams) SimParams {
 	if v := sh.soundFor(p); v > 0 {
-		p.SoundMps = v
+		p.soundOverride = v
 	}
 	return p
 }
@@ -237,7 +245,7 @@ func SolveSimShot(sh SimShotRaw, p SimParams) SimResult {
 func SolveSimShotDetail(sh SimShotRaw, p SimParams) (SimResult, []airCandidate, []bulletShiftMic) {
 	pp := sh.paramsFor(p)
 	if p.zonedEnabled() {
-		res, c, b, eff := solveZoned(sh.airFor(p), sh.PiezoNs, pp, p.SoundMps)
+		res, c, b, eff := solveZoned(sh.airFor(p), sh.PiezoNs, pp)
 		res.EffOffsetXUm, res.EffOffsetYUm = eff.OffsetXUm, eff.OffsetYUm
 		return res, c, b
 	}
@@ -263,14 +271,13 @@ func (p SimParams) micEnabled() [6]bool {
 }
 
 // DefaultSimParams liefert die Firmware-Werkseinstellungen (siehe .ino
-// loadConfig()-Defaults: standoff_pa=28.0, mic_half_x=115.0, sound_mps=343,
+// loadConfig()-Defaults: Anordnung "angled", DIST0-5=0, temp_fb=20.0,
 // bshift_cap=3.0) - AUSSER Kugeldurchmesser-Korrektur (30 %) und Cluster-
 // Radius (4 mm), siehe simDefaultBulletShiftPct/simDefaultClusterRadiusUm.
 func DefaultSimParams() SimParams {
 	return SimParams{
-		StandoffPaperMM:  28.0,
-		MicHalfXMm:       115.0,
-		SoundMps:         343,
+		MicLayout:        micLayoutAngled,
+		TempC:            simDefaultTempC,
 		BulletShiftPct:   simDefaultBulletShiftPct,
 		BulletShiftCapMm: 3.0,
 		ClusterRadiusUm:  simDefaultClusterRadiusUm,
@@ -368,35 +375,135 @@ func clusterSum9(cands []airCandidate, centerX, centerY, radiusMM float32, corre
 	return sumMM, n
 }
 
-// micGeometry liefert MIC_X/MIC_Y/Standoff (applyTargetGeometry(),
-// .ino ~1000-1010 - seit Firmware Rev 4.11.2 nur noch Papier, TARGET_STEEL
-// komplett entfernt) und MicHalfXMm (applyMicHalfX(), Rev 4.7.3,
-// .ino ~1035-1045 - seit dieser Revision laufzeitkonfigurierbar statt fest
-// 115.0).
-func micGeometry(p SimParams) (micX, micY [6]float32, standoffMM float32) {
-	halfY := micHalfYPaper
-	standoffMM = float32(p.StandoffPaperMM)
-	halfX := float32(p.MicHalfXMm)
-	micX = [6]float32{-halfX, +halfX, -halfX, +halfX, -halfX, +halfX}
-	micY = [6]float32{-halfY, -halfY, +halfY, +halfY, 0, 0}
-	return
+// Mikrofon-Anordnungen der Firmware (board_layout.h MIC_LAYOUT, Rev 4.20.0):
+// Soll-Positionen in mm, Ursprung Scheibenmitte, x rechts, y oben, z vor dem
+// Papier, Reihenfolge AIR0..AIR5.
+const (
+	micLayoutAngled = "angled" // ab Rev 4.20.0, auf die Scheibenmitte ausgerichtet
+	micLayoutFlat   = "flat"   // bis Rev 4.19, flach in der Seitenwand
+
+	// micDistMaxUm: SET DIST0..DIST5 Wertebereich (MIC_DIST_MAX_UM)
+	micDistMaxUm = 10000.0
+	// simDefaultTempC: SET TEMP Firmware-Default
+	simDefaultTempC = 20.0
+)
+
+var micLayouts = map[string]micGeom{
+	micLayoutAngled: {
+		X: [6]float32{-109, 109, -109, 109, -113, 113},
+		Y: [6]float32{-75, -75, 75, 75, 0, 0},
+		Z: [6]float32{24, 24, 24, 24, 25, 25},
+	},
+	micLayoutFlat: {
+		X: [6]float32{-115, 115, -115, 115, -115, 115},
+		Y: [6]float32{-85, -85, 85, 85, 0, 0},
+		Z: [6]float32{28, 28, 28, 28, 28, 28},
+	},
+}
+
+// micGeom: tatsaechlich verwendete Mikrofon-Positionen in mm (MIC_X/MIC_Y/
+// MIC_Z der Firmware).
+type micGeom struct {
+	X, Y, Z [6]float32
+}
+
+// micNominal: Soll-Positionen der Anordnung (unbekannt/leer = angled).
+func micNominal(layout string) micGeom {
+	if g, ok := micLayouts[layout]; ok {
+		return g
+	}
+	return micLayouts[micLayoutAngled]
+}
+
+// micGeometryDist: 1:1-Port von applyMicGeometry() - jedes Mikrofon wird
+// entlang seiner Linie zur Scheibenmitte um distUm[i] (0.001mm, positiv =
+// weiter weg) verschoben, die Richtung bleibt fest.
+func micGeometryDist(layout string, distUm [6]float32) micGeom {
+	nom := micNominal(layout)
+	var g micGeom
+	for i := 0; i < 6; i++ {
+		r := float32(math.Sqrt(float64(nom.X[i]*nom.X[i] + nom.Y[i]*nom.Y[i] + nom.Z[i]*nom.Z[i])))
+		f := float32(1)
+		if r > 1 {
+			f = 1 + distUm[i]/1000/r
+		}
+		g.X[i], g.Y[i], g.Z[i] = nom.X[i]*f, nom.Y[i]*f, nom.Z[i]*f
+	}
+	return g
+}
+
+// micGeometry: Geometrie mit den Entfernungskorrekturen aus p.
+func micGeometry(p SimParams) micGeom {
+	var d [6]float32
+	for i, v := range p.MicDistUm {
+		d[i] = float32(v)
+	}
+	return micGeometryDist(p.MicLayout, d)
+}
+
+// speedOfSound: 1:1-Port von speedOfSoundMps() (Rev 4.20.0, trockene Luft,
+// nur Temperatur), float wie in der Firmware.
+func speedOfSound(tempC float64) float64 {
+	return float64(331.3 * float32(math.Sqrt(float64(1+float32(tempC)/273.15))))
+}
+
+// tempForSound: Umkehrung von speedOfSound - fuer alte Parameter mit
+// sound_mps statt temp_set_c.
+func tempForSound(mps float64) float64 {
+	q := mps / 331.3
+	return 273.15 * (q*q - 1)
+}
+
+// soundMps: wirksame Schallgeschwindigkeit (m/s) dieser Parameter.
+func (p SimParams) soundMps() float64 {
+	if p.soundOverride > 0 {
+		return p.soundOverride
+	}
+	return speedOfSound(p.TempC)
+}
+
+// UnmarshalJSON: Parameter von vor Firmware Rev 4.20.0 (gespeicherte
+// Simulator-Einstellungen) tragen sound_mps statt temp_set_c - daraus die
+// gleichwertige Temperatur. Fehlt beides, gilt der Firmware-Default.
+// Timing-Offsets, Standoff und Mic-Halbabstand alter Parameter gibt es nicht
+// mehr und werden ignoriert.
+func (p *SimParams) UnmarshalJSON(b []byte) error {
+	type plain SimParams
+	q := plain(*p)
+	if err := json.Unmarshal(b, &q); err != nil {
+		return err
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err == nil {
+		if _, ok := keys["temp_set_c"]; !ok {
+			var legacy float64
+			if raw, ok := keys["sound_mps"]; ok && json.Unmarshal(raw, &legacy) == nil && legacy >= 300 && legacy <= 400 {
+				q.TempC = math.Round(tempForSound(legacy)*10) / 10
+			} else {
+				q.TempC = simDefaultTempC
+			}
+		}
+	}
+	*p = SimParams(q)
+	return nil
 }
 
 // solveAirPair loest (x,y) aus 2 "Loese"-Mics relativ zu einer Referenz
 // per Hyperbel-Trilateration (TDOA). Die Distanz Referenz<->Treffer wird
 // als 3. Unbekannte mitgeloest (Linearisierung + quadratische Gleichung).
-// 1:1-Port von solveAirPair(), .ino:953-1005.
-func solveAirPair(ref, a, b int, tNs [6]int64, micX, micY [6]float32,
-	standoffMM, soundMmPerNs float32) (x, y, d float32, ok bool) {
+// 1:1-Port von solveAirPair() - seit Rev 4.20.0 mit eigenem z je Mikrofon
+// (geht nur als Konstante ein, das System bleibt linear in x/y/d).
+func solveAirPair(ref, a, b int, tNs [6]int64, g micGeom, soundMmPerNs float32) (x, y, d float32, ok bool) {
 
-	Xr, Yr := micX[ref], micY[ref]
+	Xr, Yr, Zr := g.X[ref], g.Y[ref], g.Z[ref]
 	ra := float32(tNs[a]-tNs[ref]) * soundMmPerNs
 	rb := float32(tNs[b]-tNs[ref]) * soundMmPerNs
 
-	A1, B1, C1 := 2*(micX[a]-Xr), 2*(micY[a]-Yr), 2*ra
-	D1 := (micX[a]*micX[a] + micY[a]*micY[a]) - (Xr*Xr + Yr*Yr) - ra*ra
-	A2, B2, C2 := 2*(micX[b]-Xr), 2*(micY[b]-Yr), 2*rb
-	D2 := (micX[b]*micX[b] + micY[b]*micY[b]) - (Xr*Xr + Yr*Yr) - rb*rb
+	Kr := Xr*Xr + Yr*Yr + Zr*Zr
+	A1, B1, C1 := 2*(g.X[a]-Xr), 2*(g.Y[a]-Yr), 2*ra
+	D1 := (g.X[a]*g.X[a] + g.Y[a]*g.Y[a] + g.Z[a]*g.Z[a]) - Kr - ra*ra
+	A2, B2, C2 := 2*(g.X[b]-Xr), 2*(g.Y[b]-Yr), 2*rb
+	D2 := (g.X[b]*g.X[b] + g.Y[b]*g.Y[b] + g.Z[b]*g.Z[b]) - Kr - rb*rb
 
 	det := A1*B2 - A2*B1
 	if abs32(det) < 1e-6 {
@@ -411,7 +518,7 @@ func solveAirPair(ref, a, b int, tNs [6]int64, micX, micY [6]float32,
 	px, py := x0-Xr, y0-Yr
 	qa := 1 - x1*x1 - y1*y1
 	qb := -2 * (px*x1 + py*y1)
-	qc := -(px*px + py*py + standoffMM*standoffMM)
+	qc := -(px*px + py*py + Zr*Zr)
 
 	if abs32(qa) < 1e-6 {
 		if abs32(qb) < 1e-6 {
@@ -469,7 +576,7 @@ type airCandidate struct {
 // sowohl fuer die Stufe-1-Loesung als auch (fuer die Detailanzeige "Kandidaten
 // nach Korrektur") fuer jeden einzelnen Kandidaten angewandt werden kann.
 func bulletShiftVector(x, y, d float32, ref, a, b int, all []int, tNs [6]int64,
-	micX, micY [6]float32, standoffMM, soundMmPerNs float32,
+	g micGeom, soundMmPerNs float32,
 	bulletShiftPct int, bulletShiftCapMM float32) (shiftX, shiftY float32) {
 	if bulletShiftPct <= 0 {
 		return 0, 0
@@ -478,12 +585,12 @@ func bulletShiftVector(x, y, d float32, ref, a, b int, all []int, tNs [6]int64,
 		if m == ref || m == a || m == b {
 			continue
 		}
-		mdx, mdy := micX[m]-x, micY[m]-y
+		mdx, mdy := g.X[m]-x, g.Y[m]-y
 		distM := float32(math.Sqrt(float64(mdx*mdx + mdy*mdy)))
 		if distM < 1.0e-3 {
 			continue
 		}
-		dc := float32(math.Sqrt(float64(mdx*mdx + mdy*mdy + standoffMM*standoffMM)))
+		dc := float32(math.Sqrt(float64(mdx*mdx + mdy*mdy + g.Z[m]*g.Z[m])))
 		rc := float32(tNs[m]-tNs[ref]) * soundMmPerNs
 		signedResidual := dc - (d + rc)
 		shift := signedResidual * (float32(bulletShiftPct) / 100.0)
@@ -513,8 +620,8 @@ type bulletShiftMic struct {
 // .ino ~1080-1330 (ohne die DEBUG=3-"_pre"-Zwischenwerte, die im Simulator
 // nicht benoetigt werden). Inkl. Kugeldurchmesser-Korrektur (Rev 4.7.0,
 // bulletShiftPct/bulletShiftCapMM).
-func airPosition(tNs [6]int64, seen [6]bool, micX, micY [6]float32,
-	standoffMM, soundMmPerNs, clusterRadiusMM float32,
+func airPosition(tNs [6]int64, seen [6]bool, g micGeom,
+	soundMmPerNs, clusterRadiusMM float32,
 	bulletShiftPct int, bulletShiftCapMM float32) (xMM, yMM, resMM, precMM float32, clusterHits int,
 	candidates []airCandidate, bulletShift []bulletShiftMic, corrResMM float32, ok bool) {
 
@@ -556,7 +663,7 @@ func airPosition(tNs [6]int64, seen [6]bool, micX, micY [6]float32,
 					}
 				}
 
-				x, y, d, solved := solveAirPair(ref, a, b, tNs, micX, micY, standoffMM, soundMmPerNs)
+				x, y, d, solved := solveAirPair(ref, a, b, tNs, g, soundMmPerNs)
 				if !solved {
 					continue
 				}
@@ -570,8 +677,8 @@ func airPosition(tNs [6]int64, seen [6]bool, micX, micY [6]float32,
 					if m == ref || m == a || m == b {
 						continue
 					}
-					dx, dy := x-micX[m], y-micY[m]
-					dc := float32(math.Sqrt(float64(dx*dx + dy*dy + standoffMM*standoffMM)))
+					dx, dy := x-g.X[m], y-g.Y[m]
+					dc := float32(math.Sqrt(float64(dx*dx + dy*dy + g.Z[m]*g.Z[m])))
 					rc := float32(tNs[m]-tNs[ref]) * soundMmPerNs
 					residualSum += abs32(dc - (d + rc))
 					nCheck++
@@ -614,12 +721,12 @@ func airPosition(tNs [6]int64, seen [6]bool, micX, micY [6]float32,
 			if m == bestRef || m == bestA || m == bestB {
 				continue
 			}
-			mdx, mdy := micX[m]-bestX, micY[m]-bestY
+			mdx, mdy := g.X[m]-bestX, g.Y[m]-bestY
 			distM := float32(math.Sqrt(float64(mdx*mdx + mdy*mdy)))
 			if distM < 1.0e-3 {
 				continue
 			}
-			dc := float32(math.Sqrt(float64(mdx*mdx + mdy*mdy + standoffMM*standoffMM)))
+			dc := float32(math.Sqrt(float64(mdx*mdx + mdy*mdy + g.Z[m]*g.Z[m])))
 			rc := float32(tNs[m]-tNs[bestRef]) * soundMmPerNs
 			signedResidual := dc - (bestD + rc)
 			shift := signedResidual * (float32(bulletShiftPct) / 100.0)
@@ -646,16 +753,16 @@ func airPosition(tNs [6]int64, seen [6]bool, micX, micY [6]float32,
 	// dRefCorr: tatsaechlicher (geometrischer) Abstand vom Referenzmikrofon
 	// zur KORRIGIERTEN Position - bestD ist der Abstand zur ROHEN Position
 	// (aus solveAirPair) und nach der Verschiebung nicht mehr gueltig.
-	refDx, refDy := bestX-micX[bestRef], bestY-micY[bestRef]
-	dRefCorr := float32(math.Sqrt(float64(refDx*refDx + refDy*refDy + standoffMM*standoffMM)))
+	refDx, refDy := bestX-g.X[bestRef], bestY-g.Y[bestRef]
+	dRefCorr := float32(math.Sqrt(float64(refDx*refDx + refDy*refDy + g.Z[bestRef]*g.Z[bestRef])))
 	var corrResidualSum float32
 	corrNCheck := 0
 	for _, m := range all {
 		if m == bestRef || m == bestA || m == bestB {
 			continue
 		}
-		dx, dy := bestX-micX[m], bestY-micY[m]
-		dc := float32(math.Sqrt(float64(dx*dx + dy*dy + standoffMM*standoffMM)))
+		dx, dy := bestX-g.X[m], bestY-g.Y[m]
+		dc := float32(math.Sqrt(float64(dx*dx + dy*dy + g.Z[m]*g.Z[m])))
 		rc := float32(tNs[m]-tNs[bestRef]) * soundMmPerNs
 		corrResidualSum += abs32(dc - (dRefCorr + rc))
 		corrNCheck++
@@ -670,8 +777,8 @@ func airPosition(tNs [6]int64, seen [6]bool, micX, micY [6]float32,
 	// "Schnittpunkte nach Korrektur" als Alternative zu den rohen X/Y-Werten.
 	for i := range cands {
 		sx, sy := bulletShiftVector(cands[i].X, cands[i].Y, cands[i].D,
-			cands[i].Ref, cands[i].A, cands[i].B, all, tNs, micX, micY,
-			standoffMM, soundMmPerNs, bulletShiftPct, bulletShiftCapMM)
+			cands[i].Ref, cands[i].A, cands[i].B, all, tNs, g,
+			soundMmPerNs, bulletShiftPct, bulletShiftCapMM)
 		cands[i].CorrX = cands[i].X + sx
 		cands[i].CorrY = cands[i].Y + sy
 	}
@@ -750,9 +857,9 @@ func abs32(v float32) float32 {
 // CalibrateMicOffsets(), damit beide garantiert dieselbe Solve-Konfiguration
 // verwenden (die Kalibrierung optimiert gegen genau die Parameter, mit denen
 // auch tatsaechlich neu gerechnet wird).
-func solveParams(p SimParams) (micX, micY [6]float32, standoffMM, soundMmPerNs, clusterRadiusMM float32) {
-	micX, micY, standoffMM = micGeometry(p)
-	soundMmPerNs = float32(p.SoundMps) * 1.0e-6
+func solveParams(p SimParams) (g micGeom, soundMmPerNs, clusterRadiusMM float32) {
+	g = micGeometry(p)
+	soundMmPerNs = float32(p.soundMps()) * 1.0e-6
 	clusterRadiusUm := p.ClusterRadiusUm
 	if clusterRadiusUm == 0 {
 		clusterRadiusUm = clusterRadiusDefaultUm
@@ -774,14 +881,14 @@ func solveShotInternal(airNs [6][]int64, piezoNs *int64, p SimParams) (SimResult
 	for i := 0; i < 6; i++ {
 		if len(airNs[i]) > 0 && enabled[i] {
 			seen[i] = true
-			tNs[i] = airNs[i][0] - p.MicOffsetNs[i]
+			tNs[i] = airNs[i][0]
 		}
 	}
 
-	micX, micY, standoffMM, soundMmPerNs, clusterRadiusMM := solveParams(p)
+	g, soundMmPerNs, clusterRadiusMM := solveParams(p)
 
 	xMM, yMM, resMM, precMM, clusterHits, candidates, bulletShift, corrResMM, ok := airPosition(
-		tNs, seen, micX, micY, standoffMM, soundMmPerNs, clusterRadiusMM,
+		tNs, seen, g, soundMmPerNs, clusterRadiusMM,
 		p.BulletShiftPct, float32(p.BulletShiftCapMm))
 	if !ok {
 		return SimResult{PosValid: false}, nil, nil
@@ -807,8 +914,8 @@ func solveShotInternal(airNs [6][]int64, piezoNs *int64, p SimParams) (SimResult
 	}
 
 	if p.PosAlgo.active() {
-		xMM, yMM, clusterHits, precMM = refinePosition(candidates, xMM, yMM, tNs, seen, micX, micY,
-			standoffMM, soundMmPerNs, clusterRadiusMM, p.PosAlgo)
+		xMM, yMM, clusterHits, precMM = refinePosition(candidates, xMM, yMM, tNs, seen, g,
+			soundMmPerNs, clusterRadiusMM, p.PosAlgo)
 	}
 
 	xUm := int64(math.Round(float64(xMM)*1000)) + p.OffsetXUm
@@ -851,49 +958,34 @@ func SolveShotDetail(airNs [6][]int64, piezoNs *int64, p SimParams) (SimResult, 
 	return solveShotInternal(airNs, piezoNs, p)
 }
 
-// micOfsMaxNs: SET OFS0..OFS5 Wertebereich (.ino ~1030, MIC_OFS_MAX_NS).
-const micOfsMaxNs = 20000.0
-
-// CalibrateMicOffsets berechnet neue Mikrofon-Timing-Offsets (OFS0-OFS5) aus
+// CalibrateMicDist berechnet neue Entfernungskorrekturen (DIST0-DIST5) aus
 // den rohen Laufzeiten mehrerer ausgewaehlter Kalibrier-Schuesse - 1:1-Port
-// von calCost()/runCalibration(), .ino ~1380-1459.
+// von calCost()/runCalibration() (Rev 4.20.0).
 //
-// Mic0 bleibt fix auf 0 (Eichfreiheitsgrad: eine gemeinsame Konstante auf
-// alle Offsets aendert keine TDOA-Differenz, siehe Firmware-Kommentar). Die
-// Optimierung startet IMMER bei 0 ("Neukalibrierung", nicht inkrementell von
-// p.MicOffsetNs aus) und nutzt dieselben Solve-Parameter (Standoff/
-// Soundspeed/MicHalfX/BulletShift/ClusterRadius/MicEnabled) wie eine
-// normale Neuberechnung - p.MicOffsetNs selbst wird ignoriert.
+// Mic0 bleibt fix auf 0 (Eichfreiheitsgrad). Die Optimierung startet IMMER
+// bei 0 ("Neukalibrierung", nicht von p.MicDistUm aus) und nutzt dieselben
+// Solve-Parameter (Anordnung/Temperatur/BulletShift/ClusterRadius/
+// MicEnabled) wie eine normale Neuberechnung.
 //
-// airNs: je Kalibrier-Schuss die rohen (unkorrigierten) Mikrofon-Flanken,
-// wie im Telegramm gespeichert (identisch zum Eingabeformat von SolveShot).
-// Gibt die gefundenen Offsets sowie die erreichte Kostensumme zurueck (Summe
-// der Rest-Fehler nach Kugelkorrektur in mm, Strafwert 1000mm je
-// unloesbarem Schuss - siehe calCostClassicFn()).
-func CalibrateMicOffsets(airNs [][6][]int64, p SimParams) (offsetsNs [6]int64, cost float64) {
-	return CalibrateMicOffsetsSound(airNs, nil, p)
-}
-
-// CalibrateMicOffsetsSound wie CalibrateMicOffsets, mit eigener
-// Schallgeschwindigkeit je Schuss (sounds[k] > 0, sonst p.SoundMps) - siehe
-// SimParams.SoundFromShot.
-func CalibrateMicOffsetsSound(airNs [][6][]int64, sounds []float64, p SimParams) (offsetsNs [6]int64, cost float64) {
-	offsets, c := coordinateDescentCalibrate(calCostClassicSoundFn(airNs, sounds, p))
+// airNs: je Kalibrier-Schuss die rohen Mikrofon-Flanken wie im Telegramm,
+// sounds[k] > 0 die Schallgeschwindigkeit des Schusses (sonst aus p.TempC,
+// siehe SimParams.SoundFromShot). Gibt die gefundenen Korrekturen sowie die
+// erreichte Kostensumme zurueck (Summe der Rest-Fehler nach Kugelkorrektur
+// in mm, Strafwert 1000mm je unloesbarem Schuss - siehe calCostClassicFn()).
+func CalibrateMicDist(airNs [][6][]int64, sounds []float64, p SimParams) (distUm [6]int64, cost float64) {
+	dist, c := coordinateDescentCalibrate(calCostClassicFn(airNs, sounds, p))
 	for i := 0; i < 6; i++ {
-		offsetsNs[i] = int64(math.Round(float64(offsets[i])))
+		distUm[i] = int64(math.Round(float64(dist[i])))
 	}
-	return offsetsNs, float64(c)
+	return distUm, float64(c)
 }
 
-// calCostClassicFn: 1:1-Port von calCostClassic(), .ino ~2489-2511 - Kosten
-// = Summe der Stufe-1-Rest-Fehler (solveAirPosition()) ueber alle
-// Kalibrier-Schuesse mit den zu testenden Offsets VOR der Loesung abgezogen.
-func calCostClassicFn(airNs [][6][]int64, p SimParams) func([6]float32) float32 {
-	return calCostClassicSoundFn(airNs, nil, p)
-}
-
-func calCostClassicSoundFn(airNs [][6][]int64, sounds []float64, p SimParams) func([6]float32) float32 {
-	micX, micY, standoffMM, soundMmPerNs, clusterRadiusMM := solveParams(p)
+// calCostClassicFn: 1:1-Port von calCost()/calCostClassic() - Kosten =
+// Summe der Rest-Fehler nach Kugeldurchmesser-Korrektur ueber alle
+// Kalibrier-Schuesse, mit der aus den Probe-Entfernungskorrekturen
+// gebildeten Geometrie.
+func calCostClassicFn(airNs [][6][]int64, sounds []float64, p SimParams) func([6]float32) float32 {
+	_, soundMmPerNs, clusterRadiusMM := solveParams(p)
 	enabled := p.micEnabled()
 
 	type calShot struct {
@@ -916,28 +1008,14 @@ func calCostClassicSoundFn(airNs [][6][]int64, sounds []float64, p SimParams) fu
 		cal = append(cal, cs)
 	}
 
-	return func(offsets [6]float32) float32 {
+	return func(dist [6]float32) float32 {
+		g := micGeometryDist(p.MicLayout, dist)
 		var total float32
 		for _, cs := range cal {
-			var corrected [6]int64
-			for i := 0; i < 6; i++ {
-				if cs.seen[i] {
-					corrected[i] = cs.raw[i] - int64(math.Round(float64(offsets[i])))
-				}
-			}
-			// corrResMM (statt des reinen Vorher-Rest-Fehlers resMM) als Kalibrier-
-			// Kostenmass: resMM wird VOR der Kugeldurchmesser-Korrektur (SET
-			// BSHIFTPCT/BSHIFTCAP) bestimmt und ist dadurch komplett unabhaengig
-			// von ihr - mit ihm wuerde die Kalibrierung die Korrektur schlicht
-			// ignorieren. corrResMM ist derselbe Rest-Fehler, nur MIT bereits
-			// angewandter Korrektur, bezieht sie also korrekt mit ein (siehe
-			// airPosition()-Kommentar). precMM (Kandidaten-Clusterbreite) wurde
-			// bewusst NICHT verwendet: es beruht nur auf den zwei naechsten
-			// Kandidaten und ist dadurch leicht "gamebar" - mit precMM als
-			// Kostenmass findet TestCalibrateMicOffsets_SingleOffsetRecovered einen
-			// falschen, aber guenstigeren lokalen Optimalpunkt statt der
-			// eingespeisten Offsets.
-			_, _, _, _, _, _, _, corrRes, ok := airPosition(corrected, cs.seen, micX, micY, standoffMM,
+			// corrResMM (Rest-Fehler NACH Kugeldurchmesser-Korrektur) wie die
+			// Firmware - mit dem reinen Vorher-Rest-Fehler wuerde die
+			// Kalibrierung SET BSHIFTPCT/BSHIFTCAP ignorieren.
+			_, _, _, _, _, _, _, corrRes, ok := airPosition(cs.raw, cs.seen, g,
 				cs.sound, clusterRadiusMM, p.BulletShiftPct, float32(p.BulletShiftCapMm))
 			if ok {
 				total += corrRes
@@ -949,50 +1027,50 @@ func calCostClassicSoundFn(airNs [][6][]int64, sounds []float64, p SimParams) fu
 	}
 }
 
-// coordinateDescentCalibrate: Optimierungskern der Offset-Kalibrierung -
-// 1:1-Port von runCalibration(), .ino ~2563-2601 (Pattern-Search/
-// Koordinatenabstieg: Mic0 fix auf 0 als Eichfreiheitsgrad, geometrische
-// Schrittfolge 10000*0.5^pass ueber 11 Runden, je Mic und Runde der
-// Versuch +-stepNs, der die uebergebene Kostenfunktion am staerksten senkt).
-func coordinateDescentCalibrate(calCost func(offsets [6]float32) float32) (offsets [6]float32, cost float32) {
+// coordinateDescentCalibrate: Optimierungskern der Kalibrierung - 1:1-Port
+// von runCalibration() (Pattern-Search/Koordinatenabstieg: Mic0 fix auf 0
+// als Eichfreiheitsgrad, Schrittfolge 5000*0.5^pass um ueber 11 Runden, je
+// Mic und Runde der Versuch +-step, der die Kostenfunktion am staerksten
+// senkt, Grenze +-MIC_DIST_MAX_UM).
+func coordinateDescentCalibrate(calCost func(dist [6]float32) float32) (dist [6]float32, cost float32) {
 	clamp := func(v float32) float32 {
-		if v > micOfsMaxNs {
-			return micOfsMaxNs
+		if v > micDistMaxUm {
+			return micDistMaxUm
 		}
-		if v < -micOfsMaxNs {
-			return -micOfsMaxNs
+		if v < -micDistMaxUm {
+			return -micDistMaxUm
 		}
 		return v
 	}
 
 	const refMic = 0
-	stepNs := float32(10000.0)
+	step := float32(5000.0)
 	for pass := 0; pass < 11; pass++ {
 		for i := 0; i < 6; i++ {
 			if i == refMic {
 				continue
 			}
-			base := offsets[i]
-			baseCost := calCost(offsets)
+			base := dist[i]
+			baseCost := calCost(dist)
 
-			offsets[i] = clamp(base + stepNs)
-			costPlus := calCost(offsets)
+			dist[i] = clamp(base + step)
+			costPlus := calCost(dist)
 
-			offsets[i] = clamp(base - stepNs)
-			costMinus := calCost(offsets)
+			dist[i] = clamp(base - step)
+			costMinus := calCost(dist)
 
 			if baseCost <= costPlus && baseCost <= costMinus {
-				offsets[i] = base
+				dist[i] = base
 			} else if costPlus < costMinus {
-				offsets[i] = clamp(base + stepNs)
+				dist[i] = clamp(base + step)
 			} else {
-				offsets[i] = clamp(base - stepNs)
+				dist[i] = clamp(base - step)
 			}
 		}
-		stepNs *= 0.5
+		step *= 0.5
 	}
-	cost = calCost(offsets)
-	return offsets, cost
+	cost = calCost(dist)
+	return dist, cost
 }
 
 // ============================================================================

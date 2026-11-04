@@ -113,9 +113,53 @@ als „gespeicherte Auswertung“ ablegen:
 | **Gruppenwettkampf** | Gruppenwertung nach Ringen, Zehnteln oder Teiler, mit wählbarer Besten-Anzahl je Gruppe |
 | **Meisterschaft** | Kreis-, Bezirks- und Landesmeisterschaften – *in Entwicklung* |
 | **Mannschaften Ringe** | Direktvergleich der Mannschaftsringe über mehrere Veranstaltungen – *in Entwicklung* |
-| **Variable Auswertung** | frei konfigurierbare Filter und Gruppierungen – *in Entwicklung* |
+| **Variable Auswertung** | frei zusammengestellte Auswertung über alle Scheiben, siehe unten |
 
 ![Auswertung](bilder/auswertung.png)
+
+### Variable Auswertung
+
+Die Auswertung entsteht in drei Schritten; jede Änderung rechnet sofort neu.
+Unter einem Namen gespeichert wird die Einstellung, nicht das Ergebnis: Eine
+geladene Auswertung zeigt immer den aktuellen Stand.
+
+**1 Auswahl** – welche Scheiben zählen: Zeitraum, Wettkampf, Preisschießen,
+Scheibe, Disziplin, Verein und Schützenklasse. Je Kriterium lassen sich mehrere
+Einträge wählen („oder“), verschiedene Kriterien gelten zusammen („und“).
+Wettkampf, Preisschießen und Scheibe beschreiben die Herkunft und ergänzen
+sich: Wettkampf A und Preisschießen B ergibt die Scheiben aus beiden. Die
+Schützenklasse stammt aus dem Starter bzw. dem Preisschießen-Teilnehmer;
+Scheiben ohne beides (freies Training) fallen bei einer Klassenauswahl heraus.
+
+**2 Wertung**
+
+| Einstellung | Bedeutung |
+|---|---|
+| **Wertung** | Ringe, Zehntel, Teiler, Adler (abwechselnd aus Ring- und Teilerliste) oder Spaßwertungen: Vor- und Nachkomma eines Schusses addiert (9,7 → 16) bzw. nur die Nachkommastelle (9,7 → 7) |
+| **Je Scheibe zählt** | Summe aller Schüsse oder bester Schuss |
+| **Zielergebnis** | Es gewinnt, wer am nächsten daran liegt (z. B. Teiler, Ziel 222) |
+| **Mehrere Ergebnisse je Teilnehmer** | *Summe der besten*: die gewählte Anzahl bester Ergebnisse wird addiert; wer weniger hat, steht hinter denen mit voller Anzahl. *Mittelwert*: Durchschnitt aller Ergebnisse, die Anzahl der Ergebnisse spielt für den Platz keine Rolle |
+| **Faktoren** | Multiplikator für Ringe und Teiler je Disziplin oder Scheibe; die Scheibe hat Vorrang |
+| **Gruppenwertung** | Mannschaften (aus den Startern der Wettkämpfe), Vereine, Gaue, Sportklassen oder Altersklassen. Die maximale Anzahl Mitglieder in der Wertung ist wählbar, es zählen die besten Ergebnisse der Gruppe. Altersklassen fassen die männliche und die weibliche Klasse gleichen Alters zusammen (Klassennummer der weiblichen Klasse = männliche + 1, z. B. Schüler männlich 20 und Schüler weiblich 21) |
+
+**3 Ergebnis** – Einzelwertung oder, mit Gruppenwertung, die Gruppen in der
+Reihenfolge ihrer Platzierung mit allen Einzelergebnissen darunter. Ergebnisse,
+die nicht zu den gewerteten Besten der Gruppe gehören, stehen abgesetzt als
+„nicht gewertet“ dabei. Gleiche Werte ergeben denselben Platz. Scheiben ohne Wert für die gewählte Wertung
+(z. B. Gesamteingabe ohne Einzelschüsse bei einer Spaßwertung) werden nicht
+gewertet und als Hinweis gezählt.
+
+Die Ergebnisliste lässt sich ausgeben: **PDF** mit den Einstellungen der
+Auswertung und der Ergebnisliste, Gruppen samt aller Mitglieder in einer
+Datei. **CSV** für die Tabellenkalkulation, bei einer Gruppenwertung als zwei
+Dateien: **CSV Gruppen** mit den Platzierungen und **CSV Einzel** mit den
+Einzelergebnissen je Gruppe, einschließlich der Angabe, ob sie gewertet wurden.
+
+Das PDF zeigt standardmäßig nur Platz, Name und Ergebnis, mit Gruppenwertung
+auch die Gruppe. Unter **PDF-Liste** lassen sich Verein, Gau, Mannschaft,
+Klasse, Anzahl Ergebnisse und gewertete Scheiben zuschalten und das Querformat
+wählen. Die Auswahl wird mit der Auswertung gespeichert. Die CSV-Dateien
+enthalten immer alle Spalten.
 
 ## Anzeigen
 

@@ -33,10 +33,16 @@ type Config struct {
 	// besser als die Software, ob/wann das noetig ist). Je Wertungs-PC ist
 	// genau eine Wertmaschine vorgesehen, daher gilt dieser Wert fuer den
 	// ganzen Dienst (schiessstand-wertmaschine.service), mehrere PCs
-	// koennen unterschiedliche Werte haben.
+	// koennen unterschiedliche Werte haben. Mehrere Wertmaschinen an einem
+	// PC laufen als eigene Dienste mit eigener Konfiguration
+	// (install-service.sh --instance).
 	Protocol string `json:"protocol"`
 	// HTTPListen: lokale Bedienoberflaeche (Browser).
 	HTTPListen string `json:"http_listen"`
+	// Name (optional): Bezeichnung dieser Wertmaschine in der Ueberschrift
+	// der Bedienoberflaeche - zur Unterscheidung, wenn mehrere
+	// Wertmaschinen parallel laufen (install-service.sh --instance/--name).
+	Name string `json:"name"`
 }
 
 func loadConfig(path string) (*Config, error) {

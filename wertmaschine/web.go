@@ -26,6 +26,7 @@ type sseMsg struct {
 
 type WebServer struct {
 	session *Session
+	name    string // Config.Name, fuer die Ueberschrift
 
 	mu      sync.Mutex
 	clients map[chan sseMsg]struct{}
@@ -95,6 +96,10 @@ func (ws *WebServer) Run(listen string) error {
 	})
 	mux.HandleFunc("GET /events", ws.handleSSE)
 	mux.HandleFunc("GET /status", ws.handleStatus)
+	mux.HandleFunc("GET /info", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"name": ws.name})
+	})
 	mux.HandleFunc("GET /preisschiessen-liste", ws.handlePreisschiessenListe)
 	mux.HandleFunc("GET /scheibe-lookup", ws.handleScheibeLookup)
 	mux.HandleFunc("POST /start/preisschiessen", ws.handleStartPreisschiessen)

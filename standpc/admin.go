@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -58,8 +59,6 @@ var adminConfigKeys = []adminConfigKey{
 	{"ALGO", "CLASSIC|RIM", "CLASSIC", false, "Auswertepfad - RIM: Ringpuffer+Piezo-Anker-Trigger, robuster gegen Muendungsknall"},
 	{"PELLETR", "0.0-10.0 (mm)", "2.25", false, "Akustischer Lochrand-Radius fuer ALGO=RIM (2.25 = 4,5mm-Diabolo, 0=Punktquelle)"},
 	{"MAXSIGMA", "0.0-50.0 (mm)", "2.0", false, "'clean'-Schwelle fuer ALGO=RIM (Gegenstueck zu MAXPRECISION/RADIUS/MINCLUSTER)"},
-	{"STANDOFFPAPER", "5.0-100.0 (mm)", "28.0", false, "Mic-Standoff (rechtwinklig zur Scheibe)"},
-	{"MICHALFX", "5.0-300.0 (mm)", "115.0", false, "horizontaler Mic-Abstand zur Mittellinie"},
 	{"BSHIFTPCT", "0-100 (%)", "30", false, "Kugeldurchmesser-Korrektur, 0=aus"},
 	{"BSHIFTCAP", "0.0-20.0 (mm)", "3.0", false, "Kappung der Korrektur je Mikrofon"},
 	{"CLUSTERCORR", "0|1", "1", false, "Endposition aus allen kugeldurchmesser-korrigierten Schnittpunkten mitteln (ab Firmware 4.12.0)"},
@@ -71,8 +70,8 @@ var adminConfigKeys = []adminConfigKey{
 	{"PIEZOMAX", "0-5000 (us)", "1400", false, "Ausreisser-Obergrenze, beide Modi"},
 	{"OFFSETX", "-50000..50000 (0.001mm)", "0", false, "konstanter Nachkorrektur-Offset x"},
 	{"OFFSETY", "-50000..50000 (0.001mm)", "0", false, "konstanter Nachkorrektur-Offset y"},
-	{"SOUNDSPEED", "300.0-400.0 (m/s)", "342.5", false, "Schallgeschwindigkeit bei DHT=0 bzw. ohne gueltige Messung - Nachkommastelle ab Firmware 4.15.0, rein manuell, wird von CAL START nicht veraendert"},
-	{"DHT", "0|1", "0", false, "Schallgeschwindigkeit aus Temperatur/Luftfeuchte des DHT22 an GPIO15 (ab Firmware 4.15.0)"},
+	{"TEMP", "-20.0-50.0 (°C)", "20.0", false, "Ersatztemperatur bei DHT=0 bzw. ohne gueltige Messung - daraus die Schallgeschwindigkeit (20 °C = 343,2 m/s), wird von CAL START nicht veraendert (ab Firmware 4.20.0)"},
+	{"DHT", "0|1", "0", false, "Schallgeschwindigkeit aus der Temperatur des DHT22 an GPIO15 (ab Firmware 4.15.0)"},
 	{"CAPTURE", "ISR|MCPWM", "ISR", true, "Zeitstempel der Mics: ISR = GPIO-Interrupt, MCPWM = Hardware-Capture (GPIO23 unbeschaltet lassen). Wirkt erst nach Neustart; danach CAL RESET + neue Kalibrierung, da die Offsets zum Erfassungsmodus gehoeren (ab Firmware 4.13.0)"},
 	{"WALKK", "0.0-1.0", "0.0", false, "Pulsbreiten-Korrektur t += WALKK*(Breite - Mittel), 0 = aus, nur bei aktivem MCPWM wirksam (ab Firmware 4.14.0)"},
 	{"WALKCAL", "0|1", "0", false, "CAL START bestimmt WALKK mit (ab Firmware 4.14.0)"},
@@ -81,16 +80,27 @@ var adminConfigKeys = []adminConfigKey{
 	{"ZHOLE", "0-60000 (0.001mm)", "0", false, "Radius des Lochs der Vorsatzscheibe - setzt der Stand-PC beim Scheibenwechsel automatisch (LG 15250, LP 29750) (ab Firmware 4.17.0)"},
 	{"ZBAND", "0-100000 (0.001mm)", "45000", false, "halbe Breite des Schussbands (ab Firmware 4.17.0)"},
 	{"ZBLEND", "0-10000 (0.001mm)", "2250", false, "Ueberblendung an den Zonengrenzen (ab Firmware 4.17.0)"},
-	{"ZCALA", "<m/s>,<ofs0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone A (Loch der Vorsatzscheibe) - normalerweise per Freigabe aus dem Simulator (ab Firmware 4.17.0)"},
-	{"ZCALB", "<m/s>,<ofs0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone B (neben dem Schussband) (ab Firmware 4.17.0)"},
-	{"ZCALC", "<m/s>,<ofs0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone C (Schussband + Vorsatzscheibe) (ab Firmware 4.17.0)"},
+	{"ZCALA", "<dist0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone A (Loch der Vorsatzscheibe) - normalerweise per Freigabe aus dem Simulator (ab Firmware 4.17.0, bis 4.19 mit Schallgeschwindigkeit und OFS statt DIST)"},
+	{"ZCALB", "<dist0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone B (neben dem Schussband) (ab Firmware 4.17.0)"},
+	{"ZCALC", "<dist0..5>,<offx>,<offy> | OFF", "OFF", false, "Satz Zone C (Schussband + Vorsatzscheibe) (ab Firmware 4.17.0)"},
 	{"RAWLOG", "0|1", "0", false, "zu jedem gueltigen Schuss alle Rohdaten (Flanken + Parameter) senden - der Simulator kann den Schuss dann exakt nachrechnen (ab Firmware 4.16.0)"},
-	{"OFS0", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 0 (Referenz, normalerweise 0) - sonst per CAL START/Kalibrierung vom Server"},
-	{"OFS1", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 1 - sonst per CAL START/Kalibrierung vom Server"},
-	{"OFS2", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 2 - sonst per CAL START/Kalibrierung vom Server"},
-	{"OFS3", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 3 - sonst per CAL START/Kalibrierung vom Server"},
-	{"OFS4", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 4 - sonst per CAL START/Kalibrierung vom Server"},
-	{"OFS5", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 5 - sonst per CAL START/Kalibrierung vom Server"},
+	{"DIST0", "-10000..10000 (0.001mm)", "0", false, "Entfernungskorrektur Mikrofon 0 (Referenz, normalerweise 0) - verschiebt das Mikrofon entlang seiner Linie zur Scheibenmitte, sonst per CAL START/Kalibrierung vom Server (ab Firmware 4.20.0)"},
+	{"DIST1", "-10000..10000 (0.001mm)", "0", false, "Entfernungskorrektur Mikrofon 1 - sonst per CAL START/Kalibrierung vom Server (ab Firmware 4.20.0)"},
+	{"DIST2", "-10000..10000 (0.001mm)", "0", false, "Entfernungskorrektur Mikrofon 2 (ab Firmware 4.20.0)"},
+	{"DIST3", "-10000..10000 (0.001mm)", "0", false, "Entfernungskorrektur Mikrofon 3 (ab Firmware 4.20.0)"},
+	{"DIST4", "-10000..10000 (0.001mm)", "0", false, "Entfernungskorrektur Mikrofon 4 (ab Firmware 4.20.0)"},
+	{"DIST5", "-10000..10000 (0.001mm)", "0", false, "Entfernungskorrektur Mikrofon 5 (ab Firmware 4.20.0)"},
+	// bis Firmware 4.19 - ab 4.20.0 antwortet das Geraet darauf mit error;
+	// die Admin-GUI blendet sie je nach Firmware des Geraets aus
+	{"STANDOFFPAPER", "5.0-100.0 (mm)", "28.0", false, "Mic-Standoff (rechtwinklig zur Scheibe) (bis Firmware 4.19)"},
+	{"MICHALFX", "5.0-300.0 (mm)", "115.0", false, "horizontaler Mic-Abstand zur Mittellinie (bis Firmware 4.19)"},
+	{"SOUNDSPEED", "300.0-400.0 (m/s)", "342.5", false, "Schallgeschwindigkeit bei DHT=0 (bis Firmware 4.19, danach TEMP)"},
+	{"OFS0", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 0 (bis Firmware 4.19, danach DIST0)"},
+	{"OFS1", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 1 (bis Firmware 4.19)"},
+	{"OFS2", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 2 (bis Firmware 4.19)"},
+	{"OFS3", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 3 (bis Firmware 4.19)"},
+	{"OFS4", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 4 (bis Firmware 4.19)"},
+	{"OFS5", "-20000..20000 (ns)", "0", false, "Mikrofon-Timing-Offset 5 (bis Firmware 4.19)"},
 	{"PAPERFEED", "10.0-100.0 (mm)", "50.0", false, "Vorschubstrecke je Ausloesung"},
 	{"PAPERSPEED", "0.5-30.0 (mm/s)", "5.0", false, "Geschwindigkeit 1. Haelfte"},
 	{"PAPERAUTO", "0|1", "1", false, "automatischen Vorschub ueberhaupt ausfuehren"},
@@ -104,6 +114,26 @@ var adminConfigKeys = []adminConfigKey{
 	{"MICEN3", "0|1", "1", false, "Mikrofonkanal 3 beruecksichtigen"},
 	{"MICEN4", "0|1", "1", false, "Mikrofonkanal 4 beruecksichtigen"},
 	{"MICEN5", "0|1", "1", false, "Mikrofonkanal 5 beruecksichtigen"},
+}
+
+// adminKeysFrom420/adminKeysUntil419: Schluessel, die nur Firmware ab Rev
+// 4.20.0 bzw. nur bis 4.19 kennt (neue Mikrofon-Anordnung) - die Admin-GUI
+// zeigt je nach Geraet nur die passenden.
+var adminKeysFrom420 = map[string]bool{
+	"TEMP": true, "DIST0": true, "DIST1": true, "DIST2": true, "DIST3": true, "DIST4": true, "DIST5": true,
+}
+var adminKeysUntil419 = map[string]bool{
+	"STANDOFFPAPER": true, "MICHALFX": true, "SOUNDSPEED": true,
+	"OFS0": true, "OFS1": true, "OFS2": true, "OFS3": true, "OFS4": true, "OFS5": true,
+}
+
+func keyList(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // adminNetworkKeys: die 9 Keys, die das Netzwerk-Sicherheitsnetz ausloesen
@@ -229,8 +259,10 @@ func newSessionToken() string {
 func (ws *WebServer) handleAdminKeys(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"config":  adminConfigKeys,
-		"network": adminNetworkKeys,
+		"config":    adminConfigKeys,
+		"network":   adminNetworkKeys,
+		"from_420":  keyList(adminKeysFrom420),
+		"until_419": keyList(adminKeysUntil419),
 	})
 }
 
@@ -374,9 +406,9 @@ func (ws *WebServer) handleAdminCalRestore(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Erfassungsmodus: Offsets aus dem ISR-Betrieb passen nicht zu MCPWM und
-	// umgekehrt (Firmware Rev 4.13.0) - nur auf ein Geraet im selben Modus
-	// zurueckspielen.
+	// Erfassungsmodus: eine Kalibrierung aus dem ISR-Betrieb passt nicht zu
+	// MCPWM und umgekehrt (Firmware Rev 4.13.0) - nur auf ein Geraet im
+	// selben Modus zurueckspielen.
 	var st StatusTelegram
 	if err := ws.queryTelegram("STATUS", "status", &st); err != nil {
 		http.Error(w, "Gerätestatus nicht lesbar: "+err.Error(), http.StatusBadGateway)
@@ -395,7 +427,18 @@ func (ws *WebServer) handleAdminCalRestore(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	cfg := ws.deviceState.Snapshot().Config
-	if err := ws.sendChecked(calImportCommand(cal.OffsetsNs, cal.soundSet(), cfg)); err != nil {
+	if cfg == nil {
+		var c ConfigTelegram
+		if ws.queryTelegram("SHOW", "config", &c) == nil {
+			cfg = &c
+		}
+	}
+	cmd, msg := calImportCommand(*cal, cfg)
+	if msg != "" {
+		http.Error(w, msg, http.StatusPreconditionFailed)
+		return
+	}
+	if err := ws.sendChecked(cmd); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -403,7 +446,7 @@ func (ws *WebServer) handleAdminCalRestore(w http.ResponseWriter, r *http.Reques
 	// vom Geraet unterstuetzt).
 	if cal.WalkK != nil && cfg != nil && cfg.WalkK != nil {
 		if err := ws.sendChecked(fmt.Sprintf("SET WALKK=%.3f", *cal.WalkK)); err != nil {
-			http.Error(w, "Offsets übernommen, WALKK fehlgeschlagen: "+err.Error(), http.StatusBadGateway)
+			http.Error(w, "Kalibrierung übernommen, WALKK fehlgeschlagen: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 	}
@@ -413,22 +456,44 @@ func (ws *WebServer) handleAdminCalRestore(w http.ResponseWriter, r *http.Reques
 			capture = *cal.Capture
 		}
 		ws.uploadCalibrationBackup(CalTelegram{MAC: mac, OffsetsNs: cal.OffsetsNs, SoundMps: cal.SoundMps,
-			SoundSetMps: cal.SoundSetMps, WalkK: cal.WalkK, capture: capture})
+			SoundSetMps: cal.SoundSetMps, DistUm: cal.DistUm, WalkK: cal.WalkK, capture: capture})
 	}
 	go ws.requestConfigSnapshot()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "source": source, "backup_mac": cal.MAC, "mac": mac})
 }
 
-// calImportCommand baut den CAL-IMPORT-Befehl. SOUNDSPEED mit Nachkommastelle
-// erst ab Firmware 4.15.0 (erkennbar an sound_set_mps im SHOW), sonst
-// ganzzahlig gerundet.
-func calImportCommand(ofs [6]int, sound float64, cfg *ConfigTelegram) string {
+// calImportCommand baut den CAL-IMPORT-Befehl fuer eine Sicherung - oder
+// eine Meldung, warum sie nicht zum Geraet passt. Ab Firmware Rev 4.20.0
+// DIST0-5 (Entfernungskorrektur), vorher OFS0-5 + SOUNDSPEED (mit
+// Nachkommastelle erst ab 4.15.0, erkennbar an sound_set_mps im SHOW). Die
+// beiden Arten lassen sich nicht ineinander umrechnen (andere Mikrofon-
+// Anordnung). cfg nil = Geraetestand unbekannt, dann nach der Sicherung.
+func calImportCommand(cal esp32Calibration, cfg *ConfigTelegram) (cmd, mismatch string) {
+	newFw := cal.DistUm != nil
+	if cfg != nil {
+		newFw = cfg.fw420()
+	}
+	if newFw {
+		if cal.DistUm == nil {
+			return "", "Die gesicherte Kalibrierung stammt von einer Firmware vor 4.20.0 (Timing-Offsets) und passt nicht " +
+				"zur neuen Mikrofon-Anordnung - bitte neu kalibrieren (CAL START oder im Simulator)."
+		}
+		d := cal.DistUm
+		return fmt.Sprintf("CAL IMPORT DIST0=%d,DIST1=%d,DIST2=%d,DIST3=%d,DIST4=%d,DIST5=%d",
+			d[0], d[1], d[2], d[3], d[4], d[5]), ""
+	}
+	if cal.DistUm != nil {
+		return "", "Die gesicherte Kalibrierung stammt von Firmware ab 4.20.0 (Entfernungskorrektur), das Gerät hat " +
+			"eine ältere Firmware - erst die Firmware aktualisieren."
+	}
+	sound := cal.soundSet()
 	ss := fmt.Sprintf("%d", int(math.Round(sound)))
 	if cfg != nil && cfg.SoundSetMps != nil {
 		ss = strconv.FormatFloat(math.Round(sound*10)/10, 'f', 1, 64)
 	}
+	ofs := cal.OffsetsNs
 	return fmt.Sprintf("CAL IMPORT OFS0=%d,OFS1=%d,OFS2=%d,OFS3=%d,OFS4=%d,OFS5=%d,SOUNDSPEED=%s",
-		ofs[0], ofs[1], ofs[2], ofs[3], ofs[4], ofs[5], ss)
+		ofs[0], ofs[1], ofs[2], ofs[3], ofs[4], ofs[5], ss), ""
 }
 
 // captureMismatch: Fehlermeldung, wenn eine Kalibrierung in einem anderen
