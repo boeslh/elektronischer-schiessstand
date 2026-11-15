@@ -58,6 +58,8 @@ type standpcLogShot struct {
 	Overcount      bool     `json:"overcount"`
 	SeriesNo       *int     `json:"series_no"`
 	SoundActMps    *float64 `json:"sound_act_mps"`
+	// Leervorschuebe vor diesem Schuss (Scheibenwechsel, standpc/targetchange.go)
+	PaperFeedsBefore int `json:"paper_feeds_before"`
 }
 
 // LocalImportTarget: wohin ein lokaler Durchgang uebernommen wird.
@@ -77,10 +79,18 @@ func (s *Store) ImportLocalSession(ctx context.Context, localSID string, t Local
 	shots []standpcLogShot, confirmOverwrite bool) (string, int, error) {
 
 	var valid []standpcLogShot
+	carry := 0 // Leervorschub eines nicht uebernommenen Schusses weiterreichen
 	for _, sh := range shots {
-		if sh.SessionID == localSID && !sh.Rejected && !sh.Overcount {
-			valid = append(valid, sh)
+		if sh.SessionID != localSID {
+			continue
 		}
+		if sh.Rejected || sh.Overcount {
+			carry += sh.PaperFeedsBefore
+			continue
+		}
+		sh.PaperFeedsBefore += carry
+		carry = 0
+		valid = append(valid, sh)
 	}
 	if len(valid) == 0 {
 		return "", 0, errBadRequest("der Durchgang enthält keine gültigen Schüsse")
@@ -190,17 +200,20 @@ func (s *Store) writeImportedShots(ctx context.Context, sessionID, localSID stri
 				session_id, shot_no, kind, status, series_no, fired_at,
 				device_seq, sensor_hits, x_um, y_um, pos_valid, clean, device_ts_ms,
 				zone, algo, sound_act_mps,
-				x_mm, y_mm, ring, decimal_value, is_inner_ten, center_distance
+				x_mm, y_mm, ring, decimal_value, is_inner_ten, center_distance,
+				paper_feeds_before
 			) VALUES (
 				$1::uuid, $2, $3::shot_kind, 'valid', $4, $5,
 				$6, $7, $8, $9, $10, $11, $12,
 				$13, $14, $15,
-				$16, $17, $18, $19, $20, $21
+				$16, $17, $18, $19, $20, $21,
+				$22
 			)`,
 			sessionID, i+1, kind, seriesNo, firedAt,
 			sh.Seq, sh.Hits, sh.XUm, sh.YUm, sh.PosValid, sh.Clean, sh.DeviceTsMs,
 			zone, algo, sh.SoundActMps,
 			sh.XMM, sh.YMM, sh.Ring, sh.Decimal, sh.InnerTen, sh.CenterDistance,
+			sh.PaperFeedsBefore,
 		); err != nil {
 			return fmt.Errorf("Schuss %d: %w", i+1, err)
 		}

@@ -137,6 +137,7 @@ async function api(path, opts) {
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const fmt = (v, d = 2) => v == null || !isFinite(v) ? '–' : v.toFixed(d).replace('.', ',');
 const fmtS = (v, d = 2) => v == null || !isFinite(v) ? '–' : (v > 0 ? '+' : '') + fmt(v, d);
+const tcCount = () => (B.info?.shots || []).filter(s => s.target_change).length;
 function setStatus(t, warn) { const e = $('status'); e.textContent = t; e.style.color = warn ? 'var(--warn)' : ''; }
 
 // ── Band-Geometrie ──────────────────────────────────────────────────────────
@@ -402,7 +403,7 @@ async function loadInfo() {
   B.info = await api(`/api/sessions/${sessionID}/strip-info`);
   if (!$('feed').value) $('feed').value = B.info.feed_mm;
   $('feedHint').textContent = B.info.config_known
-    ? `laut Stand ${B.info.lane_no}: Vorschub ${fmt(B.info.feed_mm)} mm, Auslösung ${B.info.trigger}${B.info.auto ? '' : ', automatischer Vorschub AUS'}; ${B.info.feeds} Vorschübe bei ${B.info.shots.length} Schüssen`
+    ? `laut Stand ${B.info.lane_no}: Vorschub ${fmt(B.info.feed_mm)} mm, Auslösung ${B.info.trigger}${B.info.auto ? '' : ', automatischer Vorschub AUS'}; ${B.info.feeds} Vorschübe bei ${B.info.shots.length} Schüssen${tcCount() ? `, davon ${tcCount()} Leervorschub/-vorschübe bei Scheibenwechsel bzw. Probe → Wertung` : ''}`
     : `Vorschub des Stands unbekannt – bitte eintragen (${B.info.feeds} Vorschübe gezählt)`;
 }
 
@@ -647,7 +648,7 @@ function renderResult() {
       const warnD = has && s.d_mm > Math.max(1.5, 3 * rmsAll);
       const feedWarn = has && s.feed_step_mm != null && Math.abs(s.feed_step_mm - e.r.feed_fit_mm) > Math.max(0.5, 3 * e.r.feed_steps.sd);
       h += `<tr class="${has ? 'click' : 'nohole'}" ${has ? `onclick="gotoHole(${e.pi}, ${s.hole})"` : ''}>
-        <td class="${s.anchored ? 'anch' : cls || ''}">${esc(shot.label)}${shot.corrected ? ' ✎' : ''}${s.anchored ? ' 📌' : ''}${note}</td>
+        <td class="${s.anchored ? 'anch' : cls || ''}">${shot.target_change ? '<span title="davor Leervorschub (neue Scheibe bzw. Probe → Wertung)">⏭ </span>' : ''}${esc(shot.label)}${shot.corrected ? ' ✎' : ''}${s.anchored ? ' 📌' : ''}${note}</td>
         ${multi ? `<td>${has ? e.P.no : ''}</td>` : ''}
         <td>${posOK(shot) ? fmt(shot.x_mm) : '–'}</td><td>${posOK(shot) ? fmt(shot.y_mm) : '–'}</td>
         <td>${has ? fmt(s.band_x_mm) : '–'}</td><td>${has ? fmt(s.band_y_mm) : '–'}</td>

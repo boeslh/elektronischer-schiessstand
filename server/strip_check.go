@@ -107,7 +107,7 @@ func (a *APIServer) loadStripInfo(r *http.Request, sessionID string) (*stripInfo
 	rows, err := a.store.pool.Query(ctx, `
 		SELECT shot_no, kind::text, status::text, entry_source,
 		       COALESCE(corrected_x_mm, x_mm)::float8, COALESCE(corrected_y_mm, y_mm)::float8,
-		       corrected_ring IS NOT NULL, piezo_ok, clean
+		       corrected_ring IS NOT NULL, piezo_ok, clean, paper_feeds_before
 		FROM shots WHERE session_id=$1::uuid ORDER BY shot_no`, sessionID)
 	if err != nil {
 		return nil, err
@@ -119,8 +119,15 @@ func (a *APIServer) loadStripInfo(r *http.Request, sessionID string) (*stripInfo
 		var src string
 		var x, y *float64
 		var piezo, clean *bool
-		if err := rows.Scan(&s.ShotNo, &s.Kind, &s.Status, &src, &x, &y, &s.Corrected, &piezo, &clean); err != nil {
+		var extra int
+		if err := rows.Scan(&s.ShotNo, &s.Kind, &s.Status, &src, &x, &y, &s.Corrected, &piezo, &clean, &extra); err != nil {
 			return nil, err
+		}
+		// Leervorschub beim Scheibenwechsel bzw. Probe -> Wertung
+		// (standpc/targetchange.go): ein freies Feld vor diesem Schuss
+		if extra > 0 && info.Auto {
+			feeds += extra
+			s.TargetChange = true
 		}
 		// Nummerierung wie in der grafischen Ansicht (nur angezeigte Schüsse)
 		shown := s.Status == "valid" || s.Status == "annulled" || s.Status == "cross_shot_in"

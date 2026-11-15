@@ -423,6 +423,9 @@ type Shot struct {
 	Rejected   bool   `json:"rejected"`
 	RejectMsg  string `json:"reject_msg,omitempty"`
 	Overcount  bool   `json:"overcount,omitempty"` // Schuss nach Disziplinabschluss
+	// PaperFeedsBefore: Leervorschuebe (ACTION TARGETCHANGE bei neuer Scheibe
+	// bzw. Probe->Wertung) seit dem vorigen Schuss, siehe targetchange.go.
+	PaperFeedsBefore int `json:"paper_feeds_before,omitempty"`
 	SeriesNo   *int   `json:"series_no,omitempty"` // nil bei nicht zaehlenden Schuessen (Reject/pos_invalid)
 }
 
@@ -598,6 +601,7 @@ func main() {
 				}
 			}
 			shot := processShot(raw, sc)
+			shot.PaperFeedsBefore = web.ConsumeTargetChange()
 
 			// histGen VOR NextShot merken: NextShot kann ResetHistory ausloesen
 			// (Auto-Switch Probe->Wertung). Stimmt gen nicht mehr ueberein,

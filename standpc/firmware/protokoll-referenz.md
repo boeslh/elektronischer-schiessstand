@@ -1123,6 +1123,11 @@ Entfernungskorrekturen `DIST0..DIST5`, seit Rev 4.20.0 statt der Timing-Offsets
   Überlappung). `TESTSHOOTPAPER` bleibt zusätzlich für Diagnosezwecke
   bestehen - beide Befehle sind austauschbar, nur die Namensgebung
   unterscheidet sich.
+- **Stand-PC (ab 2026-11)** sendet `ACTION TARGETCHANGE` automatisch bei
+  jeder neuen Scheibe und beim Wechsel Probe -> Wertung (höchstens einmal
+  zwischen zwei Schüssen, bei `"paper feed busy"` mit Wiederholung, nicht bei
+  `PAPERAUTO=0`), siehe `standpc/targetchange.go`. Der erste Schuss danach
+  bekommt in der Datenbank `shots.paper_feeds_before=1`.
 
 ### 7.6 Netzwerk-Sicherheitsnetz (seit Rev 4.9.0)
 

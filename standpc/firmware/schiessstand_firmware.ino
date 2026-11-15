@@ -1,6 +1,17 @@
 /*
  * ============================================================================
  *  Elektronischer Schießstand – ESP32 Firmware
+ *  Rev 4.22.0 – ACTION TARGETCHANGE fuer den Scheibenwechsel (neue Scheibe,
+ *              Probe -> Wertung):
+ *              - bei PAPERAUTO=0 kein Vorschub, Antwort "state":"skipped"
+ *              - laeuft gerade ein Vorschub (z.B. vom letzten Schuss), wird
+ *                der Scheibenwechsel vorgemerkt (paperFeedQueued) und direkt
+ *                danach ausgefuehrt, Antwort "state":"queued" statt "paper
+ *                feed busy". Hoechstens einer; manuelles Einfaedeln verwirft
+ *                ihn. "paper feed busy" nur noch waehrend des Einfaedelns.
+ *              - TESTSHOOTPAPER unveraendert.
+ * ============================================================================
+ *
  *  Rev 4.21.0 – Erfassung und Rechenweg getrennt:
  *              - SET ALGO=CLASSIC|RIM waehlt nur noch den Rechenweg.
  *              - NEU SET BUFFER=0|1 waehlt die Erfassung: 0 = Sammelfenster
@@ -1181,7 +1192,7 @@
 // Konstanten & Werks-Defaults (greifen nur bei leerem NVS)
 // ---------------------------------------------------------------------------
 
-#define FW_VERSION   "4.21.0"
+#define FW_VERSION   "4.22.0"
 #define SERIAL_BAUD  115200
 #define NVS_NS       "schiessstd"     // NVS-Namespace
 
@@ -2831,6 +2842,11 @@ static uint32_t  paperHalfSteps  = 0;   // Schrittindex, ab dem abgebremst wird
 static uint64_t  paperNextStepUs = 0;   // esp_timer_get_time()-Zeitpunkt des naechsten Schritts
 static bool      paperStepPinHigh = false; // STEP aktuell HIGH, wartet auf Ruecklanke
 static uint64_t  paperStepFallUs  = 0;     // Zeitpunkt, zu dem STEP wieder LOW gezogen wird
+// ACTION TARGETCHANGE waehrend eines laufenden Vorschubs (Rev 4.22.0): der
+// Scheibenwechsel wird vorgemerkt und startet direkt nach dem Ende des
+// laufenden Vorschubs (servicePaperStepper()). Hoechstens EIN vorgemerkter
+// Vorschub; manuelles Einfaedeln per Schalter verwirft ihn.
+static bool      paperFeedQueued  = false;
 
 // Entprellung der beiden Kippschalter-Eingaenge (PAPER_SW_DEBOUNCE_US) -
 // je Pin der zuletzt gelesene Rohwert, dessen Zeitpunkt und der aktuell
@@ -3008,6 +3024,20 @@ static void servicePaperStepper()
         // eine Richtung zu vermuten.
         paperMode = PAPER_IDLE;
         paperEnable(false);
+    }
+
+    // Manuelles Einfaedeln verwirft einen vorgemerkten Scheibenwechsel, sonst
+    // liefe das Papier nach dem Loslassen des Schalters ueberraschend weiter.
+    if (paperMode == PAPER_JOG_FWD || paperMode == PAPER_JOG_REV) {
+        paperFeedQueued = false;
+    }
+
+    // Vorgemerkter Scheibenwechsel (ACTION TARGETCHANGE): starten, sobald der
+    // vorherige Vorschub fertig ist. PAPERAUTO wird erneut geprueft, falls es
+    // in der Zwischenzeit abgeschaltet wurde.
+    if (paperFeedQueued && paperMode == PAPER_IDLE) {
+        paperFeedQueued = false;
+        if (cfg.paperAuto) startPaperFeed();
     }
 
     if (paperMode == PAPER_IDLE) return;
@@ -5264,9 +5294,10 @@ static void sendHelp()
         "#                            Schuss registriert worden (kein echtes Schuss-Telegramm,",
         "#                            zaehlt nicht in shots/seq) - zum Testen von Mechanik/",
         "#                            Treiber ohne Schuss auf die Scheibe",
-        "#   ACTION TARGETCHANGE       loest einen Papiervorschub aus (wie TESTSHOOTPAPER,",
-        "#                            gleicher Codepfad, sprechenderer Name fuer den",
-        "#                            produktiven Scheibenwechsel-Bedienfall)",
+        "#   ACTION TARGETCHANGE       Scheibenwechsel (neue Scheibe, Probe->Wertung):",
+        "#                            Vorschub um PAPERFEED. Bei PAPERAUTO=0 kein",
+        "#                            Vorschub (state skipped); laeuft gerade ein",
+        "#                            Vorschub, folgt er direkt danach (state queued)",
         "#",
         "# === Debug / Analyse ===",
         "#   SET DEBUG=<0-3>          shot/reject-Telegramme gehen seit Rev 4.6.1 IMMER",
@@ -5894,14 +5925,29 @@ static void handleActionCommand(const String &upperRest)
         return;
     }
     if (upperRest == "TARGETCHANGE") {
-        // Identischer Codepfad wie TESTSHOOTPAPER (siehe dortigen Kommentar)
-        // - eigener, fuer den produktiven Scheibenwechsel sprechender Name.
-        if (paperMode != PAPER_IDLE) {
+        // Scheibenwechsel (z.B. neue Scheibe, Probe -> Wertung). Seit Rev
+        // 4.22.0 anders als TESTSHOOTPAPER:
+        //  - PAPERAUTO=0: kein Vorschub, Antwort state "skipped",
+        //  - laeuft gerade ein Vorschub (z.B. vom letzten Schuss), wird der
+        //    Scheibenwechsel vorgemerkt und direkt danach ausgefuehrt
+        //    (state "queued", siehe paperFeedQueued),
+        //  - nur waehrend des manuellen Einfaedelns: "paper feed busy".
+        if (!cfg.paperAuto) {
+            emitLine("{\"type\":\"ok\",\"action\":\"targetchange\",\"state\":\"skipped\","
+                     "\"reason\":\"paperauto\"}\n");
+            return;
+        }
+        if (paperMode == PAPER_JOG_FWD || paperMode == PAPER_JOG_REV) {
             emitLine("{\"type\":\"error\",\"msg\":\"paper feed busy\"}\n");
             return;
         }
+        if (paperMode != PAPER_IDLE || paperFeedQueued) {
+            paperFeedQueued = true;
+            emitLine("{\"type\":\"ok\",\"action\":\"targetchange\",\"state\":\"queued\"}\n");
+            return;
+        }
         startPaperFeed();
-        emitLine("{\"type\":\"ok\",\"action\":\"targetchange\"}\n");
+        emitLine("{\"type\":\"ok\",\"action\":\"targetchange\",\"state\":\"started\"}\n");
         return;
     }
     emitLine("{\"type\":\"error\",\"msg\":\"unknown action\"}\n");

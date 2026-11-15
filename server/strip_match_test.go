@@ -169,3 +169,25 @@ func TestStripMatch_ManySeeds(t *testing.T) {
 		}
 	}
 }
+
+// Leervorschub beim Wechsel Probe -> Wertung (standpc/targetchange.go): der
+// Stand meldet ihn per paper_feeds_before, er steckt damit bereits in Feed -
+// die Zuordnung darf dafuer KEINEN abweichenden Vorschub melden.
+func TestStripMatch_KnownTargetChange(t *testing.T) {
+	sc := stripScenario{n: 24, spreadX: 3, spreadY: 4, feed: 15, nominal: 15, noise: 0.25, sx: 1, sv: 1, q: -1,
+		visibleFrom: -1, gapAfter: 4, seed: 6}
+	in, truth := sc.build()
+	for i := range in.Shots {
+		if i >= 5 {
+			in.Shots[i].Feed++
+			in.Shots[i].Kind = "match"
+		} else {
+			in.Shots[i].Kind = "sighting"
+		}
+	}
+	in.Shots[5].TargetChange = true
+	res := checkStrip(t, in, truth, true)
+	if res.FeedJumps != 0 {
+		t.Errorf("Vorschub-Sprünge %d, erwartet 0 (Leervorschub bekannt)", res.FeedJumps)
+	}
+}

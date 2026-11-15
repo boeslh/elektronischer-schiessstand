@@ -61,6 +61,9 @@ type stripShot struct {
 	Feed int `json:"feed"`
 	// FeedAfter: dieser Schuss hat einen Vorschub ausgelöst
 	FeedAfter bool `json:"feed_after"`
+	// TargetChange: vor diesem Schuss gab es einen Leervorschub
+	// (Scheibenwechsel bzw. Probe -> Wertung, bereits in Feed enthalten)
+	TargetChange bool `json:"target_change,omitempty"`
 }
 
 type stripAnchor struct {

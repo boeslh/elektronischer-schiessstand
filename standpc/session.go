@@ -289,6 +289,9 @@ func (m *SessionManager) SetDiscipline(def *DisciplineDef) {
 	if m.cfg.Standalone {
 		m.sessionID = newLocalSessionID()
 		m.shotNo = 0
+		if m.standaloneReady {
+			m.web.RequestTargetChange("neuer Durchgang")
+		}
 	}
 	m.setDisciplineLocked(def)
 	if def != nil {
@@ -427,6 +430,7 @@ func (m *SessionManager) SetMode(newMode string) (ok bool, reason string) {
 	}
 	m.mode = newMode
 	if newMode == ModeWertung {
+		m.web.RequestTargetChange("Probe -> Wertung")
 		m.markWertungLocked()
 		m.wertungCount = 0
 		m.wertungShotsFired = 0
@@ -481,6 +485,7 @@ func (m *SessionManager) NextShot(counts bool) (sessionID string, shotNo int, mo
 			if disc != nil && disc.TrialShots > 0 && m.probeCount >= disc.TrialShots && m.shooterMayToggleLocked() {
 				// Letzter Probeschuss erreicht: automatisch auf Wertung umschalten
 				m.mode = ModeWertung
+				m.web.RequestTargetChange("Probeserie beendet")
 				m.markWertungLocked()
 				m.wertungCount = 0
 				m.wertungShotsFired = 0
@@ -897,6 +902,7 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 	// --- Modus-Signal vom Server (unabhaengig vom Sessionwechsel) ---
 	if s != nil && s.Mode == ModeWertung && m.mode == ModeProbe {
 		m.mode = ModeWertung
+		m.web.RequestTargetChange("Probe -> Wertung (Server)")
 		m.markWertungLocked()
 		m.probeCount = 0
 		m.wertungCount = 0
@@ -981,6 +987,10 @@ func (m *SessionManager) poll(client *http.Client, url string) {
 
 	m.sessionID = newID
 	m.shooter = s.Shooter
+	if s.LastShotNo == 0 {
+		// neue Scheibe (keine fortgesetzte mit bereits vorhandenen Schuessen)
+		m.web.RequestTargetChange("neue Scheibe")
+	}
 	m.maintenance = s.Maintenance
 	if m.web != nil {
 		// RAWLOG fuer Wartungs-Sessions sofort abgleichen (nicht erst beim

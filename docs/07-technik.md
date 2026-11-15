@@ -182,6 +182,17 @@ Ergebnis einer Scheibe. Sie wird in der grafischen Ansicht eines Ergebnisses
    mit fremden Löchern, etwa von der vorigen Scheibe, und mit zusätzlichen
    oder fehlenden Vorschüben, etwa durch einen Scheibenwechsel von Hand.
 
+**Leervorschub bei neuer Scheibe.** Bei jeder neuen Scheibe und beim
+Umschalten von Probe auf Wertung schiebt der Stand das Band einmal zusätzlich
+vor (Befehl `ACTION TARGETCHANGE`), damit dazwischen ein Feld frei bleibt. Wird
+mehrmals umgeschaltet, ohne dass dazwischen geschossen wird, gibt es nur einen
+Leervorschub. Läuft gerade noch der Vorschub des letzten Schusses, wartet der
+Stand-PC ihn ab. Ist der automatische Vorschub am Gerät aus (PAPERAUTO=0),
+entfällt auch der Leervorschub; ebenso bei einer fortgesetzten Scheibe, die
+schon Schüsse hat. Der erste Schuss nach einem Leervorschub ist in der Datenbank
+gekennzeichnet. Die Bandkontrolle rechnet das freie Feld ein und markiert den
+Schuss in der Tabelle mit ⏭.
+
 Ist die Zuordnung eines Fotos nicht eindeutig, meldet die Seite das. Das kommt vor allem
 bei sehr engem Trefferbild vor, wenn das Band auf dem Foto an beiden Enden
 abgeschnitten ist. Dann wird mit **Loch einem Schuss zuordnen** mindestens ein

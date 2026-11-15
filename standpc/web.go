@@ -56,6 +56,7 @@ type WebServer struct {
 	fontSizesFile string                    // Zieldatei fuer Persistenz eines Pushs (offline-robust)
 
 	cmds              *CommandManager // Befehlsversand an den ESP32 (siehe devicelink.go)
+	targetChange      targetChanger   // automatischer Leervorschub (targetchange.go)
 	deviceState       *DeviceState    // zuletzt bekannter status/config/confignet/cal (siehe devicestate.go)
 	adminPasswordFile string          // Zieldatei fuer Persistenz des vom Server gepushten Passwort-Hash
 

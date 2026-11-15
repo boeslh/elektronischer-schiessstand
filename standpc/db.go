@@ -216,14 +216,16 @@ func (w *DBWriter) insertShot(e dbEntry) error {
 			x_mm, y_mm, ring, decimal_value, is_inner_ten, center_distance,
 			air_ns, x_um, y_um, pos_res_um, precision_um, cluster_hits,
 			pos_valid, piezo_ns, piezo_ok, clean, reject_reason, device_ts_ms,
-			air_w_ns, sound_act_mps, capture, walk_k, algo, raw_edges, zone
+			air_w_ns, sound_act_mps, capture, walk_k, algo, raw_edges, zone,
+			paper_feeds_before
 		) VALUES (
 			$1::uuid, $2, $3::shot_kind, $4::shot_status, $5, $6,
 			$7, $8,
 			$9::float8, $10::float8, $11::smallint, $12::numeric, $13, $14::numeric,
 			$15::jsonb, $16::bigint, $17::bigint, $18::bigint, $19::bigint, $20::smallint,
 			$21::boolean, $22::bigint, $23::boolean, $24::boolean, $25, $26::bigint,
-			$27::jsonb, $28::numeric, $29, $30::numeric, $31, $32::jsonb, $33
+			$27::jsonb, $28::numeric, $29, $30::numeric, $31, $32::jsonb, $33,
+			$34::smallint
 		)
 		ON CONFLICT (session_id, shot_no) DO NOTHING`,
 		e.sessionID, e.shotNo, kind, status, s.FiredAt, s.SeriesNo,
@@ -232,6 +234,7 @@ func (w *DBWriter) insertShot(e dbEntry) error {
 		airNs, s.XUm, s.YUm, s.PosResUm, s.PrecisionUm, s.ClusterHits,
 		s.PosValid, s.PiezoNs, s.PiezoOk, s.Clean, s.RejectMsg, s.DeviceTsMs,
 		airWNs, s.SoundActMps, nullStr(s.Capture), s.WalkK, nullStr(s.Algo), rawEdges, nullStr(s.Zone),
+		s.PaperFeedsBefore,
 	)
 	var pgErr *pgconn.PgError
 	if err != nil && !errors.As(err, &pgErr) {

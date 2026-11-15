@@ -166,6 +166,7 @@ func (m *SessionManager) probeExpiredSwitchLocked() bool {
 		return false
 	}
 	m.mode = ModeWertung
+	m.web.RequestTargetChange("Probezeit abgelaufen")
 	m.wertungCount = 0
 	m.wertungShotsFired = 0
 	m.wertungSinceMs = ti.ProbeDeadlineMs
