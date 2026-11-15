@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -62,12 +64,18 @@ func (ws *WebServer) runTargetChange(reason string) {
 	}
 	deadline := time.Now().Add(targetChangeTimeout)
 	for {
-		err := ws.sendChecked("ACTION TARGETCHANGE")
+		state, err := ws.sendTargetChange()
 		if err == nil {
+			// Firmware ab 4.22.0: "queued" = wird direkt nach dem laufenden
+			// Vorschub ausgefuehrt, "skipped" = PAPERAUTO=0, kein Vorschub
+			if state == "skipped" {
+				log.Printf("Scheibenwechsel-Vorschub (%s): vom Gerät übersprungen (PAPERAUTO=0)", reason)
+				return
+			}
 			tc.mu.Lock()
 			tc.pending = 1
 			tc.mu.Unlock()
-			log.Printf("Scheibenwechsel-Vorschub ausgelöst (%s)", reason)
+			log.Printf("Scheibenwechsel-Vorschub ausgelöst (%s%s)", reason, map[bool]string{true: ", vorgemerkt", false: ""}[state == "queued"])
 			return
 		}
 		// "paper feed busy": Vorschub des letzten Schusses laeuft noch
@@ -105,4 +113,30 @@ func (ws *WebServer) ConsumeTargetChange() int {
 		tc.fed = false
 	}
 	return n
+}
+
+// sendTargetChange sendet ACTION TARGETCHANGE und liefert das "state"-Feld
+// der ok-Antwort ("" bis Firmware 4.21, ab 4.22.0 "queued"/"skipped").
+func (ws *WebServer) sendTargetChange() (string, error) {
+	lines, err := ws.cmds.SendCommand("ACTION TARGETCHANGE", 0)
+	if err != nil {
+		return "", err
+	}
+	state := ""
+	for _, l := range lines {
+		var t struct {
+			Type  string `json:"type"`
+			Msg   string `json:"msg"`
+			State string `json:"state"`
+		}
+		if json.Unmarshal(l, &t) == nil {
+			if t.Type == "error" {
+				return "", fmt.Errorf("Gerät meldet Fehler: %s", t.Msg)
+			}
+			if t.State != "" {
+				state = t.State
+			}
+		}
+	}
+	return state, nil
 }

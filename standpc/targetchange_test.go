@@ -94,3 +94,24 @@ func TestTargetChange_PaperAutoOff(t *testing.T) {
 		t.Fatal("bei PAPERAUTO=0 darf kein Vorschub ausgelöst werden")
 	}
 }
+
+// Firmware ab 4.22.0 antwortet bei PAPERAUTO=0 mit "state":"skipped" -
+// dann gibt es keinen Leervorschub fuer den naechsten Schuss.
+type fakeSkipESP32 struct{ fakePaperESP32 }
+
+func (f *fakeSkipESP32) Write(p []byte) (int, error) {
+	_, id, _ := strings.Cut(strings.TrimSpace(string(p)), " #")
+	go dispatchLine([]byte(`{"type":"ok","action":"targetchange","state":"skipped","corr":`+id+`}`), nil, f.cmds, f.state)
+	return len(p), nil
+}
+
+func TestTargetChange_FirmwareSkipped(t *testing.T) {
+	link := NewDeviceLink(nil)
+	ws := &WebServer{cmds: NewCommandManager(link), deviceState: NewDeviceState()}
+	link.SetActive(&fakeSkipESP32{fakePaperESP32{cmds: ws.cmds, state: ws.deviceState}}, true)
+	ws.RequestTargetChange("neue Scheibe")
+	waitTC(t, ws)
+	if n := ws.ConsumeTargetChange(); n != 0 {
+		t.Fatalf("paper_feeds_before=%d trotz skipped", n)
+	}
+}
