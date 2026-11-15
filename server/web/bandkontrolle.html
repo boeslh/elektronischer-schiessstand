@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bandkontrolle – Schießstand</title>
+<style>
+  :root {
+    --bg:#0f0f1a; --panel:#1a1a2e; --line:#2a2a45; --text:#e0e0f0;
+    --dim:#7070a0; --acc:#7ba7ff; --green:#3dcc6e; --red:#e04040; --warn:#ffb347;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+  header{display:flex;align-items:baseline;gap:12px;padding:12px 20px;flex-wrap:wrap;
+         background:var(--panel);border-bottom:1px solid var(--line)}
+  header a{color:var(--dim);text-decoration:none;font-size:18px}
+  header a:hover{color:var(--text)}
+  header h1{font-size:17px;font-weight:600}
+  header .sub{font-size:13px;color:var(--dim)}
+  main{padding:16px 20px;display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,560px);gap:16px;align-items:start}
+  @media (max-width:1100px){main{grid-template-columns:1fr}}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  section h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);margin-bottom:10px}
+  .row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:8px}
+  label.f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px}
+  input,select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font-size:13px}
+  input:focus{outline:none;border-color:var(--acc)}
+  .btn{background:var(--acc);color:#000;border:none;border-radius:5px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn:hover{opacity:.85}
+  .btn:disabled{opacity:.4;cursor:default}
+  .btn-sec{background:transparent;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:6px 12px;font-size:13px;cursor:pointer}
+  .btn-sec:hover{color:var(--text);border-color:var(--text)}
+  .btn-sec.active{color:var(--acc);border-color:var(--acc)}
+  .hint{font-size:12px;color:var(--dim);line-height:1.45}
+  #status{min-height:18px;margin:6px 0}
+  #canvasWrap{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#000}
+  canvas{display:block;cursor:crosshair;touch-action:none}
+  #summary{font-size:13px;line-height:1.6}
+  #summary .msg{font-weight:600;margin-bottom:4px}
+  #summary .ok{color:var(--green)} #summary .bad{color:var(--warn)}
+  table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+  th{color:var(--dim);font-weight:500;text-align:right;padding:4px 6px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+  td{text-align:right;padding:3px 6px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  tr.nohole td{color:var(--dim)}
+  tr.click{cursor:pointer} tr.click:hover td{background:#202038}
+  td.warn{color:var(--warn)} td.anch{color:#e070ff}
+  #tableWrap{max-height:70vh;overflow:auto;margin-top:10px}
+  #anchors span{display:inline-flex;gap:4px;align-items:center;border:1px solid #e070ff;color:#e070ff;border-radius:12px;padding:1px 8px;font-size:12px;margin:2px}
+  #anchors button{background:none;border:none;color:#e070ff;cursor:pointer}
+</style>
+</head>
+<body>
+<header>
+  <a href="#" id="backLink" title="Zurück">←</a>
+  <h1>Bandkontrolle</h1>
+  <span class="sub" id="who"></span>
+</header>
+<main>
+  <div>
+    <section>
+      <div class="row">
+        <input type="file" id="file" accept="image/*" style="display:none">
+        <label class="f">Bandbreite (mm)<input type="number" id="width" value="90" step="0.5" min="20" max="300" style="width:90px"></label>
+        <label class="f">Vorschub (mm)<input type="number" id="feed" step="0.1" min="1" max="200" style="width:90px"></label>
+        <span class="hint" id="feedHint"></span>
+      </div>
+      <div class="row" id="photoBar"></div>
+      <div class="row">
+        <button class="btn-sec active" id="modeHoles">Löcher bearbeiten</button>
+        <button class="btn-sec" id="modeAnchor">Loch einem Schuss zuordnen</button>
+        <button class="btn-sec" id="redetect">Löcher neu erkennen</button>
+        <button class="btn-sec" id="fit">Ansicht einpassen</button>
+        <button class="btn-sec" id="delPhoto">Foto löschen</button>
+      </div>
+      <div class="hint" id="status"></div>
+      <div id="canvasWrap"><canvas id="cv"></canvas></div>
+      <div class="hint" id="geo" style="margin-top:6px"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Vergleich</h2>
+      <div class="row">
+        <button class="btn" id="run">Zuordnen und vergleichen</button>
+        <span class="hint" id="anchors"></span>
+      </div>
+      <div id="summary" class="hint">Foto laden, Löcher prüfen, dann vergleichen.</div>
+      <div id="tableWrap"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const sessionID = params.get('session_id') || '';
+const HOLE_MM = 4.5;
+
+// B enthaelt das gerade angezeigte Foto (Felder PF) - beim Umschalten werden
+// diese Felder mit dem Foto-Objekt in B.photos ausgetauscht (stash/unstash).
+const B = {
+  no: 0, filename: '',
+  img: null, W: 0, H: 0,
+  ps: 1, PW: 0, PH: 0, L: null, thr: 0, thrHole: 0,
+  strip: null,          // erkanntes Band (Originalpixel)
+  holes: [],            // {x, y} Originalpixel
+  anchors: [],          // {x, y, shot_no}
+  result: null, error: null,
+  view: null, flash: null,
+  photos: [], cur: -1,
+  info: null,
+  mode: 'holes',
+};
+const PF = ['no', 'filename', 'img', 'W', 'H', 'ps', 'PW', 'PH', 'L', 'thr', 'thrHole', 'strip', 'holes', 'anchors', 'result', 'error', 'view', 'flash', 'needDetect'];
+function newPhoto(no, filename) {
+  return {no, filename, img: null, W: 0, H: 0, ps: 1, PW: 0, PH: 0, L: null, thr: 0, thrHole: 0, strip: null,
+    holes: [], anchors: [], result: null, error: null, view: null, flash: null, needDetect: true};
+}
+function stash() { if (B.cur >= 0) { const P = B.photos[B.cur]; PF.forEach(k => { P[k] = B[k]; }); } }
+function unstash(i) { B.cur = i; const P = B.photos[i]; PF.forEach(k => { B[k] = P[k]; }); }
+// fn mit Foto P als aktuellem Foto ausfuehren (synchron)
+function withPhoto(P, fn) {
+  stash();
+  const saved = B.cur;
+  unstash(B.photos.indexOf(P));
+  try { return fn(); } finally { stash(); if (saved >= 0) unstash(saved); }
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const t = await r.text();
+  if (!r.ok) { let m = t; try { m = JSON.parse(t).error || t; } catch (e) {} throw new Error(m); }
+  return t ? JSON.parse(t) : null;
+}
+const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const fmt = (v, d = 2) => v == null || !isFinite(v) ? '–' : v.toFixed(d).replace('.', ',');
+const fmtS = (v, d = 2) => v == null || !isFinite(v) ? '–' : (v > 0 ? '+' : '') + fmt(v, d);
+function setStatus(t, warn) { const e = $('status'); e.textContent = t; e.style.color = warn ? 'var(--warn)' : ''; }
+
+// ── Band-Geometrie ──────────────────────────────────────────────────────────
+// strip: c (Mittelpunkt auf der Mittellinie), a (längs), n (quer, a um 90°
+// gedreht), Breite w(t) = w0 + w1*t (Originalpixel, t = Abstand längs ab c),
+// tMin/tMax = sichtbarer Bereich. Maßstab aus der Bandbreite: quer
+// mm = s*W/w(t). Längs gilt bei schräg fotografiertem Band (Lochkamera)
+// dv/dt = W*wp/w(t)² mit wp = Breite auf Höhe der Bildmitte - der
+// Maßstab längs ändert sich mit dem Quadrat der Breite (projektive
+// Abbildung), integriert: v = W*wp*t / (w0*w(t)).
+function widthMM() { return parseFloat($('width').value) || 90; }
+function wAt(t) { const S = B.strip; return S.w0 + S.w1 * t; }
+function vOfT(t) {
+  const S = B.strip;
+  return widthMM() * S.wp * t / (S.w0 * wAt(t));
+}
+function tOfV(v) {
+  const S = B.strip;
+  return v * S.w0 * S.w0 / (widthMM() * S.wp - v * S.w0 * S.w1);
+}
+function toBand(x, y) {
+  const S = B.strip, dx = x - S.cx, dy = y - S.cy;
+  const t = dx * S.ax + dy * S.ay, s = dx * S.nx + dy * S.ny;
+  return {u: s * widthMM() / wAt(t), v: vOfT(t), t, s};
+}
+function fromBand(u, v) {
+  const S = B.strip, t = tOfV(v), s = u * wAt(t) / widthMM();
+  return [S.cx + S.ax * t + S.nx * s, S.cy + S.ay * t + S.ny * s];
+}
+function pxPerMM(x, y) { return B.strip ? wAt(toBand(x, y).t) / widthMM() : 10; }
+
+// Luminanz in Arbeitsauflösung (max. 2000 px lange Seite)
+function buildLum() {
+  B.ps = Math.min(1, 2000 / Math.max(B.W, B.H));
+  B.PW = Math.round(B.W * B.ps); B.PH = Math.round(B.H * B.ps);
+  const c = document.createElement('canvas');
+  c.width = B.PW; c.height = B.PH;
+  const ctx = c.getContext('2d', {willReadFrequently: true});
+  ctx.drawImage(B.img, 0, 0, B.PW, B.PH);
+  const d = ctx.getImageData(0, 0, B.PW, B.PH).data;
+  B.L = new Float32Array(B.PW * B.PH);
+  for (let i = 0, k = 0; i < B.L.length; i++, k += 4) B.L[i] = 0.299 * d[k] + 0.587 * d[k + 1] + 0.114 * d[k + 2];
+}
+function otsu(vals) {
+  const hist = new Float64Array(256);
+  for (const v of vals) hist[Math.max(0, Math.min(255, v | 0))]++;
+  let tot = 0, sum = 0;
+  for (let i = 0; i < 256; i++) { tot += hist[i]; sum += i * hist[i]; }
+  let wB = 0, sB = 0, best = 0, thr = 128;
+  for (let i = 0; i < 256; i++) {
+    wB += hist[i]; if (!wB) continue;
+    const wF = tot - wB; if (!wF) break;
+    sB += i * hist[i];
+    const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > best) { best = v; thr = i + 0.5; }
+  }
+  return thr;
+}
+function lumAt(x, y) { // bilinear, Arbeitsauflösung
+  const W = B.PW, H = B.PH;
+  if (x < 0 || y < 0 || x >= W - 1 || y >= H - 1) return 255;
+  const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0, i = y0 * W + x0;
+  return (B.L[i] * (1 - fx) + B.L[i + 1] * fx) * (1 - fy) + (B.L[i + W] * (1 - fx) + B.L[i + W + 1] * fx) * fy;
+}
+
+// Robuste Gerade y = a + b*x (iterativ Ausreißer verwerfen)
+function robustLine(xs, ys, iters = 4, k = 2.5, floor = 1) {
+  let use = xs.map(() => true), a = 0, b = 0;
+  for (let it = 0; it < iters; it++) {
+    let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let i = 0; i < xs.length; i++) if (use[i]) { n++; sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
+    if (n < 2) break;
+    const den = n * sxx - sx * sx;
+    b = den ? (n * sxy - sx * sy) / den : 0; a = (sy - b * sx) / n;
+    const res = xs.map((x, i) => Math.abs(ys[i] - a - b * x));
+    const sorted = res.filter((_, i) => use[i]).sort((p, q) => p - q);
+    const mad = sorted[Math.floor(sorted.length / 2)] * 1.4826;
+    const lim = Math.max(k * mad, floor);
+    use = res.map(r => r <= lim);
+  }
+  return {a, b, use};
+}
+
+function detectStrip() {
+  const W = B.PW, H = B.PH, L = B.L;
+  B.thr = otsu(L);
+  // größte dunkle Fläche = Band
+  const lab = new Int32Array(W * H), q = new Int32Array(W * H);
+  let bestLab = 0, bestN = 0, cur = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (lab[i] || L[i] >= B.thr) continue;
+    cur++; let h = 0, t = 0; q[t++] = i; lab[i] = cur; let n = 0;
+    while (h < t) {
+      const p = q[h++]; n++;
+      const x = p % W, y = (p / W) | 0;
+      if (x > 0 && !lab[p - 1] && L[p - 1] < B.thr) { lab[p - 1] = cur; q[t++] = p - 1; }
+      if (x < W - 1 && !lab[p + 1] && L[p + 1] < B.thr) { lab[p + 1] = cur; q[t++] = p + 1; }
+      if (y > 0 && !lab[p - W] && L[p - W] < B.thr) { lab[p - W] = cur; q[t++] = p - W; }
+      if (y < H - 1 && !lab[p + W] && L[p + W] < B.thr) { lab[p + W] = cur; q[t++] = p + W; }
+    }
+    if (n > bestN) { bestN = n; bestLab = cur; }
+  }
+  if (bestN < W * H * 0.02) throw new Error('Kein dunkles Band auf dem Foto gefunden.');
+  // Hauptachse
+  let mx = 0, my = 0, n = 0;
+  for (let i = 0; i < W * H; i += 3) if (lab[i] === bestLab) { mx += i % W; my += (i / W) | 0; n++; }
+  mx /= n; my /= n;
+  let cxx = 0, cyy = 0, cxy = 0, bgSum = 0, bgN = 0;
+  for (let i = 0; i < W * H; i += 3) {
+    if (lab[i] === bestLab) { const dx = i % W - mx, dy = ((i / W) | 0) - my; cxx += dx * dx; cyy += dy * dy; cxy += dx * dy; }
+    else if (L[i] >= B.thr) { bgSum += L[i]; bgN++; }
+  }
+  const bgMean = bgN ? bgSum / bgN : 230;
+  B.thrHole = (B.thr + bgMean) / 2;
+  const ang = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+  let ax = Math.cos(ang), ay = Math.sin(ang);
+  if (Math.abs(ay) >= Math.abs(ax) ? ay < 0 : ax < 0) { ax = -ax; ay = -ay; }
+  let cx = mx, cy = my;
+  const half = Math.hypot(W, H);
+  let scan = null;
+  for (let pass = 0; pass < 3; pass++) {
+    const nx = -ay, ny = ax;
+    // Querprofile: von außen nach innen bis zur ersten dunklen Stelle
+    const ts = [], mids = [], widths = [];
+    const edgeL = [], edgeR = [];
+    const S = Math.min(half, Math.max(W, H));
+    for (let t = -half; t <= half; t += 4) {
+      const bx = cx + ax * t, by = cy + ay * t;
+      if (bx < 0 || by < 0 || bx >= W || by >= H) continue;
+      if (lab[(by | 0) * W + (bx | 0)] !== bestLab) continue;
+      const edge = dir => {
+        let prev = null;
+        for (let s = dir * S; dir * s > -S; s -= dir * 0.5) {
+          const x = bx + nx * s, y = by + ny * s;
+          if (x < 0 || y < 0 || x >= W - 1 || y >= H - 1) { prev = null; continue; }
+          const l = lumAt(x, y);
+          if (prev != null && prev >= B.thr && l < B.thr) {
+            // drei weitere dunkle Proben verlangen (keine Fusseln)
+            let ok = true;
+            for (let k = 1; k <= 3; k++) if (lumAt(bx + nx * (s - dir * k), by + ny * (s - dir * k)) >= B.thr) ok = false;
+            // vorige (helle) Probe lag bei s + dir*0.5: Schwelle linear interpolieren
+            if (ok) return s + dir * 0.5 * (B.thr - l) / (prev - l);
+          }
+          prev = l;
+        }
+        return null;
+      };
+      const sR = edge(1), sL = edge(-1);
+      if (sR == null || sL == null || sR - sL < 10) continue;
+      ts.push(t); mids.push((sR + sL) / 2); widths.push(sR - sL);
+      edgeL.push([bx + nx * sL, by + ny * sL]); edgeR.push([bx + nx * sR, by + ny * sR]);
+    }
+    if (ts.length < 10) throw new Error('Bandkanten nicht erkannt.');
+    const m = robustLine(ts, mids, 4, 2.5, 1.5);
+    cx += nx * m.a; cy += ny * m.a;
+    const nax = ax + nx * m.b, nay = ay + ny * m.b, nl = Math.hypot(nax, nay);
+    ax = nax / nl; ay = nay / nl;
+    scan = {ts, widths, edgeL, edgeR, use: m.use};
+  }
+  const nx = -ay, ny = ax;
+  // Breite linear (Perspektive); eingerollte Enden fallen als Ausreißer heraus
+  const wl = robustLine(scan.ts, scan.widths, 5, 2.5, 1.5);
+  const ok = scan.ts.map((t, i) => scan.use[i] && wl.use[i]);
+  const tsOk = scan.ts.filter((_, i) => ok[i]);
+  // sichtbarer Bereich: alle Profile mit plausibler Breite (auch eingerollte Enden)
+  const tsAll = scan.ts.filter((t, i) => Math.abs(scan.widths[i] - (wl.a + wl.b * t)) < 0.12 * (wl.a + wl.b * t));
+  const p = B.ps;
+  B.strip = {
+    cx: cx / p, cy: cy / p, ax, ay, nx, ny,
+    w0: wl.a / p, w1: wl.b, // w1 ist dimensionslos (px je px)
+    tMin: Math.min(...tsAll) / p, tMax: Math.max(...tsAll) / p,
+    used: tsOk.length, total: scan.ts.length,
+    edgeL: scan.edgeL.map(([x, y]) => [x / p, y / p]), edgeR: scan.edgeR.map(([x, y]) => [x / p, y / p]),
+    wp: 0,
+    widthRMS: Math.sqrt(scan.widths.reduce((a, w, i) => a + (ok[i] ? (w - wl.a - wl.b * scan.ts[i]) ** 2 : 0), 0) / Math.max(1, tsOk.length)) / p,
+  };
+  const S = B.strip, tp = (B.W / 2 - S.cx) * S.ax + (B.H / 2 - S.cy) * S.ay;
+  S.wp = wAt(tp);
+}
+
+// Löcher: helle, runde Flecken im Band (Arbeitsauflösung)
+function detectHoles() {
+  const W = B.PW, H = B.PH, L = B.L, S = B.strip, p = B.ps, thr = B.thrHole;
+  const seen = new Uint8Array(W * H), q = new Int32Array(W * H);
+  const found = [];
+  const inside = (x, y) => {
+    const ox = x / p, oy = y / p, dx = ox - S.cx, dy = oy - S.cy;
+    const t = dx * S.ax + dy * S.ay, s = dx * S.nx + dy * S.ny;
+    if (t < S.tMin || t > S.tMax) return false;
+    return Math.abs(s) < wAt(t) / 2 - wAt(t) / widthMM() * 1.0;
+  };
+  for (let i = 0; i < W * H; i++) {
+    if (seen[i] || L[i] < thr) continue;
+    const x0 = i % W, y0 = (i / W) | 0;
+    if (!inside(x0, y0)) { seen[i] = 1; continue; }
+    let h = 0, t = 0, touches = false; q[t++] = i; seen[i] = 1;
+    let n = 0, sw = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    while (h < t) {
+      const pi = q[h++], x = pi % W, y = (pi / W) | 0;
+      const w = Math.min(1, (L[pi] - B.thr) / (thr - B.thr + 1e-6) * 0.5 + 0.5);
+      n++; sw += w; sx += w * x; sy += w * y; sxx += w * x * x; syy += w * y * y; sxy += w * x * y;
+      if (n > 40000) { touches = true; break; }
+      for (const nb of [pi - 1, pi + 1, pi - W, pi + W]) {
+        if (nb < 0 || nb >= W * H || seen[nb]) continue;
+        const nx = nb % W, ny = (nb / W) | 0;
+        if (Math.abs(nx - x) > 1) continue;
+        if (L[nb] >= thr) { if (!inside(nx, ny)) { touches = true; continue; } seen[nb] = 1; q[t++] = nb; }
+      }
+    }
+    if (touches || n < 4) continue;
+    const mx = sx / sw, my = sy / sw;
+    const vxx = sxx / sw - mx * mx, vyy = syy / sw - my * my, vxy = sxy / sw - mx * my;
+    const tr = vxx + vyy, det = vxx * vyy - vxy * vxy, disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+    const l1 = tr / 2 + disc, l2 = Math.max(1e-6, tr / 2 - disc);
+    const mmPerPx = widthMM() / (wAt(toBand(mx / p, my / p).t) * p);
+    const area = n * mmPerPx * mmPerPx;
+    const elong = Math.sqrt(l1 / l2);
+    const fill = n / (Math.PI * 4 * Math.sqrt(l1 * l2)); // Ellipse aus 2. Momenten: Halbachsen 2*sqrt(l)
+    found.push({x: mx / p, y: my / p, area, elong, fill, l1, l2, ang: 0.5 * Math.atan2(2 * vxy, vxx - vyy), mmPerPx});
+  }
+  const singles = found.filter(f => f.area >= 3 && f.area <= 30 && f.elong < 1.6 && f.fill > 0.55);
+  const refArea = singles.length ? singles.map(f => f.area).sort((a, b) => a - b)[Math.floor(singles.length / 2)] : Math.PI * HOLE_MM * HOLE_MM / 4;
+  const holes = singles.map(f => ({x: f.x, y: f.y}));
+  let doubles = 0;
+  for (const f of found) {
+    if (singles.includes(f)) continue;
+    // zwei überlappende Löcher: länglich, etwa doppelte Fläche -> entlang der Längsachse teilen
+    if (f.area > refArea * 1.3 && f.area < refArea * 2.6 && f.elong >= 1.3 && f.fill > 0.5) {
+      const r2 = refArea / Math.PI / (f.mmPerPx * f.mmPerPx); // Radius² in Arbeitspixeln
+      const d = 2 * Math.sqrt(Math.max(0, f.l1 - r2 / 4));
+      const ex = Math.cos(f.ang) * d / 2 / p, ey = Math.sin(f.ang) * d / 2 / p;
+      holes.push({x: f.x + ex, y: f.y + ey}, {x: f.x - ex, y: f.y - ey});
+      doubles++;
+    }
+  }
+  return {holes, doubles, rejected: found.length - singles.length - doubles};
+}
+
+// Klick auf ein Loch: auf die Mitte des hellen Flecks einrasten
+function snapHole(x, y) {
+  const p = B.ps, W = B.PW, H = B.PH, L = B.L, thr = B.thrHole;
+  const r = Math.round(3 * pxPerMM(x, y) * p);
+  const px = Math.round(x * p), py = Math.round(y * p);
+  let best = -1, bl = thr;
+  for (let yy = Math.max(0, py - r); yy <= Math.min(H - 1, py + r); yy++)
+    for (let xx = Math.max(0, px - r); xx <= Math.min(W - 1, px + r); xx++)
+      if ((xx - px) ** 2 + (yy - py) ** 2 <= r * r && L[yy * W + xx] > bl) { bl = L[yy * W + xx]; best = yy * W + xx; }
+  if (best < 0) return null;
+  const seen = new Set([best]), st = [best];
+  let sw = 0, sx = 0, sy = 0;
+  while (st.length && seen.size < 20000) {
+    const pi = st.pop(), xx = pi % W, yy = (pi / W) | 0;
+    if ((xx - px) ** 2 + (yy - py) ** 2 > 4 * r * r) continue;
+    sw++; sx += xx; sy += yy;
+    for (const nb of [pi - 1, pi + 1, pi - W, pi + W])
+      if (nb >= 0 && nb < W * H && !seen.has(nb) && L[nb] >= thr) { seen.add(nb); st.push(nb); }
+  }
+  return sw ? {x: sx / sw / p, y: sy / sw / p} : null;
+}
+
+// ── Laden ───────────────────────────────────────────────────────────────────
+async function loadInfo() {
+  B.info = await api(`/api/sessions/${sessionID}/strip-info`);
+  if (!$('feed').value) $('feed').value = B.info.feed_mm;
+  $('feedHint').textContent = B.info.config_known
+    ? `laut Stand ${B.info.lane_no}: Vorschub ${fmt(B.info.feed_mm)} mm, Auslösung ${B.info.trigger}${B.info.auto ? '' : ', automatischer Vorschub AUS'}; ${B.info.feeds} Vorschübe bei ${B.info.shots.length} Schüssen`
+    : `Vorschub des Stands unbekannt – bitte eintragen (${B.info.feeds} Vorschübe gezählt)`;
+}
+
+function imageFrom(blob) {
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  return new Promise((res, rej) => { img.onload = () => res(img); img.onerror = () => rej(new Error('Bild kann nicht geladen werden')); img.src = url; });
+}
+
+// Foto i anzeigen: Bild laden, Arbeitsbild aufbauen, Band erkennen (ein
+// gespeichertes Band aus den Markierungen bleibt erhalten).
+async function selectPhoto(i) {
+  if (i === B.cur && B.L) return;
+  stash();
+  if (B.cur >= 0 && B.cur !== i) B.photos[B.cur].L = null; // Speicher sparen
+  unstash(i);
+  renderPhotoBar();
+  draw();
+  if (!B.img) {
+    setStatus(`Lade Foto ${B.no} …`);
+    const r = await fetch(`/api/sessions/${sessionID}/strip-photos/${B.no}`);
+    if (!r.ok) { setStatus(`Foto ${B.no} kann nicht geladen werden.`, true); return; }
+    const img = await imageFrom(await r.blob());
+    if (B.photos[B.cur]?.no !== B.photos[i]?.no) return; // inzwischen umgeschaltet
+    B.img = img; B.W = img.naturalWidth; B.H = img.naturalHeight;
+  }
+  await new Promise(r => setTimeout(r, 10));
+  buildLum();
+  const stored = B.strip;
+  try { detectStrip(); } catch (e) { B.strip = stored; if (!stored) setStatus(e.message, true); }
+  if (stored) B.strip = stored;
+  if (!B.view) fitView();
+  if (B.needDetect && B.strip) { B.needDetect = false; runDetect(); }
+  else if (!stored && B.strip) saveMarkers();
+  stash();
+  renderAnchors(); updateGeo(); renderPhotoBar(); draw();
+}
+window.selectPhoto = selectPhoto;
+
+function updateGeo() {
+  const S = B.strip;
+  if (!S) { $('geo').textContent = ''; return; }
+  const wTop = wAt(S.tMin), wBot = wAt(S.tMax);
+  const len = vOfT(S.tMax) - vOfT(S.tMin);
+  const tilt = Math.atan2(S.ax, S.ay) * 180 / Math.PI;
+  $('geo').textContent = `Band erkannt: Breite ${wTop.toFixed(0)} px … ${wBot.toFixed(0)} px (Perspektive ${fmt((wBot / wTop - 1) * 100, 1)} %), `
+    + `Schräglage ${fmt(Math.abs(tilt) > 90 ? 180 - Math.abs(tilt) : tilt, 1)}°, Länge auf dem Foto ${fmt(len, 0)} mm, `
+    + `Kanten ${S.used}/${S.total} Profile gerade (Rest eingerollt/gestört), Kanten-Abweichung ${fmt(S.widthRMS / (wTop / widthMM()), 2)} mm. `
+    + `${B.holes.length} Löcher markiert.`;
+}
+
+async function loadPhotos() {
+  const list = await api(`/api/sessions/${sessionID}/strip-photos`);
+  B.photos = list.map(m => {
+    const P = newPhoto(m.photo_no, m.filename);
+    const mk = m.markers;
+    if (mk && mk.holes) {
+      P.holes = mk.holes.map(h => ({x: h.x, y: h.y}));
+      P.anchors = (mk.anchors || []).map(a => ({x: a.x, y: a.y, shot_no: a.shot_no}));
+      P.needDetect = false;
+      if (mk.strip && mk.img_w) { P.strip = mk.strip; P.W = mk.img_w; P.H = mk.img_h; }
+      if (mk.width_mm) $('width').value = mk.width_mm;
+      if (mk.feed_mm) $('feed').value = mk.feed_mm;
+    }
+    return P;
+  });
+  B.cur = -1;
+  renderPhotoBar();
+  if (!B.photos.length) { setStatus('Noch kein Bandfoto – bitte „+ Foto hinzufügen“.'); draw(); return; }
+  // Fotos ohne gespeichertes Band einmal erkennen (danach in den Markierungen)
+  for (let i = B.photos.length - 1; i > 0; i--) if (!B.photos[i].strip) await selectPhoto(i);
+  await selectPhoto(0);
+  setStatus(B.photos.length > 1 ? `${B.photos.length} Fotos geladen.` : `Foto „${B.filename}“ geladen.`);
+  if (B.photos.some(P => P.strip && P.holes.length)) await runMatch();
+}
+
+function renderPhotoBar() {
+  const bar = $('photoBar');
+  bar.innerHTML = B.photos.map((P, i) => {
+    const Q = i === B.cur ? B : P;
+    const rg = Q.result ? matchedRange(Q.result) : '';
+    return `<button class="btn-sec ${i === B.cur ? 'active' : ''}" onclick="selectPhoto(${i})" title="${esc(Q.filename)}">Foto ${Q.no}${rg ? ' · ' + esc(rg) : ''}</button>`;
+  }).join('') + `<button class="btn-sec" id="addPhoto" title="weiteres Foto desselben Bands (Überschneidungen und Lücken sind erlaubt)">+ Foto hinzufügen</button>`;
+  $('addPhoto').onclick = () => $('file').click();
+}
+function matchedRange(r) {
+  const m = r.shots.filter(s => s.hole >= 0);
+  if (!m.length) return '';
+  return m.length === 1 ? 'Schuss ' + m[0].label : `Schuss ${m[0].label}–${m[m.length - 1].label}`;
+}
+
+function runDetect() {
+  if (!B.strip) return;
+  const r = detectHoles();
+  B.holes = r.holes;
+  B.anchors = B.anchors.filter(a => B.holes.some(h => Math.hypot(h.x - a.x, h.y - a.y) < 1));
+  B.result = null;
+  setStatus(`Foto ${B.no}: ${r.holes.length} Löcher erkannt${r.doubles ? `, davon ${r.doubles * 2} aus ${r.doubles} Doppelloch/-löchern geteilt` : ''}. `
+    + 'Bitte prüfen: Klick auf ein Loch entfernt es, Klick daneben fügt eins hinzu (Umschalt+Klick: genau an der Stelle).');
+  updateGeo(); saveMarkers(); draw();
+}
+
+const saveTimers = {};
+function markersOf(P) {
+  const S = P.strip;
+  const strip = S ? Object.fromEntries(['cx', 'cy', 'ax', 'ay', 'nx', 'ny', 'w0', 'w1', 'wp', 'tMin', 'tMax', 'used', 'total', 'widthRMS'].map(k => [k, S[k]])) : null;
+  return {v: 2, holes: P.holes.map(h => ({x: +h.x.toFixed(2), y: +h.y.toFixed(2)})), anchors: P.anchors,
+    width_mm: widthMM(), feed_mm: parseFloat($('feed').value) || null, img_w: P.W, img_h: P.H, strip};
+}
+function saveMarkers(P) {
+  if (!P) { if (B.cur < 0 || !B.img) return; stash(); P = B.photos[B.cur]; }
+  clearTimeout(saveTimers[P.no]);
+  saveTimers[P.no] = setTimeout(() => {
+    api(`/api/sessions/${sessionID}/strip-photos/${P.no}/markers`, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(markersOf(P))}).catch(e => setStatus('Speichern fehlgeschlagen: ' + e.message, true));
+  }, 600);
+}
+
+// ── Zuordnung ───────────────────────────────────────────────────────────────
+function shotByLabel(lbl) {
+  const s = String(lbl).trim().toUpperCase();
+  return (B.info?.shots || []).find(x => x.has_pos && (x.label.toUpperCase() === s || ('#' + x.shot_no) === s));
+}
+function labelOf(no) { return (B.info?.shots || []).find(s => s.shot_no === no)?.label ?? ('#' + no); }
+
+function renderAnchors() {
+  const el = $('anchors');
+  if (!B.anchors.length) { el.innerHTML = ''; return; }
+  el.innerHTML = 'Festgelegt: ' + B.anchors.map((a, i) =>
+    `<span>Schuss ${esc(labelOf(a.shot_no))}<button title="Zuordnung entfernen" onclick="removeAnchor(${i})">×</button></span>`).join('');
+}
+window.removeAnchor = i => { B.anchors.splice(i, 1); renderAnchors(); saveMarkers(); runMatch(); };
+
+async function runMatch() {
+  stash();
+  const todo = B.photos.filter(P => P.strip && P.holes.length);
+  if (!todo.length) { setStatus('Keine Löcher markiert.', true); return; }
+  $('run').disabled = true;
+  try {
+    for (const P of todo) {
+      const body = withPhoto(P, () => {
+        const v1 = vOfT(B.strip.tMin), v2 = vOfT(B.strip.tMax);
+        return {holes: B.holes.map(h => { const b = toBand(h.x, h.y); return {u: b.u, v: b.v}; }),
+          v_min: Math.min(v1, v2), v_max: Math.max(v1, v2), feed_mm: parseFloat($('feed').value) || 0,
+          anchors: B.anchors.map(a => ({hole: B.holes.findIndex(h => Math.hypot(h.x - a.x, h.y - a.y) < 1), shot_no: a.shot_no})).filter(a => a.hole >= 0)};
+      });
+      let res = null, err = null;
+      try {
+        res = await api(`/api/sessions/${sessionID}/strip-match`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      } catch (e) { err = e.message; }
+      if (B.photos[B.cur] === P) { B.result = res; B.error = err; }
+      P.result = res; P.error = err;
+    }
+    B.photos.forEach(P => { if (!todo.includes(P)) { P.result = null; P.error = null; } });
+    if (B.cur >= 0) { B.result = B.photos[B.cur].result; B.error = B.photos[B.cur].error; }
+    renderResult();
+  } finally { $('run').disabled = false; }
+  renderPhotoBar();
+  draw();
+}
+
+// Schussnummern zu Bereichen zusammenfassen ("P1–P4, 16–19")
+function labelRanges(list) {
+  const out = [];
+  let a = null, b = null;
+  const idx = s => B.info.shots.findIndex(x => x.shot_no === s.shot_no);
+  list.forEach(s => {
+    if (b && idx(s) === idx(b) + 1 && (s.kind === b.kind)) { b = s; return; }
+    if (a) out.push(a === b ? a.label : `${a.label}–${b.label}`);
+    a = b = s;
+  });
+  if (a) out.push(a === b ? a.label : `${a.label}–${b.label}`);
+  return out.join(', ');
+}
+
+function renderResult() {
+  stash();
+  const done = B.photos.filter(P => P.result || P.error);
+  if (!done.length) { $('summary').textContent = ''; $('tableWrap').innerHTML = ''; return; }
+  const lines = [];
+  const all = []; // {P, pi, s}
+  done.forEach(P => {
+    const pi = B.photos.indexOf(P);
+    if (P.error) { lines.push(`<div class="msg bad">Foto ${P.no}: ${esc(P.error)}</div>`); return; }
+    const r = P.result;
+    lines.push(`<div class="msg ${r.clear ? 'ok' : 'bad'}">Foto ${P.no}: ${esc(r.message)}</div>`);
+    (r.anchor_errors || []).forEach(e => lines.push(`<div class="bad">${esc(e)}</div>`));
+    let t = `${r.matched} Schüsse zugeordnet${r.matched ? ' (' + esc(matchedRange(r)) + ')' : ''}`
+      + (r.missing ? `, <span class="bad">${r.missing} Schuss/Schüsse ohne Loch</span>` : '')
+      + (r.extra_holes ? `, ${r.extra_holes} Loch/Löcher ohne Schuss` : '');
+    if (r.matched >= 2) t += `; Abweichung ${fmt(r.rms_mm)} mm RMS; seitlicher Versatz ${fmtS(r.offset_x_mm)} mm`;
+    if (r.feed_steps.n) t += `; Vorschub ${fmt(r.feed_fit_mm)} mm (${r.feed_steps.n} Schritte)`;
+    lines.push(t + '.');
+    if (r.feed_jumps) {
+      const jumps = [];
+      for (let i = 1; i < r.shots.length; i++) {
+        const d = r.shots[i].extra_feeds - r.shots[i - 1].extra_feeds;
+        if (d) jumps.push(`vor Schuss ${r.shots[i].label} ${d > 0 ? d + ' Vorschub/Vorschübe zusätzlich' : -d + ' Vorschub/Vorschübe weniger'}`);
+      }
+      lines.push(`<span class="bad">Abweichende Vorschübe: ${esc(jumps.join('; '))}</span> (z.B. Scheibenwechsel von Hand, Vorschub noch beschäftigt).`);
+    }
+    r.shots.forEach(s => all.push({P, pi, s, r}));
+  });
+
+  // Gesamt über alle Fotos (ein Schuss auf zwei Fotos zählt je Foto)
+  const m = all.filter(e => e.s.hole >= 0);
+  const shotsWithPos = B.info.shots.filter(s => s.has_pos);
+  const seen = new Set(m.map(e => e.s.shot_no));
+  const none = shotsWithPos.filter(s => !seen.has(s.shot_no));
+  const lines2 = [];
+  if (done.length > 1 || none.length) {
+    lines2.push(`<b>Gesamt</b>: ${seen.size} von ${shotsWithPos.length} Schüssen auf mindestens einem Foto gefunden`
+      + (m.length > seen.size ? ` (${m.length - seen.size} doppelt, Fotos überschneiden sich)` : '') + '.');
+    if (none.length) lines2.push(`Ohne Loch auf den Fotos: ${esc(labelRanges(none))}.`);
+  }
+  if (m.length >= 2) {
+    const rms = k => Math.sqrt(m.reduce((a, e) => a + e.s[k] ** 2, 0) / m.length);
+    lines2.push(`<b>Abweichung Ergebnis ↔ Band</b>: x ${fmt(rms('dx_mm'))} mm, y ${fmt(rms('dy_mm'))} mm, gesamt ${fmt(rms('d_mm'))} mm (RMS), größte ${fmt(Math.max(...m.map(e => e.s.d_mm)))} mm.`);
+    lines2.push('Seitlicher Versatz = alle Schüsse eines Fotos gemeinsam quer verschoben gegenüber der Band-Mittellinie (nur aussagekräftig, wenn das Band mittig zur Scheibe läuft; in Δx nicht enthalten). Längs zum Band gibt es keinen festen Bezug – eine gemeinsame Verschiebung in y zeigt diese Kontrolle nicht.');
+  }
+  const steps = m.map(e => e.s.feed_step_mm).filter(v => v != null);
+  if (steps.length) {
+    const nom = done.find(P => P.result)?.result.feed_nominal_mm;
+    const mean = steps.reduce((a, v) => a + v, 0) / steps.length;
+    const sd = steps.length > 1 ? Math.sqrt(steps.reduce((a, v) => a + (v - mean) ** 2, 0) / (steps.length - 1)) : 0;
+    lines2.push(`<b>Vorschub</b>: eingestellt ${fmt(nom)} mm, gemessen Ø ${fmt(mean)} mm (${fmtS((mean / nom - 1) * 100, 1)} %); `
+      + `einzelne Vorschübe ${fmt(Math.min(...steps))} … ${fmt(Math.max(...steps))} mm, Streuung ${fmt(sd)} mm (${steps.length} Schritte)`
+      + (steps.length < 10 ? ' – <span class="bad">für eine Aussage zum Vorschub mindestens 10 Schritte nötig</span>' : '') + '.');
+  }
+  lines2.push('<span class="hint">Im Foto: grüner Kreis = Loch, gelb gestrichelt = gespeichertes Ergebnis, violett = von Hand zugeordnet. Δ = Ergebnis − Band. Lage auf dem Band in Scheibenkoordinaten (Vorschub herausgerechnet). Klick auf eine Zeile zeigt das Loch.</span>');
+  $('summary').innerHTML = lines.join('<br>') + '<br><br>' + lines2.join('<br>');
+
+  const multi = B.photos.length > 1;
+  let h = `<table><thead><tr><th>Schuss</th>${multi ? '<th>Foto</th>' : ''}<th>Ergebnis x</th><th>y</th><th>Band x</th><th>y</th><th>Δx</th><th>Δy</th><th>Abst.</th><th>Vorschub</th></tr></thead><tbody>`;
+  const rmsAll = m.length ? Math.sqrt(m.reduce((a, e) => a + e.s.d_mm ** 2, 0) / m.length) : 0;
+  const posOK = s => s.status === 'valid' || s.status === 'annulled' || s.status === 'cross_shot_in';
+  B.info.shots.forEach(shot => {
+    const es = all.filter(e => e.s.shot_no === shot.shot_no);
+    const hits = es.filter(e => e.s.hole >= 0);
+    const row = (e, note, cls) => {
+      const s = e ? e.s : shot, has = e && s.hole >= 0;
+      const warnD = has && s.d_mm > Math.max(1.5, 3 * rmsAll);
+      const feedWarn = has && s.feed_step_mm != null && Math.abs(s.feed_step_mm - e.r.feed_fit_mm) > Math.max(0.5, 3 * e.r.feed_steps.sd);
+      h += `<tr class="${has ? 'click' : 'nohole'}" ${has ? `onclick="gotoHole(${e.pi}, ${s.hole})"` : ''}>
+        <td class="${s.anchored ? 'anch' : cls || ''}">${esc(shot.label)}${shot.corrected ? ' ✎' : ''}${s.anchored ? ' 📌' : ''}${note}</td>
+        ${multi ? `<td>${has ? e.P.no : ''}</td>` : ''}
+        <td>${posOK(shot) ? fmt(shot.x_mm) : '–'}</td><td>${posOK(shot) ? fmt(shot.y_mm) : '–'}</td>
+        <td>${has ? fmt(s.band_x_mm) : '–'}</td><td>${has ? fmt(s.band_y_mm) : '–'}</td>
+        <td>${has ? fmtS(s.dx_mm) : '–'}</td><td>${has ? fmtS(s.dy_mm) : '–'}</td>
+        <td class="${warnD ? 'warn' : ''}">${has ? fmt(s.d_mm) : '–'}</td>
+        <td class="${feedWarn ? 'warn' : ''}">${has ? fmt(s.feed_step_mm) : '–'}${has && s.extra_feeds ? ` <span title="zusätzliche Vorschübe">(${fmtS(s.extra_feeds, 0)})</span>` : ''}</td></tr>`;
+    };
+    if (hits.length) { hits.forEach(e => row(e, '')); return; }
+    const missing = es.find(e => e.s.on_photo && !e.s.near_edge);
+    const edge = es.find(e => e.s.near_edge);
+    if (!shot.has_pos) row(null, '');
+    else if (missing) row(missing, ` (kein Loch${multi ? ', Foto ' + missing.P.no : ''})`, 'warn');
+    else if (edge) row(edge, ` (am Bildrand${multi ? ', Foto ' + edge.P.no : ''})`);
+    else row(null, multi ? ' (auf keinem Foto)' : ' (nicht auf dem Foto)');
+  });
+  h += '</tbody></table>';
+  $('tableWrap').innerHTML = h;
+}
+
+window.gotoHole = async (pi, j) => {
+  if (pi !== B.cur) await selectPhoto(pi);
+  showHole(j);
+};
+
+window.showHole = j => {
+  const hl = B.holes[j]; if (!hl) return;
+  const c = $('cv'), s = Math.max(B.view.s, 6 / pxPerMM(hl.x, hl.y) * 1.2);
+  B.view = {s, ox: hl.x - c.clientWidth / 2 / s, oy: hl.y - c.clientHeight / 2 / s};
+  B.flash = j; draw();
+};
+
+// ── Interaktion ─────────────────────────────────────────────────────────────
+function setMode(m) {
+  B.mode = m;
+  $('modeHoles').classList.toggle('active', m === 'holes');
+  $('modeAnchor').classList.toggle('active', m === 'anchor');
+  setStatus(m === 'anchor'
+    ? 'Ein Loch anklicken und die Schussnummer eingeben (Wertung z.B. 12, Probe z.B. P3). Klick auf ein festgelegtes Loch hebt die Zuordnung auf.'
+    : 'Klick auf ein Loch entfernt es, Klick daneben fügt eins hinzu (rastet auf die Lochmitte ein; Umschalt+Klick: genau an der Stelle bzw. markiertes Loch dorthin versetzen). Mausrad = Zoom, Ziehen = verschieben.');
+}
+
+function onClick(x, y, exact) {
+  if (!B.img) return;
+  const ppm = pxPerMM(x, y);
+  const k = B.holes.findIndex(h => Math.hypot(h.x - x, h.y - y) < Math.max(2.5 * ppm, 8 / B.view.s));
+  if (B.mode === 'anchor') {
+    if (k < 0) { setStatus('Dort ist kein markiertes Loch – erst im Modus „Löcher bearbeiten“ setzen.', true); return; }
+    const h = B.holes[k];
+    const ai = B.anchors.findIndex(a => Math.hypot(a.x - h.x, a.y - h.y) < 1);
+    if (ai >= 0) { B.anchors.splice(ai, 1); }
+    else {
+      const lbl = prompt('Schussnummer für dieses Loch (Wertung z.B. 12, Probe z.B. P3):');
+      if (lbl == null) return;
+      const s = shotByLabel(lbl);
+      if (!s) { setStatus(`Schuss „${lbl}“ gibt es in diesem Ergebnis nicht.`, true); return; }
+      B.anchors = B.anchors.filter(a => a.shot_no !== s.shot_no);
+      B.anchors.push({x: h.x, y: h.y, shot_no: s.shot_no});
+    }
+    renderAnchors(); saveMarkers(); runMatch();
+    return;
+  }
+  const old = k >= 0 ? B.holes[k] : null;
+  if (exact) {
+    if (k >= 0) B.holes[k] = {x, y}; else B.holes.push({x, y});
+  } else if (k >= 0) {
+    B.holes.splice(k, 1);
+  } else {
+    const sn = snapHole(x, y);
+    B.holes.push(sn || {x, y});
+    if (!sn) setStatus('Kein heller Fleck gefunden – Loch genau an der angeklickten Stelle gesetzt.');
+  }
+  if (old) B.anchors = B.anchors.filter(a => Math.hypot(a.x - old.x, a.y - old.y) >= 1);
+  B.result = null; renderAnchors(); updateGeo(); saveMarkers(); draw();
+}
+
+// ── Zeichnen ────────────────────────────────────────────────────────────────
+function canvasSize() {
+  const w = $('canvasWrap').clientWidth;
+  return [w, Math.max(300, Math.round(window.innerHeight * 0.78))];
+}
+function fitView() {
+  if (!B.img) return;
+  const [w, h] = canvasSize();
+  const s = Math.min(w / B.W, h / B.H);
+  B.view = {s, ox: -(w / s - B.W) / 2, oy: -(h / s - B.H) / 2};
+  draw();
+}
+function draw() {
+  const c = $('cv');
+  const [w, h] = canvasSize();
+  const dpr = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); c.style.width = w + 'px'; c.style.height = h + 'px';
+  }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, c.width, c.height);
+  if (!B.img || !B.view) return;
+  const {s, ox, oy} = B.view;
+  ctx.setTransform(dpr * s, 0, 0, dpr * s, -ox * s * dpr, -oy * s * dpr);
+  ctx.imageSmoothingEnabled = s < 2;
+  ctx.drawImage(B.img, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const toS = (x, y) => [(x - ox) * s, (y - oy) * s];
+  const S = B.strip;
+  if (S) {
+    const line = (pts, color, dash, wd = 1) => {
+      ctx.beginPath(); pts.forEach(([x, y], i) => { const [a, b] = toS(x, y); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); });
+      ctx.strokeStyle = color; ctx.lineWidth = wd; ctx.setLineDash(dash || []); ctx.stroke(); ctx.setLineDash([]);
+    };
+    const along = off => [S.tMin, S.tMax].map(t => { const sw = off * wAt(t) / 2; return [S.cx + S.ax * t + S.nx * sw, S.cy + S.ay * t + S.ny * sw]; });
+    line(along(0), 'rgba(0,220,255,.8)', [8, 6]);
+    line(along(1), 'rgba(0,220,255,.5)');
+    line(along(-1), 'rgba(0,220,255,.5)');
+  }
+  const r = B.result;
+  const ring = (x, y, color, label, dash, rad) => {
+    const [a, b] = toS(x, y);
+    const rr = Math.max(5, (rad || HOLE_MM / 2 + 0.6) * pxPerMM(x, y) * s);
+    ctx.beginPath(); ctx.arc(a, b, rr, 0, 2 * Math.PI);
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.fillRect(a - 1, b - 1, 2, 2);
+    if (label) {
+      ctx.font = 'bold 13px system-ui'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)';
+      ctx.strokeText(label, a + rr + 3, b + 4); ctx.fillText(label, a + rr + 3, b + 4);
+    }
+  };
+  B.holes.forEach((hl, j) => {
+    const anch = B.anchors.some(a => Math.hypot(a.x - hl.x, a.y - hl.y) < 1);
+    let color = '#ff9a3c', label = null;
+    if (r && r.hole_shot[j]) { color = '#3dcc6e'; label = labelOf(r.hole_shot[j]); }
+    else if (r) { color = '#ff5050'; label = '?'; }
+    if (anch) color = '#e070ff';
+    ring(hl.x, hl.y, color, label);
+    if (B.flash === j) ring(hl.x, hl.y, '#fff', null, [3, 3], HOLE_MM * 1.2);
+  });
+  // gespeichertes Ergebnis (Lage laut Zuordnung auf dem Band): gelb gestrichelt;
+  // ohne Loch mit Nummer und "?"
+  if (r && S) {
+    r.shots.forEach(sh => {
+      if (!sh.on_photo || sh.status !== 'valid' && sh.status !== 'annulled' && sh.status !== 'cross_shot_in') return;
+      const [x, y] = fromBand(sh.pred_u, sh.pred_v);
+      ring(x, y, '#ffd700', sh.hole >= 0 ? null : sh.label + '?', [4, 3]);
+    });
+  }
+}
+
+function initCanvas() {
+  const c = $('cv');
+  let drag = null;
+  c.addEventListener('pointerdown', e => { if (!B.view) return; drag = {x: e.offsetX, y: e.offsetY, ox: B.view.ox, oy: B.view.oy, moved: false}; c.setPointerCapture(e.pointerId); });
+  c.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.offsetX - drag.x, dy = e.offsetY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    drag.moved = true; B.view.ox = drag.ox - dx / B.view.s; B.view.oy = drag.oy - dy / B.view.s; draw();
+  });
+  c.addEventListener('pointerup', e => {
+    if (drag && !drag.moved) { B.flash = null; onClick(B.view.ox + e.offsetX / B.view.s, B.view.oy + e.offsetY / B.view.s, e.shiftKey); }
+    drag = null;
+  });
+  c.addEventListener('wheel', e => {
+    if (!B.img || !B.view) return;
+    e.preventDefault();
+    const f = Math.exp(-e.deltaY * 0.0015);
+    const x = B.view.ox + e.offsetX / B.view.s, y = B.view.oy + e.offsetY / B.view.s;
+    B.view.s = Math.min(40, Math.max(0.02, B.view.s * f));
+    B.view.ox = x - e.offsetX / B.view.s; B.view.oy = y - e.offsetY / B.view.s;
+    draw();
+  }, {passive: false});
+  window.addEventListener('resize', draw);
+}
+
+async function init() {
+  const back = $('backLink');
+  back.href = '/ergebnis-ansicht' + location.search;
+  back.onclick = e => { if (history.length > 1 && document.referrer) { e.preventDefault(); history.back(); } };
+  $('who').textContent = [params.get('shooter'), params.get('discipline'), params.get('started') ? new Date(params.get('started')).toLocaleString('de-DE', {dateStyle: 'short', timeStyle: 'short'}) : ''].filter(Boolean).join(' · ');
+  if (!sessionID) { setStatus('Keine session_id in der URL.', true); return; }
+  initCanvas();
+  setMode('holes');
+  $('modeHoles').onclick = () => setMode('holes');
+  $('modeAnchor').onclick = () => setMode('anchor');
+  $('fit').onclick = fitView;
+  $('redetect').onclick = () => { if (!B.holes.length || confirm('Alle Lochmarkierungen durch die automatische Erkennung ersetzen?')) runDetect(); };
+  $('run').onclick = runMatch;
+  $('width').onchange = () => { updateGeo(); saveMarkers(); B.result = null; draw(); };
+  $('feed').onchange = () => { saveMarkers(); };
+  $('delPhoto').onclick = async () => {
+    if (B.cur < 0 || !confirm(`Foto ${B.no} samt Markierungen löschen?`)) return;
+    await api(`/api/sessions/${sessionID}/strip-photos/${B.no}`, {method: 'DELETE'});
+    clearTimeout(saveTimers[B.no]);
+    const idx = B.cur;
+    B.photos.splice(idx, 1);
+    B.cur = -1;
+    Object.assign(B, newPhoto(0, ''));
+    if (B.photos.length) await selectPhoto(Math.min(idx, B.photos.length - 1));
+    else { renderPhotoBar(); renderAnchors(); updateGeo(); draw(); }
+    setStatus('Foto gelöscht.');
+    if (B.photos.length) await runMatch(); else renderResult();
+  };
+  $('file').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    e.target.value = '';
+    try {
+      setStatus('Lade hoch …');
+      const res = await api(`/api/sessions/${sessionID}/strip-photos`, {method: 'POST', headers: {'Content-Type': f.type || 'image/jpeg', 'X-Filename': encodeURIComponent(f.name)}, body: f});
+      const P = newPhoto(res.photo_no, f.name);
+      P.img = await imageFrom(f); P.W = P.img.naturalWidth; P.H = P.img.naturalHeight;
+      stash();
+      B.photos.push(P);
+      await selectPhoto(B.photos.length - 1);
+      if (B.holes.length) await runMatch();
+    } catch (err) { setStatus('Fehler: ' + err.message, true); }
+  };
+  try { await loadInfo(); } catch (e) { setStatus('Fehler: ' + e.message, true); return; }
+  draw();
+  await loadPhotos();
+}
+window.bandTest = {B, toBand, fromBand, detectHoles, runDetect, runMatch, selectPhoto};
+init();
+</script>
+<script src="/role.js"></script>
+</body>
+</html>

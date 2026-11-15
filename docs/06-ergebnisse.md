@@ -14,7 +14,10 @@ Je Ergebnis gibt es die **grafische Ansicht** und das **PDF**.
 Alle Treffer einer Scheibe auf der Zielscheibe, daneben jede Serie mit
 Zehntelwert und Teiler je Schuss. Zoomstufen wie am Stand. Mit dem Recht
 „Ergebnisse korrigieren“ lassen sich einzelne Schüsse nachträglich
-korrigieren (✎); jede Korrektur wird protokolliert.
+korrigieren (✎); jede Korrektur wird protokolliert. Rollen mit der Kachel
+„Simulator“ sehen oben rechts zusätzlich **Bandkontrolle**: Dort werden die
+Löcher im Papierband mit dem Ergebnis verglichen (siehe
+[Bandkontrolle](07-technik.md#bandkontrolle)).
 
 ![Grafische Ansicht eines Ergebnisses](bilder/ergebnis-ansicht.png)
 

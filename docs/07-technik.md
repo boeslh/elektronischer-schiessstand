@@ -30,7 +30,11 @@ Gruppe zeigt die wichtigsten aktuellen Werte:
    - *Auswerteverfahren* – Kugeldurchmesser-Korrektur (Standard 30 %),
      Cluster-Radius (Standard 4000 µm), Positionsbestimmung, Mikrofone, Piezo,
      Pulsbreiten-Korrektur, Rohdaten.
-   **Neu berechnen** zeigt die Wirkung auf die Schüsse.
+   **Neu berechnen** zeigt die Wirkung auf die Schüsse. In der
+   Detailanzeige eines Schusses lassen sich die Schnittpunkte der
+   Mikrofon-Kombinationen als **Rohwerte** oder **nach
+   Kugeldurchmesser-Korrektur** zeigen. Die Rohwerte hängen nicht von der
+   Kugeldurchmesser-Korrektur ab und bleiben bei einer Änderung gleich.
 3. **Kalibrieren mit Foto (empfohlen)** – Foto markieren, One-Click-
    Kalibrierung, Einzelschritt „nur Grundwerte“, Messwerte gegen das Foto
    prüfen.
@@ -131,6 +135,10 @@ kalibriert den Basissatz an allen Schüssen und je Zone einen eigenen Satz,
 trägt alles in Abschnitt 2 ein und speichert es als Kalibrierung
 „Foto-Zonen …“. Ausreißer (mehr als 10 mm) werden dabei nicht verwendet.
 
+**One-Click ohne Zonen (nur Grundwerte):** wie oben, kalibriert aber nur den
+Basissatz; die Zonen werden ausgeschaltet. Gespeichert wird die Kalibrierung
+als „Foto …“.
+
 ### Übernahme an den Stand
 
 Passt eine Einstellung, wird sie mit **Zur Übernahme freigeben** an einen
@@ -140,6 +148,69 @@ Admin-Oberfläche des Stand-PC kann statt der zuletzt freigegebenen auch jede
 andere für diesen Stand gespeicherte Kalibrierung gewählt werden. Ist die
 Anmeldung im Simulator abgelaufen, fragt die Seite das Passwort erneut ab,
 ohne die Eingaben zu verlieren.
+
+## Bandkontrolle
+
+Die Bandkontrolle vergleicht die Löcher im Papierband mit dem gespeicherten
+Ergebnis einer Scheibe. Sie wird in der grafischen Ansicht eines Ergebnisses
+über **Bandkontrolle** geöffnet; dafür braucht die Rolle die Kachel
+„Simulator“.
+
+![Bandkontrolle mit zwei Fotos eines Bandes](bilder/bandkontrolle.png)
+
+1. **Foto laden.** Das Band soll möglichst gerade und flach von oben
+   fotografiert werden, auf hellem Untergrund. Das Foto wird zur Scheibe
+   gespeichert. Für lange Bänder sind mit **+ Foto hinzufügen** bis zu
+   10 Fotos je Scheibe möglich, z. B. Foto 1 mit Schuss 20–30 und Foto 2 mit
+   Schuss 1–15. Die Fotos dürfen sich überschneiden oder Lücken lassen. Jedes
+   Foto wird für sich ausgewertet; die Tabelle führt die Ergebnisse je Schuss
+   zusammen. Ein Schuss, der auf zwei Fotos zu sehen ist, steht dort zweimal,
+   mit der Nummer des Fotos.
+2. **Band und Löcher prüfen.** Die Seite erkennt die Bandkanten. Daraus
+   berechnet sie eine Mittellinie und den Maßstab aus der Bandbreite
+   (Standard 90 mm). Eingerollte Enden werden dabei nicht berücksichtigt,
+   und eine leichte Schräglage oder Perspektive wird herausgerechnet.
+   Löcher werden automatisch erkannt; zwei sich überlappende Löcher werden
+   geteilt. Ein Klick auf ein Loch entfernt es, ein Klick daneben fügt eines
+   hinzu. Mit Umschalt+Klick wird es genau an die angeklickte Stelle gesetzt.
+3. **Zuordnen und vergleichen.** Der Vorschub, der Vorschub-Auslöser
+   (PAPERTRIGGER) und ob automatisch vorgeschoben wird (PAPERAUTO) kommen aus
+   der gesicherten Gerätekonfiguration des Stands. Der Vorschub lässt sich
+   überschreiben. Die Zuordnung probiert alle Lagen des Bandes auf dem Foto
+   durch (gedreht, gespiegelt, Laufrichtung). Sie kommt auch mit Schüssen
+   außer der Reihe zurecht, mit Schüssen, die nicht mehr auf dem Foto sind,
+   mit fremden Löchern, etwa von der vorigen Scheibe, und mit zusätzlichen
+   oder fehlenden Vorschüben, etwa durch einen Scheibenwechsel von Hand.
+
+Ist die Zuordnung eines Fotos nicht eindeutig, meldet die Seite das. Das kommt vor allem
+bei sehr engem Trefferbild vor, wenn das Band auf dem Foto an beiden Enden
+abgeschnitten ist. Dann wird mit **Loch einem Schuss zuordnen** mindestens ein
+Loch von Hand festgelegt (Wertung z. B. „12“, Probe z. B. „P3“).
+
+Im Foto ist jedes Loch grün umrandet und mit seinem Schuss beschriftet. Die
+Lage laut gespeichertem Ergebnis ist gelb gestrichelt eingezeichnet, von
+Hand zugeordnete Löcher sind violett, Löcher ohne Schuss rot mit „?“.
+
+Ergebnis ist eine Tabelle je Schuss mit der Lage laut Ergebnis und laut Band
+(in Scheibenkoordinaten, Vorschub herausgerechnet), den Abweichungen Δx/Δy und
+dem gemessenen Vorschub seit dem vorigen Schuss. Dazu kommt eine
+Zusammenfassung:
+
+- **Abweichung Ergebnis ↔ Band** (RMS und größte).
+- **Gemeinsamer seitlicher Versatz** aller Schüsse gegenüber der
+  Band-Mittellinie, je Foto. Er ist nur aussagekräftig, wenn das Band mittig
+  zur Scheibe läuft. In Δx und der Abweichung ist er nicht enthalten, die
+  Zuordnung funktioniert also auch bei einem Band, das nicht mittig läuft.
+- **Vorschub**: eingestellt, gemessen und Streuung der einzelnen Vorschübe.
+  Für eine Aussage braucht es mindestens 10 Vorschübe, besser 20.
+
+Längs zum Band gibt es keinen festen Bezugspunkt. Eine gemeinsame
+Verschiebung aller Schüsse in y lässt sich mit der Bandkontrolle deshalb nicht
+erkennen.
+
+Der Maßstab hängt an der Bandbreite. Ist das Band z. B. nur 89 mm breit,
+erscheint der gemessene Vorschub um gut 1 % zu klein. Eine geplante Schablone
+mit seitlichem Lineal soll den Maßstab künftig unabhängig davon liefern.
 
 ## Gerätekonfiguration
 

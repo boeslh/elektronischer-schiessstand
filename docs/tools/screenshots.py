@@ -261,6 +261,23 @@ def ergebnis_ansicht(ctx, ids):
     p.close()
 
 
+def bandkontrolle(ctx, ids):
+    # Bandkontrolle mit dem zuletzt hochgeladenen Bandfoto (nur lesen:
+    # Markierungen werden nicht zurueckgeschrieben)
+    sid = sql("SELECT session_id FROM session_strip_photos ORDER BY uploaded_at DESC LIMIT 1")
+    if not sid:
+        print("   (kein Bandfoto vorhanden - uebersprungen)")
+        return
+    p = ctx.new_page()
+    p.route("**/strip-photos/*/markers", lambda r: r.fulfill(status=200, content_type="application/json", body='{"ok":true}'))
+    goto(p, SERVER + f"/bandkontrolle?session_id={sid}&shooter=Huber%2C%20Anna&discipline=LGA-30", 1000)
+    p.wait_for_function("window.bandTest && window.bandTest.B.photos.length && window.bandTest.B.photos.every(P => P.result || P.error)",
+                        timeout=90000)
+    p.wait_for_timeout(800)
+    shot(p, "bandkontrolle", clip_h=1100)
+    p.close()
+
+
 def anzeigen_live(ctx, ids):
     # Live-Anzeigen des Rundenwettkampfs (Scheibenansicht, RWK-Dynamisch)
     p = ctx.new_page()
@@ -409,6 +426,7 @@ SCENES = {
     "preisschiessen": preisschiessen_pages,
     "vereinsabend": vereinsabend_pages,
     "ergebnisansicht": ergebnis_ansicht,
+    "bandkontrolle": bandkontrolle,
     "anzeigen": anzeigen_live,
     "preisanzeige": preisanzeige,
     "standpc": stand_pc,

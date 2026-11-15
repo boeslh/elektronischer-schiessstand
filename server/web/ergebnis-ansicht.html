@@ -122,6 +122,8 @@
   <span id="discipline"></span>
   <span id="eventLine"></span>
   <span id="dateLine"></span>
+  <a id="bandLink" href="#" style="display:none;font-size:12px;color:var(--acc);text-decoration:none;border:1px solid var(--line);border-radius:5px;padding:3px 10px"
+     title="Löcher auf dem Foto des Papierbands mit diesem Ergebnis vergleichen">Bandkontrolle</a>
 </header>
 
 <div class="panel" id="targetWrap">
@@ -775,7 +777,15 @@ function renderList() {
 init();
 // role.js laedt/entscheidet die Korrektur-Berechtigung asynchron nach - Liste
 // neu rendern, sobald sie feststeht (fuer den ✎-Korrektur-Button).
-window.addEventListener('schiessstand-role-ready', () => { if (allShots.length) renderList(); });
+window.addEventListener('schiessstand-role-ready', () => {
+  if (allShots.length) renderList();
+  // Bandkontrolle (Foto des Papierbands) - technische Kontrolle, Kachel "simulator"
+  const bl = document.getElementById('bandLink');
+  if (sessionID && (window.SCHIESSSTAND_ROLE?.tiles || []).indexOf('simulator') !== -1) {
+    bl.href = '/bandkontrolle' + location.search;
+    bl.style.display = '';
+  } else bl.style.display = 'none';
+});
 </script>
 <script src="/role.js"></script>
 </body>

@@ -27,6 +27,19 @@ einzelne Scheiben, den Warenkorb und alle bisherigen Käufe. Gekaufte, noch
 nicht beschossene Scheiben können zurückgegeben werden. Über „Bezahlen“ wird
 Guthaben aufgeladen bzw. ein Minus ausgeglichen.
 
+Je Scheibe lassen sich zwei Grenzen einstellen:
+
+- **Maximale Anzahl pro Teilnehmer:** gilt beim Kaufen und zählt nur
+  einzeln gekaufte Scheiben, keine Scheiben aus Sets.
+- **Maximal pro Tag schießen:** gilt nur beim Schießen, nicht beim Kaufen.
+  Ein Set mit vielen Scheiben einer Art und zusätzliche Einzelscheiben
+  derselben Art lassen sich also zusammen kaufen. Erst wenn eine weitere
+  Scheibe dieser Art am selben Tag einem Stand zugewiesen wird, lehnt das
+  System ab (z. B. „LGA Jahreswertung: höchstens 1 pro Tag schießen – heute
+  bereits 1 beschossen“). Eine bereits begonnene Scheibe darf immer zu Ende
+  geschossen werden. Papierscheiben, deren Ergebnis nachträglich über die
+  Wertmaschine oder von Hand erfasst wird, prüft das System dabei nicht.
+
 ![Kasse mit Teilnehmerkonto](bilder/ps-kasse-konto.png)
 
 Unterreiter:

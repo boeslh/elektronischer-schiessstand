@@ -1366,14 +1366,6 @@ func (s *Store) ListAngebot(ctx context.Context, teilnehmerID string) ([]PSSchei
 		              AND k.typ = 'scheibe' AND k.scheibe_id = sc.id AND k.returned_at IS NULL)
 		            < sc.max_pro_teilnehmer
 		      )
-		  AND (
-		        sc.max_pro_tag IS NULL
-		        OR (SELECT COUNT(*) FROM ps_kaeufe k JOIN ps_kauf_scheiben ks ON ks.kauf_id = k.id
-		              WHERE k.teilnehmer_id = $3 AND ks.scheibe_id = sc.id AND k.returned_at IS NULL
-		                AND (k.purchased_at AT TIME ZONE 'Europe/Berlin')::date
-		                    = (now() AT TIME ZONE 'Europe/Berlin')::date)
-		            < sc.max_pro_tag
-		      )
 		ORDER BY sc.sort_order, sc.name`, preisschiessenID, classID, teilnehmerID)
 	if err != nil {
 		return nil, nil, err
@@ -1498,7 +1490,8 @@ func (s *Store) BuchAufladung(ctx context.Context, teilnehmerID string, betrag f
 }
 
 // purchaseItem prüft Verfügbarkeit (aktiv, Klasse, standalone/Gating,
-// Kauflimit) einer einzelnen Warenkorb-Position, legt den ps_kaeufe-Eintrag
+// Kauflimit je Teilnehmer; das Tageslimit max_pro_tag gilt nur fürs
+// Schießen, siehe checkTageslimitSchiessen) einer einzelnen Warenkorb-Position, legt den ps_kaeufe-Eintrag
 // samt Scheiben-Einheiten an und gibt dessen Preis zurück - bucht aber NOCH
 // KEINE Guthaben-Belastung (das übernimmt der Aufrufer für den ganzen
 // Warenkorb auf einmal, siehe purchaseItems). Muss innerhalb einer
@@ -1539,14 +1532,7 @@ func (s *Store) purchaseItem(ctx context.Context, tx pgx.Tx, teilnehmerID, preis
 			              AND k.typ = 'scheibe' AND k.scheibe_id = sc.id AND k.returned_at IS NULL)
 			            < sc.max_pro_teilnehmer
 			      )
-			  AND (
-			        sc.max_pro_tag IS NULL
-			        OR (SELECT COUNT(*) FROM ps_kaeufe k JOIN ps_kauf_scheiben ks ON ks.kauf_id = k.id
-			              WHERE k.teilnehmer_id = $2 AND ks.scheibe_id = sc.id AND k.returned_at IS NULL
-			                AND (k.purchased_at AT TIME ZONE 'Europe/Berlin')::date
-			                    = (now() AT TIME ZONE 'Europe/Berlin')::date)
-			            < sc.max_pro_tag
-			      )`, item.ScheibeID, teilnehmerID).Scan(&preis)
+`, item.ScheibeID, teilnehmerID).Scan(&preis)
 	} else {
 		err = tx.QueryRow(ctx, `
 			SELECT st.price FROM ps_sets st
@@ -1779,6 +1765,39 @@ func (s *Store) findAssignableEinheit(ctx context.Context, teilnehmerID, scheibe
 		msg: "Keine passende Scheibe verfügbar (alle bereits abgeschlossen oder keine gekauft)"}
 }
 
+// checkTageslimitSchiessen setzt ps_scheiben.max_pro_tag durch: je Teilnehmer
+// und Scheibe dürfen an einem Schießtag höchstens so viele Einheiten
+// beschossen werden. Das Limit gilt nur fürs Schießen, nicht fürs Kaufen
+// (Sets mit vielen Einheiten, mehrere Einzelscheiben im Warenkorb). Gezählt
+// werden Einheiten mit echten Schüssen (Session begonnen), Schießtag wie
+// überall COALESCE(schiesstag_override, Abschluss- bzw. Beginn-Datum);
+// ausgenommen die gerade zugewiesene Einheit selbst. Eine bereits begonnene
+// Einheit darf immer weitergeschossen werden (Aufrufer prüft nur neue).
+func (s *Store) checkTageslimitSchiessen(ctx context.Context, teilnehmerID, scheibeID, ownKaufScheibeID string) error {
+	var name string
+	var limit *int
+	var heute int
+	err := s.pool.QueryRow(ctx, `
+		SELECT sc.name, sc.max_pro_tag,
+		       (SELECT COUNT(*) FROM ps_kauf_scheiben ks
+		          JOIN ps_kaeufe k ON k.id = ks.kauf_id
+		          JOIN sessions se ON se.id = ks.session_id
+		         WHERE k.teilnehmer_id = $1 AND ks.scheibe_id = sc.id AND k.returned_at IS NULL
+		           AND ks.id <> $3::uuid AND se.started_at IS NOT NULL
+		           AND COALESCE(ks.schiesstag_override,
+		                        (COALESCE(se.finished_at, se.started_at) AT TIME ZONE 'Europe/Berlin')::date)
+		               = (now() AT TIME ZONE 'Europe/Berlin')::date)
+		FROM ps_scheiben sc WHERE sc.id = $2`, teilnehmerID, scheibeID, ownKaufScheibeID).Scan(&name, &limit, &heute)
+	if err != nil {
+		return err
+	}
+	if limit != nil && heute >= *limit {
+		return &httpError{code: 400, msg: fmt.Sprintf(
+			"%s: höchstens %d pro Tag schießen – heute bereits %d beschossen", name, *limit, heute)}
+	}
+	return nil
+}
+
 // AssignTeilnehmerLane weist einen Teilnehmer einem Stand zu: die Aufsicht
 // wählt nur den Scheiben-TYP, nicht die einzelne (nummerierte) Einheit -
 // diese wird über findAssignableEinheit automatisch bestimmt. Hat die
@@ -1790,6 +1809,11 @@ func (s *Store) AssignTeilnehmerLane(ctx context.Context, teilnehmerID, scheibeI
 	einheit, err := s.findAssignableEinheit(ctx, teilnehmerID, scheibeID)
 	if err != nil {
 		return "", err
+	}
+	if einheit.Status != "begonnen" {
+		if err := s.checkTageslimitSchiessen(ctx, teilnehmerID, scheibeID, einheit.ID); err != nil {
+			return "", err
+		}
 	}
 
 	if einheit.SessionID != nil {
@@ -2460,6 +2484,16 @@ func (s *Store) ChooseScheibeAtLane(ctx context.Context, laneNo int, scheibeID s
 	}
 	if st.TeilnehmerID == "" || (!st.PendingRow && !st.CurrentBeendet) {
 		return "", &httpError{code: 400, msg: "Kein Teilnehmer an diesem Stand zugewiesen"}
+	}
+
+	// Tageslimit vorab prüfen, damit bei Ablehnung die alte Session nicht
+	// schon abgeschlossen ist (AssignTeilnehmerLane prüft erneut).
+	if einheit, err := s.findAssignableEinheit(ctx, st.TeilnehmerID, scheibeID); err != nil {
+		return "", err
+	} else if einheit.Status != "begonnen" {
+		if err := s.checkTageslimitSchiessen(ctx, st.TeilnehmerID, scheibeID, einheit.ID); err != nil {
+			return "", err
+		}
 	}
 
 	if st.ActiveSessionID != "" {
