@@ -1,12 +1,34 @@
 /*
  * ============================================================================
  *  Elektronischer Schießstand – ESP32 Firmware
+ *  Rev 4.21.0 – Erfassung und Rechenweg getrennt:
+ *              - SET ALGO=CLASSIC|RIM waehlt nur noch den Rechenweg.
+ *              - NEU SET BUFFER=0|1 waehlt die Erfassung: 0 = Sammelfenster
+ *                ab der ersten Mic-Flanke (bisher CLASSIC), 1 = Piezo-Anker
+ *                + rueckwirkend aus dem Ringpuffer (bisher RIM). Ohne
+ *                gespeicherten Wert aus ALGO abgeleitet (RIM -> 1), das
+ *                Verhalten bestehender Geraete bleibt gleich.
+ *              - NEU CLASSIC + BUFFER=1 (classicFromBuffer()): Sammelfenster
+ *                rueckwirkend aus dem Ringpuffer (erste Flanke in [Piezo -
+ *                PIEZOMAX, Piezo - PIEZOMIN], je Mic bis TDOA danach), dann
+ *                die gewohnte CLASSIC-Auswertung - Flanken aus Sperrzeit/
+ *                Muendungsknall gehen nicht mehr verloren.
+ *              - NEU RIM + BUFFER=0: RIM mit den Flanken des Sammelfensters,
+ *                Bezug = erste Flanke.
+ *              - "shot" und "config" tragen "buffer"; raw "ref" = "piezo" nur
+ *                bei RIM + BUFFER=1.
+ *              - Bei BUFFER=1 oeffnen die Mics kein Sammelfenster mehr (bis
+ *                Rev 4.20 blieb shotInProgress bei RIM dauerhaft gesetzt -
+ *                dadurch liefen die MCPWM-Zeitbasis-Pruefung und die DHT-
+ *                Messung bei RIM nie).
+ * ============================================================================
+ *
  *  Rev 4.20.0 – Neue Mikrofon-Anordnung, Entfernungskalibrierung, Schall-
  *              geschwindigkeit nur aus der Temperatur:
  *              - Mic-Positionen je Mikrofon (x/y/z) fest im Code als
  *                MIC_LAYOUT in include/board_layout.h: "angled" (Default, auf
- *                die Scheibenmitte ausgerichtet: oben/unten x=+-109 y=+-75
- *                z=24, mitte x=+-113 y=0 z=25) bzw. "flat" (bisher, x=+-115
+ *                die Scheibenmitte ausgerichtet, Werte siehe board_layout.h)
+ *                bzw. "flat" (bisher, x=+-115
  *                y=+-85 z=28). SET MICHALFX/STANDOFFPAPER entfallen.
  *              - Positionsberechnung (CLASSIC, LSQ, RIM/shot_locator.h) mit
  *                eigenem z je Mikrofon.
@@ -1159,7 +1181,7 @@
 // Konstanten & Werks-Defaults (greifen nur bei leerem NVS)
 // ---------------------------------------------------------------------------
 
-#define FW_VERSION   "4.20.0"
+#define FW_VERSION   "4.21.0"
 #define SERIAL_BAUD  115200
 #define NVS_NS       "schiessstd"     // NVS-Namespace
 
@@ -1316,10 +1338,11 @@ static const uint8_t AIR_PINS[NUM_AIR] = BOARD_AIR_PINS;
 #define PAPER_TRIG_PIEZO  1    // nur wenn das Piezo ausgeloest hat (Default)
 #define PAPER_TRIG_CLEAN  2    // nur bei "clean"-Schuessen (alle Qualitaetsschwellen)
 
-// Auswertepfad (SET ALGO, siehe Rev-4.11.0-Hinweis im Header-Kommentar ganz
-// oben sowie processShot()/processShotAnchored()): CLASSIC ist Default und
-// bisheriges Verhalten 1:1 unveraendert, RIM aktiviert Ringpuffer-Erfassung +
-// Piezo-Anker-Trigger + shot_locator.h-Loeser.
+// Rechenweg (SET ALGO): CLASSIC = Dreier-Kombinationen + Cluster
+// (solveAirPosition()), RIM = gewichtete Ausgleichsrechnung mit Lochrand-
+// Modell (shot_locator.h). Seit Rev 4.21.0 unabhaengig von der Erfassung
+// (SET BUFFER, siehe cfg.useBuffer) - vorher waehlte ALGO=RIM auch die
+// Ringpuffer-Erfassung mit Piezo-Anker.
 #define ALGO_CLASSIC  0
 #define ALGO_RIM      1
 
@@ -1408,10 +1431,15 @@ struct DeviceConfig {
                             // Mics verfeinern (SET LSQ, Default 0, Rev 4.12.0)
     float    lsqPelletRMm; // Lochrand-Radius fuer SET LSQ in mm (SET
                             // LSQPELLETR, Default 2.25, 0 = Punktquelle)
-    uint8_t  algoMode;      // ALGO_CLASSIC (Default) oder ALGO_RIM (SET ALGO,
-                            // siehe Rev-4.11.0-Hinweis im Header-Kommentar) -
-                            // waehlt Trigger UND Positionsloesung, wirkt
+    uint8_t  algoMode;      // ALGO_CLASSIC (Default) oder ALGO_RIM (SET ALGO)
+                            // - seit Rev 4.21.0 NUR der Rechenweg, wirkt
                             // sofort, kein Reboot noetig
+    bool     useBuffer;     // Erfassung (SET BUFFER, Rev 4.21.0): false =
+                            // Sammelfenster ab der ersten Mic-Flanke (bisher
+                            // CLASSIC), true = Piezo-Anker + rueckwirkende
+                            // Auswertung des Ringpuffers (bisher RIM) - dort
+                            // gehen Flanken aus Sperrzeit/Muendungsknall nicht
+                            // verloren. Siehe processShotAnchored()
     float    pelletRadiusMm; // Wirksamer akustischer Lochrand-Radius fuer
                             // ALGO=RIM (SET PELLETR, Default 2.25 = 4,5mm-
                             // Diabolo, 0 = Punktquelle), siehe shot_locator.h
@@ -1558,6 +1586,10 @@ static void loadConfig()
     cfg.lsq          = prefs.getBool("lsq", false);
     cfg.lsqPelletRMm = prefs.getFloat("lsq_pr", 2.25f);
     cfg.algoMode   = prefs.getUChar("algo", ALGO_CLASSIC);
+    // Rev 4.21.0: ohne gespeicherten Wert wie bisher aus ALGO ableiten (RIM
+    // hatte immer die Ringpuffer-Erfassung) - Verhalten bleibt beim Update gleich
+    cfg.useBuffer  = prefs.isKey("buffer") ? prefs.getBool("buffer", false)
+                                           : (cfg.algoMode == ALGO_RIM);
     cfg.pelletRadiusMm = prefs.getFloat("pellet_r", 2.25f);
     cfg.maxSigmaMm = prefs.getFloat("max_sigma", 2.0f);
     cfg.airMcpwm   = prefs.getBool("air_mcpwm", false);
@@ -1951,13 +1983,13 @@ static void IRAM_ATTR airEdge(uint32_t idx, uint32_t cc, uint64_t nowUs)
     lastAirEdgeUs = (uint32_t)nowUs;
     if (testMode || levelMode) { testModeHit((uint8_t)idx, nowUs); return; }
 
-    // --- Ringpuffer (SET ALGO=RIM, siehe Deklaration oben) ----------------
-    // Laeuft IMMER mit, unabhaengig von SET ALGO und WAEHREND der Sperrzeit/
-    // Fenstergrenzen des klassischen Pfads unten - genau das ist der Zweck:
-    // eine durch einen Muendungsknall-Fehlausloeser verzoegerte echte
+    // --- Ringpuffer (siehe Deklaration oben) ------------------------------
+    // Laeuft IMMER mit, unabhaengig von SET ALGO/BUFFER und WAEHREND der
+    // Sperrzeit/Fenstergrenzen des Sammelfensters unten - genau das ist der
+    // Zweck: eine durch einen Muendungsknall-Fehlausloeser verzoegerte echte
     // Einschlagflanke geht hier nicht verloren. freezeActive/freezeCC werden
-    // ausschliesslich von piezoISR() (nur bei ALGO=RIM) gesetzt, bei
-    // ALGO=CLASSIC bleibt freezeActive dauerhaft false.
+    // ausschliesslich von piezoISR() (nur bei SET BUFFER=1) gesetzt, bei
+    // BUFFER=0 bleibt freezeActive dauerhaft false.
     if (!freezeActive || (int32_t)(cc - freezeCC) <= 0) {
         const uint8_t rh    = ringHead[idx];
         const uint8_t rPrev = (rh + EDGE_RING - 1) % EDGE_RING;
@@ -1969,8 +2001,11 @@ static void IRAM_ATTR airEdge(uint32_t idx, uint32_t cc, uint64_t nowUs)
         }
     }
 
-    // --- Klassischer Pfad (SET ALGO=CLASSIC, Default) - unveraendert ------
-    // Die erste Mikrofon-Flanke oeffnet das Sammelfenster selbst.
+    // --- Sammelfenster (SET BUFFER=0, Default) ---------------------------
+    // Die erste Mikrofon-Flanke oeffnet das Sammelfenster selbst. Bei
+    // BUFFER=1 loest nur das Piezo aus (piezoISR()), die Mics fuellen dann
+    // ausschliesslich den Ringpuffer.
+    if (cfg.useBuffer) return;
     if (nowUs < lockoutUntil) return;
     if (!shotInProgress) {
         shotInProgress = true;
@@ -2327,8 +2362,9 @@ void IRAM_ATTR piezoISR()
     const uint64_t nowUs = (uint64_t)esp_timer_get_time();
     if (testMode || levelMode) { testModeHit(TEST_IDX_PIEZO, nowUs); return; }
 
-    if (cfg.algoMode == ALGO_RIM) {
-        // Ringpuffer-Pfad: das Piezo ist hier der ALLEINIGE Trigger (siehe
+    if (cfg.useBuffer) {
+        // Ringpuffer-Erfassung (SET BUFFER=1, unabhaengig von SET ALGO): das
+        // Piezo ist hier der ALLEINIGE Trigger (siehe
         // schusserkennung-rev5.md Abschnitt 1) - keine shotInProgress/
         // firstAirCC-Kopplung mehr, Luft-Mics loesen keine Sperrzeit mehr
         // aus (siehe Ringpuffer-Block in airISR() oben). piezoPending
@@ -2343,7 +2379,7 @@ void IRAM_ATTR piezoISR()
         return;
     }
 
-    // --- Klassischer Pfad (SET ALGO=CLASSIC, Default) - unveraendert ------
+    // --- Sammelfenster (SET BUFFER=0, Default) ---------------------------
     if (nowUs < lockoutUntil) return;
     if (!shotInProgress) {
         shotInProgress = true;
@@ -2682,7 +2718,7 @@ static void sendShowConfig()
           "\"mic_layout\":\"" MIC_LAYOUT_NAME "\","
           "\"bullet_shift_pct\":%d,\"bullet_shift_cap_mm\":%.2f,"
           "\"cluster_corr\":%d,\"cluster_iter\":%u,\"lsq\":%d,\"lsq_pellet_r_mm\":%.2f,"
-          "\"algo\":\"%s\",\"pellet_r_mm\":%.2f,\"max_sigma_um\":%ld,"
+          "\"algo\":\"%s\",\"buffer\":%d,\"pellet_r_mm\":%.2f,\"max_sigma_um\":%ld,"
           "\"capture\":\"%s\",\"walk_k\":%.3f,\"walk_cal\":%d,\"walk_max_us\":%u,"
           "\"use_piezo\":%d,\"piezo_req\":%d,\"piezo_min_us\":%u,\"piezo_max_us\":%u,"
           "\"test_cooldown_ms\":%u,\"offset_x_um\":%ld,\"offset_y_um\":%ld,"
@@ -2699,7 +2735,7 @@ static void sendShowConfig()
           cfg.airMaxTdoaUs, ofsBuf, enBuf, cfg.calShotCount,
           cfg.bulletShiftPct, cfg.bulletShiftCapMm,
           cfg.clusterCorr ? 1 : 0, cfg.clusterIter, cfg.lsq ? 1 : 0, cfg.lsqPelletRMm,
-          cfg.algoMode == ALGO_RIM ? "rim" : "classic",
+          cfg.algoMode == ALGO_RIM ? "rim" : "classic", cfg.useBuffer ? 1 : 0,
           cfg.pelletRadiusMm, lroundf(cfg.maxSigmaMm * 1000.0f),
           cfg.airMcpwm ? "mcpwm" : "isr",
           cfg.walkK, cfg.walkCal ? 1 : 0, (unsigned)cfg.walkMaxUs,
@@ -4021,7 +4057,10 @@ static void emitRawTelegram(const char *algo, uint32_t refCC, float winPreNs, fl
                       "{\"type\":\"raw\",\"seq\":%u,\"algo\":\"%s\",\"ref\":\"%s\","
                       "\"capture\":\"%s\",\"sound_act_mps\":%.2f,\"walk_k\":%.3f,"
                       "\"walk_max_us\":%u,\"win_pre_ns\":%ld,\"win_post_ns\":%ld,",
-                      sequenceNo, algo, strcmp(algo, "rim") == 0 ? "piezo" : "first",
+                      sequenceNo, algo,
+                      // Bezug: Piezo nur bei RIM + BUFFER=1, sonst die erste
+                      // Flanke (CLASSIC rechnet immer relativ dazu)
+                      (strcmp(algo, "rim") == 0 && cfg.useBuffer) ? "piezo" : "first",
                       capActive ? "mcpwm" : "isr", soundMpsActive, cfg.walkK,
                       (unsigned)cfg.walkMaxUs, lroundf(winPreNs), lroundf(winPostNs));
     // Rev 4.20.0: Entfernungskorrektur statt ofs_ns, dazu die daraus
@@ -4097,6 +4136,22 @@ static float calCostClassic(float walkK)
     return total;
 }
 
+// Zeitfenster fuer den Einschlagzeitpunkt t0 relativ zum Bezugszeitpunkt
+// (Rev 4.21.0, gemeinsam fuer processShotAnchored() und calCostRim()):
+// SET BUFFER=1 -> Bezug = Piezo, t0 in [-PIEZOMAX, -PIEZOMIN];
+// SET BUFFER=0 -> Bezug = erste Mic-Flanke, t0 in [-maxDist/c, 0].
+static void rimGate(bool fromWindow, shotloc::Gate *gate)
+{
+    gate->active = true;
+    if (fromWindow) {
+        gate->t0MinNs = -rimMaxDistMm / soundMmPerNs;
+        gate->t0MaxNs = 0.0f;
+    } else {
+        gate->t0MinNs = -(float)cfg.piezoMaxUs * 1000.0f;
+        gate->t0MaxNs = -(float)cfg.piezoMinUs * 1000.0f;
+    }
+}
+
 // SET ALGO=RIM-Gegenstueck zu calCostClassic(): Kosten = Summe der
 // quadrierten RMS-Residuen (ns^2, siehe shot_locator.h::Result::rmsNs) ueber
 // alle gesammelten Kalibrier-Schuesse mit der aktuell gesetzten Geometrie
@@ -4117,9 +4172,7 @@ static float calCostRim(float walkK)
     g.maxDistMm      = rimMaxDistMm;
 
     shotloc::Gate gate;
-    gate.active  = true;
-    gate.t0MinNs = -(float)cfg.piezoMaxUs * 1000.0f;
-    gate.t0MaxNs = -(float)cfg.piezoMinUs * 1000.0f;
+    rimGate(!cfg.useBuffer, &gate);   // Bezug wie bei der Sammlung (SET BUFFER)
     shotloc::Params params;
     params.minMics = 3;
 
@@ -4637,7 +4690,8 @@ static void processShot()
     // processShot() laeuft nur aus loop(), ist also nicht reentrant)
     static char line[1024];
     int  n = snprintf(line, sizeof(line),
-                      "{\"type\":\"shot\",\"seq\":%u,\"algo\":\"classic\",\"air_ns\":[", sequenceNo);
+                      "{\"type\":\"shot\",\"seq\":%u,\"algo\":\"classic\",\"buffer\":%d,\"air_ns\":[",
+                      sequenceNo, cfg.useBuffer ? 1 : 0);
     for (int i = 0; i < NUM_AIR && n < (int)sizeof(line) - 32; i++) {
         if (i > 0) line[n++] = ',';
         line[n++] = '[';
@@ -4724,17 +4778,97 @@ static void processShot()
 }
 
 // ---------------------------------------------------------------------------
-// SET ALGO=RIM - Gegenstueck zu processShot() (siehe Rev-4.11.0-Hinweis im
-// Header-Kommentar ganz oben sowie schusserkennung-rev5.md): wird aus loop()
-// gerufen, sobald nach einem Piezo-Anker (piezoISR(), NUR bei ALGO=RIM
-// gesetzt) postWaitUs verstrichen ist. Liest die Ringpuffer RUECKWIRKEND aus,
-// baut daraus je Mikrofon die zum Gate passenden Kandidatenflanken (siehe
-// shot_locator.h) und ruft shotloc::locate() auf - ersetzt dadurch sowohl die
-// klassische Fenster-/Sperrzeit-Logik als auch solveAirPosition() fuer diesen
-// Pfad. air_ns im Telegramm ist hier relativ zum PIEZO (nicht wie bei
-// ALGO=CLASSIC relativ zur ersten Flanke) - siehe docs/protokoll-referenz.md.
+// SET BUFFER=1 + ALGO=CLASSIC (Rev 4.21.0): bildet das Sammelfenster
+// rueckwirkend aus dem Ringpuffer nach und uebergibt an die gewohnte
+// CLASSIC-Auswertung (processShot()) - Kalibrierung, Zonen, Reject-Logik und
+// Telegramm bleiben dadurch unveraendert. Die Flanken werden wie bei
+// TESTSHOOT in die Puffer des Sammelfensters (airCC/airCount/firstAirCC/
+// piezoCC) geschrieben; bei BUFFER=1 nutzt die ISR diese Puffer nicht (siehe
+// airEdge()), es gibt also keinen Konflikt.
+//
+// Auswahl mit derselben Bedeutung wie beim Sammelfenster:
+//  1. erste Flanke = frueheste Flanke aller Mics in [Piezo - PIEZOMAX,
+//     Piezo - PIEZOMIN] (so prueft auch processShot() piezo_ok),
+//  2. je Mic die Flanken in [erste, erste + SET TDOA] (max. AIR_MAX_EDGES,
+//     20-us-Totzeit wie im Ringpuffer).
+// Anders als beim Sammelfenster oeffnet ein frueherer Muendungsknall oder
+// eine Flanke in der Sperrzeit damit kein falsches Fenster mehr.
+static void classicFromBuffer(uint32_t refCC, uint64_t refUs, bool wasSynthetic)
+{
+    const int32_t loCC = -(int32_t)(cfg.piezoMaxUs * cpuMHz);
+    const int32_t hiCC = -(int32_t)(cfg.piezoMinUs * cpuMHz);
+    const uint32_t tdoaCC = cfg.airMaxTdoaUs * cpuMHz;
+
+    auto valid = [](int i, int k) {
+        return edgeSnap.riseUs[i][k] != 0
+            && edgeSnap.nowUs - edgeSnap.riseUs[i][k] <= 100000UL;   // nicht veraltet
+    };
+
+    // 1. erste Flanke
+    bool     haveFirst = false;
+    uint32_t firstCC   = refCC;
+    for (int i = 0; i < NUM_AIR; i++) {
+        for (int k = 0; k < EDGE_RING; k++) {
+            if (!valid(i, k)) continue;
+            const int32_t d = (int32_t)(edgeSnap.riseCC[i][k] - refCC);
+            if (d < loCC || d > hiCC) continue;
+            if (!haveFirst || (int32_t)(edgeSnap.riseCC[i][k] - firstCC) < 0) {
+                firstCC   = edgeSnap.riseCC[i][k];
+                haveFirst = true;
+            }
+        }
+    }
+
+    // 2. je Mic die Flanken im TDOA-Fenster ab der ersten, aufsteigend
+    uint32_t selCC[NUM_AIR][AIR_MAX_EDGES];
+    uint8_t  selN[NUM_AIR];
+    for (int i = 0; i < NUM_AIR; i++) {
+        selN[i] = 0;
+        if (!haveFirst) continue;
+        float    t[EDGE_RING];
+        int32_t  idx[EDGE_RING];
+        int      n = 0;
+        for (int k = 0; k < EDGE_RING; k++) {
+            if (!valid(i, k)) continue;
+            const uint32_t d = edgeSnap.riseCC[i][k] - firstCC;   // wrap-sicher
+            if ((int32_t)d < 0 || d > tdoaCC) continue;
+            t[n] = (float)d; idx[n] = k; n++;
+        }
+        sortEdgesWithWidth(t, idx, n);   // idx = Slot im Ringpuffer
+        for (int k = 0; k < n && selN[i] < AIR_MAX_EDGES; k++) {
+            selCC[i][selN[i]++] = edgeSnap.riseCC[i][idx[k]];
+        }
+    }
+
+    noInterrupts();
+    firstAirCC = firstCC;
+    for (int i = 0; i < NUM_AIR; i++) {
+        airCount[i] = selN[i];
+        for (int e = 0; e < selN[i]; e++) airCC[i][e] = selCC[i][e];
+    }
+    piezoCC        = refCC;
+    piezoSeen      = true;
+    firstHitTimeUs = refUs + (int64_t)(int32_t)(firstCC - refCC) / (int64_t)cpuMHz;
+    shotInProgress = true;
+    interrupts();
+    syntheticShotPending = wasSynthetic;   // processShot() liest es selbst
+    processShot();
+}
+
 // ---------------------------------------------------------------------------
-static void processShotAnchored()
+// Rueckwirkende Auswertung aus dem Ringpuffer (siehe Rev-4.11.0/4.21.0-
+// Hinweise im Header-Kommentar sowie schusserkennung-rev5.md). Zwei Aufrufe
+// aus loop():
+//  - fromWindow=false (SET BUFFER=1): postWaitUs nach dem Piezo-Anker
+//    (piezoISR()). Bezug = Piezo. ALGO=CLASSIC -> classicFromBuffer(),
+//    ALGO=RIM -> shotloc::locate() unten.
+//  - fromWindow=true (SET BUFFER=0 + ALGO=RIM): am Ende des Sammelfensters.
+//    Bezug = erste Mic-Flanke, Kandidaten nur bis SET TDOA danach - also
+//    dieselben Flanken wie im Sammelfenster, gerechnet mit RIM.
+// air_ns im RIM-Telegramm ist relativ zum jeweiligen Bezug ("buffer" im
+// Telegramm) - siehe docs/protokoll-referenz.md.
+// ---------------------------------------------------------------------------
+static void processShotAnchored(bool fromWindow)
 {
     // TESTSHOOT (siehe handleTestShoot()): gilt NUR fuer GENAU diese eine
     // Auswertung - analog zu processShot().
@@ -4746,15 +4880,27 @@ static void processShotAnchored()
     // fallenden Flanken fuer die Pulsbreiten) statt auf dem Loop-Stack.
     const uint32_t (&localRingCC)[NUM_AIR][EDGE_RING] = edgeSnap.riseCC;
     const uint32_t (&localRingUs)[NUM_AIR][EDGE_RING] = edgeSnap.riseUs;
-    uint32_t localPiezoCC;
-    uint64_t localPiezoUs;
+    uint32_t refCC;
+    uint64_t refUs;
+    bool     refPiezoSeen;      // Piezo-Flanke vorhanden (bei BUFFER=1 = Anker)
+    int64_t  piezoRelNs = 0;    // Piezo relativ zum Bezug
 
     noInterrupts();
     takeEdgeSnapshot();
-    localPiezoCC = piezoAnchorCC;
-    localPiezoUs = piezoAnchorUs;
-    piezoPending = false;
-    freezeActive = false;
+    if (fromWindow) {
+        refCC        = firstAirCC;
+        refUs        = firstHitTimeUs;
+        refPiezoSeen = piezoSeen;
+        if (refPiezoSeen) {
+            piezoRelNs = (int64_t)(int32_t)(piezoCC - refCC) * 1000LL / (int64_t)cpuMHz;
+        }
+    } else {
+        refCC        = piezoAnchorCC;
+        refUs        = piezoAnchorUs;
+        refPiezoSeen = true;
+        piezoPending = false;
+        freezeActive = false;
+    }
     // Konservative Vorab-Sperrzeit (volle SET DEBOUNCE) - wird unten auf die
     // kurze SET REJECTLOCK-Zeit verkuerzt, falls dieser Schuss abgelehnt wird
     // (analog zur quickPlausible-Vorab-Schaetzung in processShot()). Muss
@@ -4763,14 +4909,22 @@ static void processShotAnchored()
     // reagieren wuerde.
     lockoutUntil = (uint64_t)esp_timer_get_time() + (uint64_t)cfg.debounceMs * 1000ULL;
     interrupts();
+    if (fromWindow) resetShotState();   // Sammelfenster schliessen
+
+    // SET BUFFER=1 + ALGO=CLASSIC: Flankenauswahl, dann gewohnte Auswertung
+    if (!fromWindow && cfg.algoMode == ALGO_CLASSIC) {
+        classicFromBuffer(refCC, refUs, wasSynthetic);
+        return;
+    }
 
     // Kandidatenflanken je Mic: alles innerhalb [-preNs, +postNs] relativ
-    // zum Piezo, offset-korrigiert, aufsteigend sortiert (siehe
-    // schusserkennung-rev5.md Abschnitt 3.3).
-    const float preNs  = (float)cfg.piezoMaxUs * 1000.0f + 50000.0f;
-    const float postNs = (float)postWaitUs * 1000.0f;
+    // zum Bezug, aufsteigend sortiert (siehe schusserkennung-rev5.md
+    // Abschnitt 3.3). Beim Sammelfenster nur [0, SET TDOA].
+    const float preNs  = fromWindow ? 0.0f : (float)cfg.piezoMaxUs * 1000.0f + 50000.0f;
+    const float postNs = fromWindow ? (float)cfg.airMaxTdoaUs * 1000.0f
+                                    : (float)postWaitUs * 1000.0f;
 
-    // Rohe Kandidaten (ns relativ zum Piezo, OHNE Offset) samt Pulsbreite
+    // Rohe Kandidaten (ns relativ zum Bezug, OHNE Offset) samt Pulsbreite
     // (Rev 4.14.0) sammeln und roh sortieren - so gehen sie in CAL START.
     // static: Loop-Stack schonen, nicht reentrant.
     static float   rawT[NUM_AIR][EDGE_RING];
@@ -4785,7 +4939,8 @@ static void processShotAnchored()
         if (!micOn[i]) continue;
         for (int k = 0; k < EDGE_RING; k++) {
             if (localRingUs[i][k] == 0) continue;   // nie beschriebener Slot
-            const float tNs = (float)(int32_t)(localRingCC[i][k] - localPiezoCC)
+            if (edgeSnap.nowUs - localRingUs[i][k] > 100000UL) continue;   // veraltet
+            const float tNs = (float)(int32_t)(localRingCC[i][k] - refCC)
                              * 1000.0f / (float)cpuMHz;
             if (tNs < -preNs || tNs > postNs) continue;
             rawT[i][rawN[i]] = tNs;
@@ -4807,9 +4962,9 @@ static void processShotAnchored()
     for (int i = 0; i < NUM_AIR; i++) if (ed.n[i] > 0) nAvail++;
 
     // Kalibrierung (CAL START) laeuft unabhaengig vom normalen Reject-Filter,
-    // analog zu processShot(). Gespeichert werden die ROHEN (weder offset-
-    // noch pulsbreiten-korrigierten) Kandidatenflanken samt Breite - calCostRim()
-    // wendet beides beim Suchen ueber rimBuildEdges() selbst an.
+    // analog zu processShot(). Gespeichert werden die ROHEN (nicht
+    // pulsbreiten-korrigierten) Kandidatenflanken samt Breite - calCostRim()
+    // wendet die Korrektur beim Suchen ueber rimBuildEdges() selbst an.
     if (calActive) {
         if (nAvail < 3) {
             emitf("{\"type\":\"cal\",\"state\":\"skipped\",\"reason\":\"only %d mic(s)\","
@@ -4835,11 +4990,13 @@ static void processShotAnchored()
         }
     }
 
-    // Automatischer Papiervorschub: bei ALGO=RIM ist das Piezo immer der
-    // (alleinige) Ausloeser - ANY/PIEZO verhalten sich deshalb hier gleich.
+    // Automatischer Papiervorschub: bei BUFFER=1 ist das Piezo immer der
+    // (alleinige) Ausloeser - ANY/PIEZO verhalten sich dort gleich. Beim
+    // Sammelfenster zaehlt fuer PIEZO, ob das Piezo darin ausgeloest hat.
     // CLEAN wird erst unten nach der isClean-Berechnung ausgeloest.
     if (cfg.paperAuto
-        && (cfg.paperTrigger == PAPER_TRIG_ANY || cfg.paperTrigger == PAPER_TRIG_PIEZO)) {
+        && (cfg.paperTrigger == PAPER_TRIG_ANY
+            || (cfg.paperTrigger == PAPER_TRIG_PIEZO && refPiezoSeen))) {
         startPaperFeed();
     }
 
@@ -4853,9 +5010,7 @@ static void processShotAnchored()
         g.maxDistMm      = rimMaxDistMm;
 
         shotloc::Gate gate;
-        gate.active  = true;
-        gate.t0MinNs = -(float)cfg.piezoMaxUs * 1000.0f;
-        gate.t0MaxNs = -(float)cfg.piezoMinUs * 1000.0f;
+        rimGate(fromWindow, &gate);
 
         shotloc::Params params;
         params.minMics = cfg.minMics;
@@ -4892,7 +5047,8 @@ static void processShotAnchored()
     // (Rev 4.16.1: 1024 statt 900 Byte, static wie bei ALGO=CLASSIC)
     static char line[1024];
     int  n = snprintf(line, sizeof(line),
-                      "{\"type\":\"shot\",\"seq\":%u,\"algo\":\"rim\",\"air_ns\":[", sequenceNo);
+                      "{\"type\":\"shot\",\"seq\":%u,\"algo\":\"rim\",\"buffer\":%d,\"air_ns\":[",
+                      sequenceNo, fromWindow ? 0 : 1);
     for (int i = 0; i < NUM_AIR && n < (int)sizeof(line) - 32; i++) {
         if (i > 0) line[n++] = ',';
         line[n++] = '[';
@@ -4919,13 +5075,13 @@ static void processShotAnchored()
     }
     n += snprintf(line + n, sizeof(line) - n, ",\"clean\":%d", isClean ? 1 : 0);
     snprintf(line + n, sizeof(line) - n, ",\"hits\":%d,\"ts\":%llu%s}\n",
-             (int)r.nUsed, (unsigned long long)(localPiezoUs / 1000ULL), synSuffix);
+             (int)r.nUsed, (unsigned long long)(refUs / 1000ULL), synSuffix);
     emitLine(line);
 
     // SET RAWLOG=1 (Rev 4.16.0): Rohdaten fuer den Server-Simulator, Fenster
-    // = Kandidatenfenster oben, Nullpunkt = Piezo.
+    // = Kandidatenfenster oben, Nullpunkt = Bezug (Piezo bzw. erste Flanke).
     if (cfg.rawLog) {
-        emitRawTelegram("rim", localPiezoCC, preNs, postNs, true, 0, localPiezoUs, synSuffix);
+        emitRawTelegram("rim", refCC, preNs, postNs, refPiezoSeen, piezoRelNs, refUs, synSuffix);
     }
 }
 
@@ -4939,29 +5095,90 @@ static void processShotAnchored()
 static void sendHelp()
 {
     static const char *lines[] = {
-        "# Verfuegbare SET-Parameter:",
+        "# Befehle und SET-Parameter (SET-Werte werden gespeichert, sofern nicht",
+        "# anders angegeben). Antworten kommen als JSON-Zeilen.",
+        "#",
+        "# === Netzwerk / Verbindung ===",
         "#   SET SSID=<text>          WLAN-Name (leer = WLAN aus, Reboot noetig)",
         "#   SET PASS=<text>          WLAN-Passwort (Reboot noetig)",
         "#   SET HOST=<ip/host>       Ziel-Host des Stand-PC (Reboot noetig)",
         "#   SET PORT=<1-65535>       TCP-Port des Stand-PC (Reboot noetig)",
+        "#   SET STATIC=<0|1>         Statische IP an/aus (Reboot noetig)",
+        "#   SET IP=<ip>              Statische IP-Adresse (Reboot noetig)",
+        "#   SET GW=<ip>              Gateway, auch: GATEWAY (Reboot noetig)",
+        "#   SET SUBNET=<mask>        Subnetzmaske (Reboot noetig)",
+        "#   SET DNS=<ip>             DNS-Server, leer = Gateway (Reboot noetig)",
         "#   SET LANE=<1-999>         Bahnnummer",
+        "#   SET SENDREJECT=<0|1>     0 (Default): reject-Telegramme nur ueber Serial, ohne",
+        "#                            seq (Stand-PC sieht keine seq-Luecken); 1: auch per",
+        "#                            TCP, mit fortlaufender seq wie shot",
+        "#   SHOWNET                  Netzwerkkonfiguration (SSID/Pass/Host/Port/eigene IP)",
+        "#                            UND Live-Verbindungsstatus (wifi_ip/tcp_connected)",
+        "# NET-Befehle (Sicherheitsnetz fuer Netzwerk-Fernkonfiguration):",
+        "#   NET STATUS               zeigt, ob eine Netzwerkaenderung auf Bestaetigung",
+        "#                            wartet (und ggf. verbleibende Zeit bis zum",
+        "#                            automatischen Ruecksprung)",
+        "#   NET CONFIRM              bestaetigt eine gerade aktive Netzwerkkonfiguration",
+        "#                            endgueltig - erst NACH dem Reboot moeglich, der sie",
+        "#                            uebernommen hat (siehe SET SSID/PASS/HOST/PORT/",
+        "#                            STATIC/IP/GW/SUBNET/DNS: die erste solche Aenderung",
+        "#                            je Bootzyklus sichert automatisch einen Ruecksprung-",
+        "#                            punkt; wird binnen 3 Minuten nach dem naechsten Boot",
+        "#                            kein NET CONFIRM gesendet, stellt der ESP32 die",
+        "#                            zuletzt bestaetigte Konfiguration automatisch wieder",
+        "#                            her und startet neu)",
+        "# Korrelations-ID: jeder Befehl kann mit \" #<id>\" enden (z.B. SET LANE=2 #7)",
+        "# - die Antwort(en) auf GENAU diesen Befehl tragen dann zusaetzlich \"corr\":<id>",
+        "#",
+        "# === Wertung: Erfassung und Ausloesung ===",
+        "#   SET BUFFER=<0|1>         Erfassung (Default 0): 0 = Sammelfenster ab der",
+        "#                            ersten Mic-Flanke; 1 = Piezo ist der EINZIGE",
+        "#                            Ausloeser (PIEZO=0 wird ignoriert), die Flanken",
+        "#                            kommen rueckwirkend aus dem Ringpuffer - keine",
+        "#                            Flanke geht durch Muendungsknall/Sperrzeit verloren.",
+        "#                            \"shot\" traegt \"algo\" und \"buffer\"; air_ns ist",
+        "#                            nur bei RIM+BUFFER=1 relativ zum Piezo, sonst zur",
+        "#                            ersten Flanke",
         "#   SET DEBOUNCE=<10-5000>   Sperrzeit NACH einem gueltigen Schuss in ms",
         "#   SET REJECTLOCK=<0-2000> Sperrzeit NACH einem Reject (zu wenige Mics,",
         "#                            z.B. Muendungsknall-Fehlausloeser) in ms,",
         "#                            Default 5 - bewusst kurz, damit ein spaeter",
         "#                            eintreffender ECHTER Einschlag nicht durch die",
         "#                            (viel laengere) SET DEBOUNCE-Zeit verschluckt wird",
-        "#   SET SENDREJECT=<0|1>     0 (Default): reject-Telegramme nur ueber Serial, ohne",
-        "#                            seq (Stand-PC sieht keine seq-Luecken); 1: auch per",
-        "#                            TCP, mit fortlaufender seq wie shot",
         "#   SET WINDOW=<1-50>        Sammelfenster in ms",
-        "#   SET DEBUG=<0-3>          shot/reject-Telegramme gehen seit Rev 4.6.1 IMMER",
-        "#                            raus (jede Sequenz-Nummer kommt bei der Anzeige an,",
-        "#                            das Feld \"clean\" markiert saubere Treffer). SET DEBUG",
-        "#                            steuert nur noch zusaetzliche Diagnosefelder:",
-        "#                            3=+Kandidaten-Zeilen je Mic-Kombination (type=cand)",
-        "#                            +Stufe-1-Werte vor dem Verifizierungsschritt",
-        "#                            (x_um_pre/y_um_pre/precision_um_pre/cluster_hits_pre)",
+        "#   SET TDOA=<100-5000>      Geometrie-Plausibilitaetsfenster in us (Default 750)",
+        "#   SET MINMICS=<3-6>        Mindestzahl Mics fuer gueltigen Schuss (Default 5)",
+        "#   SET MICEN0..MICEN5=<0|1> Mikrofon fuer Positionsloesung UND CAL START",
+        "#                            beruecksichtigen (Default 1/an) - 0 schliesst",
+        "#                            den Kanal komplett aus (z.B. hardwareseitig",
+        "#                            auffaellige Kanaele gezielt abschalten)",
+        "#   SET PIEZO=<0|1>          Piezo (Stahlplatte, GPIO34) als Trigger-",
+        "#                            Bestaetigung nutzen (Default 1/an)",
+        "#   SET PIEZOREQ=<0|1>       1 (Default): bei SET PIEZO=1 wird ein Schuss",
+        "#                            ohne Piezo bzw. mit Piezo ausserhalb PIEZOMIN..",
+        "#                            PIEZOMAX als reject behandelt (siehe SENDREJECT);",
+        "#                            0: shot mit piezo_ok=0/clean=0 (nur ALGO=CLASSIC)",
+        "#   SET PIEZOMIN=<0-5000>    Min. erwartete Piezo-Verzoegerung in us",
+        "#                            nach erstem Luft-Ereignis (Default 100)",
+        "#   SET PIEZOMAX=<0-5000>    Max. erwartete Piezo-Verzoegerung in us",
+        "#                            nach erstem Luft-Ereignis (Default 1400) -",
+        "#                            Ausreisser-Obergrenze",
+        "#   SET CAPTURE=<ISR|MCPWM>  Zeitstempel der Luft-Mics: ISR (Default, bisher) oder",
+        "#                            MCPWM-Hardware-Capture (12,5ns, ohne Interrupt-",
+        "#                            Jitter, GPIO23 muss frei bleiben). Reboot noetig,",
+        "#                            danach CAL RESET + CAL START. STATUS \"capture\"",
+        "#                            zeigt den aktiven Modus (Fallback auf isr)",
+        "#   SET WALKK=<0.0-1.0>      Amplituden-Korrektur ueber die Pulsbreite (nur",
+        "#                            MCPWM): t += K*(Breite - Mittel). 0 = aus (Default),",
+        "#                            0.5 = Pulsmitte (symmetrischer Puls)",
+        "#   SET WALKMAX=<5-500>      Groesste plausible Pulsbreite in us (Default 150)",
+        "#",
+        "# === Wertung: Rechenweg und Korrekturen ===",
+        "#   SET ALGO=<CLASSIC|RIM>   Rechenweg (Default CLASSIC): CLASSIC = Dreier-",
+        "#                            Kombinationen + Cluster (solveAirPosition()), RIM =",
+        "#                            gewichtete Ausgleichsrechnung mit Lochrand-Modell",
+        "#                            (schusserkennung-rev5.md). Unabhaengig von BUFFER",
+        "#   -- nur ALGO=CLASSIC (Dreier-Kombinationen + Cluster):",
         "#   SET OUTLIER=<0-500000>   Ausreisser-Schwelle in 0.001mm (Default 5000)",
         "#   SET RADIUS=<0-500000>    Umkreis fuer cluster_hits UND fuer den Verifizierungs-",
         "#                            Mittelpunkt (Stufe 2, siehe solveAirPosition()) in",
@@ -4970,8 +5187,6 @@ static void sendHelp()
         "#   SET MINCLUSTER=<0-20>    Mindest-cluster_hits fuer sauberen Schuss (Default 2)",
         "#   SET MAXPRECISION=<0-500000>   Max. precision_um fuer sauberen Schuss",
         "#                            in 0.001mm (Default 2000)",
-        "#   SET MINMICS=<3-6>        Mindestzahl Mics fuer gueltigen Schuss (Default 5)",
-        "#   SET TDOA=<100-5000>      Geometrie-Plausibilitaetsfenster in us (Default 750)",
         "#   SET BSHIFTPCT=<0-100>    Kugeldurchmesser-Korrektur (siehe solveAirPosition()):",
         "#                            Gewichtung in % des Rest-Fehlers der Stufe-1-Loesung",
         "#                            gegen die daran unbeteiligten Mikrofone, als Ver-",
@@ -4988,55 +5203,13 @@ static void sendHelp()
         "#   SET LSQ=<0|1>            Endposition per Ausgleichsrechnung ueber alle Mics",
         "#                            verfeinern (Default 0, braucht >= 4 Mics)",
         "#   SET LSQPELLETR=<0.0-5.0> Lochrand-Radius in mm fuer SET LSQ (Default 2.25)",
-        "#   SET ALGO=<CLASSIC|RIM>   Auswertepfad (Default CLASSIC = bisheriges",
-        "#                            Verhalten unveraendert). RIM: Ringpuffer-Erfassung",
-        "#                            (keine Flanke geht mehr durch Muendungsknall/Sperr-",
-        "#                            zeit verloren) + Piezo-Anker-Trigger (Piezo ist der",
-        "#                            EINZIGE Trigger, SET PIEZO=0 wird ignoriert) +",
-        "#                            robuste Ausgleichsrechnung mit Lochrand-Modell statt",
-        "#                            solveAirPosition() - siehe schusserkennung-rev5.md.",
-        "#                            \"shot\"/\"reject\" tragen ein \"algo\"-Feld, air_ns ist",
-        "#                            bei RIM relativ zum Piezo (nicht zur ersten Flanke)",
+        "#   -- nur ALGO=RIM (gewichtete Ausgleichsrechnung):",
         "#   SET PELLETR=<0.0-10.0>   Wirksamer akustischer Lochrand-Radius in mm fuer",
         "#                            ALGO=RIM (Default 2.25 = 4,5mm-Diabolo, 0=Punktquelle)",
         "#   SET MAXSIGMA=<0.0-50.0>  \"clean\"-Schwelle fuer ALGO=RIM in mm: max(sigma_x,",
         "#                            sigma_y) aus der Kovarianzmatrix (Default 2.0).",
         "#                            Gegenstueck zu MAXPRECISION/RADIUS/MINCLUSTER (CLASSIC)",
-        "#   SET CAPTURE=<ISR|MCPWM>  Zeitstempel der Luft-Mics: ISR (Default, bisher) oder",
-        "#                            MCPWM-Hardware-Capture (12,5ns, ohne Interrupt-",
-        "#                            Jitter, GPIO23 muss frei bleiben). Reboot noetig,",
-        "#                            danach CAL RESET + CAL START. STATUS \"capture\"",
-        "#                            zeigt den aktiven Modus (Fallback auf isr)",
-        "#   SET WALKK=<0.0-1.0>      Amplituden-Korrektur ueber die Pulsbreite (nur",
-        "#                            MCPWM): t += K*(Breite - Mittel). 0 = aus (Default),",
-        "#                            0.5 = Pulsmitte (symmetrischer Puls)",
-        "#   SET WALKCAL=<0|1>        CAL START bestimmt WALKK mit (Default 0)",
-        "#   SET WALKMAX=<5-500>      Groesste plausible Pulsbreite in us (Default 150)",
-        "#   SET PIEZO=<0|1>          Piezo (Stahlplatte, GPIO34) als Trigger-",
-        "#                            Bestaetigung nutzen (Default 1/an)",
-        "#   SET PIEZOREQ=<0|1>       1 (Default): bei SET PIEZO=1 wird ein Schuss",
-        "#                            ohne Piezo bzw. mit Piezo ausserhalb PIEZOMIN..",
-        "#                            PIEZOMAX als reject behandelt (siehe SENDREJECT);",
-        "#                            0: shot mit piezo_ok=0/clean=0 (nur ALGO=CLASSIC)",
-        "#   SET PIEZOMIN=<0-5000>    Min. erwartete Piezo-Verzoegerung in us",
-        "#                            nach erstem Luft-Ereignis (Default 100)",
-        "#   SET PIEZOMAX=<0-5000>    Max. erwartete Piezo-Verzoegerung in us",
-        "#                            nach erstem Luft-Ereignis (Default 1400) -",
-        "#                            Ausreisser-Obergrenze",
-        "#   SET TESTMODE=<0|1>       Reiner Sensor-Testmodus (Klartext-Zeile je",
-        "#                            Sensor-Ausloesung mit +ms seit dem 1. Sensor",
-        "#                            der Serie, 10 '-' nach 5s Stille) - NICHT",
-        "#                            persistent, nach Reboot immer aus (Default 0)",
-        "#   SET TESTCOOLDOWN=<0-10000>    Min. Abstand zw. 2 Meldungen desselben",
-        "#                            Sensors im Testmodus in ms (Default 3000).",
-        "#                            Fuer die Analyse echter Schuesse (mehrere",
-        "#                            echte Ereignisse je Sensor moeglich: Knall/",
-        "#                            Papier/Stahl) deutlich kleiner stellen (z.B. 50)",
-        "#   SET LEVELMODE=<0|1>      Einstellhilfe Referenzspannungen: je Ausloesung",
-        "#                            nur die Sensornummer ohne Zeilenumbruch (AIR0..",
-        "#                            AIR5=0..5, Piezo=7, Frontplatte=8), Sperrzeit",
-        "#                            je Sensor = DEBOUNCE.",
-        "#                            Nur Serial, NICHT persistent (Default 0)",
+        "#   -- beide:",
         "#   SET OFFSETX=<-50000..50000>   Konstanter Korrektur-Offset auf x_um",
         "#                            in 0.001mm, NACH der Trilateration addiert",
         "#                            (Default 0, z.B. gg. Messgitter-Versatz)",
@@ -5047,6 +5220,24 @@ static void sendHelp()
         "#   SET DHT=<0|1>            Schallgeschwindigkeit aus der Temperatur des",
         "#                            DHT22 (Default 0). STATUS zeigt",
         "#                            sound_act_mps/sound_src/temp_c/rh_pct",
+        "#",
+        "# === Kalibrierung ===",
+        "#   SET CALSHOTS=<3-20>      Anzahl Kalibrier-Schuesse fuer CAL START (Default 10)",
+        "#   SET DIST0..DIST5=<-10000..10000>  Entfernungskorrektur je Mikrofon in",
+        "#                            0.001mm entlang der Linie zur Scheibenmitte",
+        "#                            (Default 0, wird durch CAL START gesetzt)",
+        "#   SET WALKCAL=<0|1>        CAL START bestimmt WALKK mit (Default 0)",
+        "#   CAL START                startet Sammlung von SET CALSHOTS Schuessen,",
+        "#                            berechnet und speichert DIST0..DIST5 danach automatisch.",
+        "#                            Bei aktivem SET PIEZO zaehlen nur Schuesse mit",
+        "#                            Piezo-Bestaetigung (piezo_ok) fuer die Kalibrierung",
+        "#   CAL ABORT                bricht laufende Kalibrierung ab (Werte unveraendert)",
+        "#   CAL STATUS               zeigt Kalibrier-Fortschritt",
+        "#   CAL RESET                setzt DIST0..DIST5 auf 0 und verwirft die Zonen-Saetze",
+        "#   CAL IMPORT DIST0=<um>,...,DIST5=<um>  atomarer Bulk-",
+        "#                            Restore (z.B. vom Stand-PC gespeicherte Kalibrierung) -",
+        "#                            erst alle Werte validieren, dann erst schreiben",
+        "#   -- Zonen-Kalibrierung (nur ALGO=CLASSIC), Werte anzeigen mit SHOWZONES:",
         "#   SET ZONES=<0|1>          Zonen-Kalibrierung (nur ALGO=CLASSIC, Default 0):",
         "#                            je Bereich eigener Satz, siehe SHOWZONES",
         "#   SET ZHOLE=<0-60000>      Radius Loch der Vorsatzscheibe in 0.001mm",
@@ -5056,9 +5247,8 @@ static void sendHelp()
         "#   SET ZCAL=<A|B|C>,<dist0>,..,<dist5>,<offx>,<offy>  Satz einer Zone",
         "#                            (A=Loch, B=neben Band, C=Band+Vorsatz),",
         "#                            SET ZCAL=<A|B|C>,OFF = Zone nutzt die Basiswerte",
-        "#   SET RAWLOG=<0|1>         Zu jedem gueltigen Schuss ein \"raw\"-Telegramm mit",
-        "#                            allen unkorrigierten Flanken und Parametern fuer",
-        "#                            den Server-Simulator (Default 0)",
+        "#",
+        "# === Papier ===",
         "#   SET PAPERFEED=<0.0-150.0>      Papiervorschub je Schuss in mm (Default 50.0)",
         "#   SET PAPERSPEED=<0.5-30.0> Vorschub-Geschwindigkeit in mm/s fuer die erste",
         "#                            Haelfte der Strecke, danach Abbremsrampe (Default 5.0)",
@@ -5074,6 +5264,21 @@ static void sendHelp()
         "#                            Schuss registriert worden (kein echtes Schuss-Telegramm,",
         "#                            zaehlt nicht in shots/seq) - zum Testen von Mechanik/",
         "#                            Treiber ohne Schuss auf die Scheibe",
+        "#   ACTION TARGETCHANGE       loest einen Papiervorschub aus (wie TESTSHOOTPAPER,",
+        "#                            gleicher Codepfad, sprechenderer Name fuer den",
+        "#                            produktiven Scheibenwechsel-Bedienfall)",
+        "#",
+        "# === Debug / Analyse ===",
+        "#   SET DEBUG=<0-3>          shot/reject-Telegramme gehen seit Rev 4.6.1 IMMER",
+        "#                            raus (jede Sequenz-Nummer kommt bei der Anzeige an,",
+        "#                            das Feld \"clean\" markiert saubere Treffer). SET DEBUG",
+        "#                            steuert nur noch zusaetzliche Diagnosefelder:",
+        "#                            3=+Kandidaten-Zeilen je Mic-Kombination (type=cand)",
+        "#                            +Stufe-1-Werte vor dem Verifizierungsschritt",
+        "#                            (x_um_pre/y_um_pre/precision_um_pre/cluster_hits_pre)",
+        "#   SET RAWLOG=<0|1>         Zu jedem gueltigen Schuss ein \"raw\"-Telegramm mit",
+        "#                            allen unkorrigierten Flanken und Parametern fuer",
+        "#                            den Server-Simulator (Default 0)",
         "#   TESTSHOOT [<z_mm>]        Synthetischer Testschuss zum Pruefen der Kommunikation:",
         "#                            waehlt x/y zufaellig in [-z_mm, +z_mm] (Default 25.0 =",
         "#                            gesamte LG-Scheibe), erzeugt dazu passende Rohlaufzeiten",
@@ -5081,55 +5286,33 @@ static void sendHelp()
         "#                            shot/reject-Telegramm entstehen (inkl. Papiervorschub,",
         "#                            \"synthetic\":1 markiert es als Testschuss). Fehler bei",
         "#                            laufendem Schuss/Sperrzeit/aktiver CAL START-Sammlung.",
-        "#   SET CALSHOTS=<3-20>      Anzahl Kalibrier-Schuesse fuer CAL START (Default 10)",
-        "#   SET DIST0..DIST5=<-10000..10000>  Entfernungskorrektur je Mikrofon in",
-        "#                            0.001mm entlang der Linie zur Scheibenmitte",
-        "#                            (Default 0, wird durch CAL START gesetzt)",
-        "#   SET MICEN0..MICEN5=<0|1> Mikrofon fuer Positionsloesung UND CAL START",
-        "#                            beruecksichtigen (Default 1/an) - 0 schliesst",
-        "#                            den Kanal komplett aus (z.B. hardwareseitig",
-        "#                            auffaellige Kanaele gezielt abschalten)",
-        "#   SET STATIC=<0|1>         Statische IP an/aus (Reboot noetig)",
-        "#   SET IP=<ip>              Statische IP-Adresse (Reboot noetig)",
-        "#   SET GW=<ip>              Gateway, auch: GATEWAY (Reboot noetig)",
-        "#   SET SUBNET=<mask>        Subnetzmaske (Reboot noetig)",
-        "#   SET DNS=<ip>             DNS-Server, leer = Gateway (Reboot noetig)",
-        "# Kalibrierung (Entfernungskorrektur je Mikrofon, SET DIST<i>):",
-        "#   CAL START                startet Sammlung von SET CALSHOTS Schuessen,",
-        "#                            berechnet und speichert DIST0..DIST5 danach automatisch.",
-        "#                            Bei aktivem SET PIEZO zaehlen nur Schuesse mit",
-        "#                            Piezo-Bestaetigung (piezo_ok) fuer die Kalibrierung",
-        "#   CAL ABORT                bricht laufende Kalibrierung ab (Werte unveraendert)",
-        "#   CAL STATUS               zeigt Kalibrier-Fortschritt",
-        "#   CAL RESET                setzt DIST0..DIST5 auf 0 und verwirft die Zonen-Saetze",
-        "#   CAL IMPORT DIST0=<um>,...,DIST5=<um>  atomarer Bulk-",
-        "#                            Restore (z.B. vom Stand-PC gespeicherte Kalibrierung) -",
-        "#                            erst alle Werte validieren, dann erst schreiben",
-        "# Weitere Befehle: SHOW  SHOWNET  SHOWZONES  STATUS  PING  RESET  REBOOT  FACTORY  HELP/?",
-        "#   SHOWNET zeigt die Netzwerkkonfiguration (SSID/Pass/Host/Port/eigene",
-        "#   IP-Konfiguration) UND den Live-Verbindungsstatus (wifi_ip/tcp_connected)",
-        "#   separat von SHOW (Auswertungs-Parameter) und STATUS (Betriebsstatus)",
-        "# Korrelations-ID: jeder Befehl kann mit \" #<id>\" enden (z.B. SET LANE=2 #7)",
-        "# - die Antwort(en) auf GENAU diesen Befehl tragen dann zusaetzlich \"corr\":<id>",
+        "#   SET TESTMODE=<0|1>       Reiner Sensor-Testmodus (Klartext-Zeile je",
+        "#                            Sensor-Ausloesung mit +ms seit dem 1. Sensor",
+        "#                            der Serie, 10 '-' nach 5s Stille) - NICHT",
+        "#                            persistent, nach Reboot immer aus (Default 0)",
+        "#   SET TESTCOOLDOWN=<0-10000>    Min. Abstand zw. 2 Meldungen desselben",
+        "#                            Sensors im Testmodus in ms (Default 3000).",
+        "#                            Fuer die Analyse echter Schuesse (mehrere",
+        "#                            echte Ereignisse je Sensor moeglich: Knall/",
+        "#                            Papier/Stahl) deutlich kleiner stellen (z.B. 50)",
+        "#   SET LEVELMODE=<0|1>      Einstellhilfe Referenzspannungen: je Ausloesung",
+        "#                            nur die Sensornummer ohne Zeilenumbruch (AIR0..",
+        "#                            AIR5=0..5, Piezo=7, Frontplatte=8), Sperrzeit",
+        "#                            je Sensor = DEBOUNCE.",
+        "#                            Nur Serial, NICHT persistent (Default 0)",
+        "#",
+        "# === Allgemein ===",
+        "#   SHOW                     Auswertungs-Parameter (Telegramm config)",
+        "#   SHOWZONES                Werte der Zonen-Kalibrierung (Telegramm zones)",
+        "#   STATUS                   Betriebsstatus (Telegramm status)",
+        "#   PING                     Verbindungstest, Antwort pong",
+        "#   RESET                    Schusszaehler und Sequenznummer auf 0 setzen",
+        "#   REBOOT                   ESP32 neu starten",
+        "#   FACTORY                  ALLE gespeicherten Einstellungen loeschen (danach REBOOT)",
+        "#   HELP oder ?              diese Hilfe (nur Serial)",
         "# ACTION-Namensraum (kurzlebige Bedienbefehle, NICHT persistent):",
         "#   ACTION LIGHT=ON|OFF       uebersteuert die automatische Standbeleuchtung",
         "#   ACTION LIGHT=AUTO         gibt die Beleuchtung zurueck an serviceLight()",
-        "#   ACTION TARGETCHANGE       loest einen Papiervorschub aus (wie TESTSHOOTPAPER,",
-        "#                            gleicher Codepfad, sprechenderer Name fuer den",
-        "#                            produktiven Scheibenwechsel-Bedienfall)",
-        "# NET-Befehle (Sicherheitsnetz fuer Netzwerk-Fernkonfiguration):",
-        "#   NET STATUS               zeigt, ob eine Netzwerkaenderung auf Bestaetigung",
-        "#                            wartet (und ggf. verbleibende Zeit bis zum",
-        "#                            automatischen Ruecksprung)",
-        "#   NET CONFIRM              bestaetigt eine gerade aktive Netzwerkkonfiguration",
-        "#                            endgueltig - erst NACH dem Reboot moeglich, der sie",
-        "#                            uebernommen hat (siehe SET SSID/PASS/HOST/PORT/",
-        "#                            STATIC/IP/GW/SUBNET/DNS: die erste solche Aenderung",
-        "#                            je Bootzyklus sichert automatisch einen Ruecksprung-",
-        "#                            punkt; wird binnen 3 Minuten nach dem naechsten Boot",
-        "#                            kein NET CONFIRM gesendet, stellt der ESP32 die",
-        "#                            zuletzt bestaetigte Konfiguration automatisch wieder",
-        "#                            her und startet neu)",
     };
     for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) {
         Serial.println(lines[i]);
@@ -5321,20 +5504,35 @@ static bool handleSet(const String &raw)
         if (v == "CLASSIC")     newAlgo = ALGO_CLASSIC;
         else if (v == "RIM")    newAlgo = ALGO_RIM;
         else { emitLine("{\"type\":\"error\",\"msg\":\"algo classic|rim\"}\n"); return true; }
+        // Rev 4.21.0: nur noch der Rechenweg - die Erfassung waehlt SET BUFFER
         cfg.algoMode = newAlgo;
         saveVal<uint8_t>("algo", cfg.algoMode);
-        // Ringpuffer-/Piezo-Anker-Zustand des jeweils anderen Pfads verwerfen,
-        // damit ein Umschalten mitten im Betrieb keinen halbfertigen Zustand
-        // hinterlaesst (siehe resetShotState()).
+        // Halbfertigen Schuss-Zustand verwerfen (siehe resetShotState()).
         resetShotState();
-        if (cfg.algoMode == ALGO_RIM && !cfg.usePiezo) {
-            // ALGO=RIM braucht das Piezo zwingend als alleinigen Trigger
+        emitf("{\"type\":\"ok\",\"set\":\"algo\",\"value\":\"%s\",\"buffer\":%d}\n",
+              v.c_str(), cfg.useBuffer ? 1 : 0);
+    } else if (key == "BUFFER") {
+        // Rev 4.21.0: Erfassung - 0 = Sammelfenster ab der ersten Mic-Flanke,
+        // 1 = Piezo-Anker + rueckwirkend aus dem Ringpuffer (siehe
+        // processShotAnchored()), unabhaengig von SET ALGO.
+        long v = val.toInt();
+        if (val.length() == 0 || (v != 0 && v != 1)) {
+            emitLine("{\"type\":\"error\",\"msg\":\"buffer 0|1\"}\n");
+            return true;
+        }
+        cfg.useBuffer = (v == 1);
+        saveVal<bool>("buffer", cfg.useBuffer);
+        // Zustand der jeweils anderen Erfassung verwerfen (offenes Fenster
+        // bzw. Piezo-Anker), siehe resetShotState()
+        resetShotState();
+        if (cfg.useBuffer && !cfg.usePiezo) {
+            // BUFFER=1 braucht das Piezo zwingend als alleinigen Trigger
             // (siehe piezoISR()) - SET PIEZO=0 wird dabei NICHT ausgewertet,
-            // ohne echtes Piezo-Signal loest dieser Pfad also gar nicht aus.
-            emitf("{\"type\":\"ok\",\"set\":\"algo\",\"value\":\"%s\","
-                  "\"warn\":\"ALGO=RIM ignoriert PIEZO=0 - Trigger ist immer das Piezo\"}\n", v.c_str());
+            // ohne echtes Piezo-Signal loest diese Erfassung gar nicht aus.
+            emitLine("{\"type\":\"ok\",\"set\":\"buffer\",\"value\":1,"
+                     "\"warn\":\"BUFFER=1 ignoriert PIEZO=0 - Trigger ist immer das Piezo\"}\n");
         } else {
-            emitf("{\"type\":\"ok\",\"set\":\"algo\",\"value\":\"%s\"}\n", v.c_str());
+            emitf("{\"type\":\"ok\",\"set\":\"buffer\",\"value\":%d}\n", cfg.useBuffer ? 1 : 0);
         }
     } else if (key == "PELLETR") {
         float v = val.toFloat();
@@ -5729,10 +5927,10 @@ static void handleActionCommand(const String &upperRest)
 // ---------------------------------------------------------------------------
 static void handleTestShoot(float zMm)
 {
-    // SET ALGO=RIM: "Schuss in Bearbeitung" heisst hier piezoPending statt
-    // shotInProgress (das bleibt bei ALGO=RIM staendig false, siehe airISR()/
-    // piezoISR()).
-    const bool busy = (cfg.algoMode == ALGO_RIM) ? piezoPending : shotInProgress;
+    // SET BUFFER=1: "Schuss in Bearbeitung" heisst hier piezoPending statt
+    // shotInProgress (das bleibt bei BUFFER=1 staendig false, siehe
+    // airEdge()/piezoISR()).
+    const bool busy = cfg.useBuffer ? piezoPending : shotInProgress;
     if (busy) {
         emitLine("{\"type\":\"error\",\"msg\":\"shot in progress\"}\n");
         return;
@@ -5782,13 +5980,13 @@ static void handleTestShoot(float zMm)
     // SET PIEZOMIN..PIEZOMAX gewaehlt.
     const float piezoTargetNs = (float)(cfg.piezoMinUs + cfg.piezoMaxUs) * 1000.0f / 2.0f;
 
-    if (cfg.algoMode == ALGO_RIM) {
-        // Ringpuffer-Pfad: Anker = Piezo (t=0), jede Mic-Flanke relativ dazu
-        // ist t0 + Laufzeit mit t0 = -piezoTargetNs - siehe
-        // processShotAnchored()/schusserkennung-rev5.md. SET PIEZO=0 wird
-        // hier bewusst IGNORIERT (siehe SET ALGO-Warnhinweis in handleSet())
-        // - ohne Piezo-Anker kann ALGO=RIM prinzipbedingt nicht ausloesen,
-        // TESTSHOOT soll den vorgesehenen Ablauf trotzdem zeigen koennen.
+    if (cfg.useBuffer) {
+        // Ringpuffer-Erfassung (SET BUFFER=1): Anker = Piezo (t=0), jede
+        // Mic-Flanke relativ dazu ist t0 + Laufzeit mit t0 = -piezoTargetNs -
+        // siehe processShotAnchored()/schusserkennung-rev5.md. SET PIEZO=0
+        // wird hier bewusst IGNORIERT (siehe SET BUFFER-Warnhinweis in
+        // handleSet()) - ohne Piezo-Anker kann BUFFER=1 prinzipbedingt nicht
+        // ausloesen, TESTSHOOT soll den vorgesehenen Ablauf trotzdem zeigen.
         noInterrupts();
         const uint32_t anchorCC = esp_cpu_get_cycle_count();
         for (int i = 0; i < NUM_AIR; i++) {
@@ -5808,7 +6006,10 @@ static void handleTestShoot(float zMm)
         syntheticShotPending = true;
         interrupts();
     } else {
-        // --- Klassischer Pfad (unveraendert) -------------------------------
+        // --- Sammelfenster (SET BUFFER=0) ---------------------------------
+        // Zusaetzlich in den Ringpuffer, damit auch ALGO=RIM (rechnet beim
+        // Sammelfenster aus dem Ringpuffer, siehe processShotAnchored()) die
+        // Flanken sieht.
         const bool usePiezoNow = cfg.usePiezo;
         noInterrupts();
         // Anker fuer alle synthetischen Zeiten dieses Fensters - reiner
@@ -5824,6 +6025,10 @@ static void handleTestShoot(float zMm)
             int32_t dCC = (int32_t)lroundf(targetNs * (float)cpuMHz / 1000.0f);
             airCC[i][0] = firstAirCC + (uint32_t)dCC;
             airCount[i] = 1;
+            const uint8_t rh = ringHead[i];
+            ringCC[i][rh] = airCC[i][0];
+            ringUs[i][rh] = (uint32_t)nowUs;
+            ringHead[i]   = (rh + 1) % EDGE_RING;
         }
         if (usePiezoNow) {
             int32_t dCCPiezo = (int32_t)lroundf(piezoTargetNs * (float)cpuMHz / 1000.0f);
@@ -6582,13 +6787,14 @@ void loop()
     // einem gleichzeitig offenen Mic-Sammelfenster, siehe processFrontHit().
     if (frontPending) processFrontHit();
 
-    if (cfg.algoMode == ALGO_RIM) {
-        // SET ALGO=RIM (siehe airISR()/piezoISR()/processShotAnchored()):
+    if (cfg.useBuffer) {
+        // SET BUFFER=1 (siehe airEdge()/piezoISR()/processShotAnchored()):
         // ausgewertet wird postWaitUs NACH dem Piezo-Anker, unabhaengig von
-        // SET WINDOW (das gilt nur fuer ALGO=CLASSIC).
+        // SET WINDOW (das gilt nur fuer das Sammelfenster) - mit ALGO=CLASSIC
+        // oder RIM, siehe processShotAnchored().
         if (piezoPending
             && (uint64_t)esp_timer_get_time() - piezoAnchorUs >= postWaitUs) {
-            processShotAnchored();
+            processShotAnchored(false);
         }
     } else if (shotInProgress) {
         const uint64_t now = (uint64_t)esp_timer_get_time();
@@ -6603,7 +6809,10 @@ void loop()
             if (piezoWaitUs > effWindowUs) effWindowUs = piezoWaitUs;
         }
         if (now - firstHitTimeUs >= effWindowUs) {
-            processShot();
+            // SET BUFFER=0: Sammelfenster - CLASSIC wie bisher, RIM mit den
+            // Flanken desselben Fensters (Rev 4.21.0)
+            if (cfg.algoMode == ALGO_RIM) processShotAnchored(true);
+            else                          processShot();
         }
     }
 

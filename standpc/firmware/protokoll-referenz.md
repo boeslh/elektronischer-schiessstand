@@ -519,8 +519,8 @@ Parametern nachrechnen.
  "sound_act_mps":343.85,"walk_k":0.500,"walk_max_us":150,
  "win_pre_ns":1450000,"win_post_ns":1600000,
  "mic_dist_um":[0,-420,300,110,-30,15],
- "mic_pos_um":[[-109000,-75000,24000],[108660,-74766,23925],[-109243,75167,24054],
-               [109089,75061,24020],[-112971,0,24994],[113015,0,25003]],
+ "mic_pos_um":[[-110540,-75460,25150],[110199,-75227,25072],[-110784,75626,25205],
+               [110629,75521,25170],[-114301,0,25753],[114345,0,25763]],
  "mic_en":[1,1,1,1,1,1],"piezo_ns":1180000,
  "rise_ns":[[0],[816667],[930000],[1200000],[1500000],[-38200,1650000]],
  "fall_ns":[[40000],[856667],[970000],[1240000],[1540000],[1689000]],
@@ -934,10 +934,17 @@ nicht. Empfohlenes Vorgehen: `CAPTURE=MCPWM`, `CAL RESET`, `WALKCAL=1`,
 
   | Anordnung | oben (AIR2/3) | mitte (AIR4/5) | unten (AIR0/1) | Entfernung zur Scheibenmitte |
   |---|---|---|---|---|
-  | `angled` (Default): auf die Scheibenmitte ausgerichtet | x=∓109, y=+75, z=24 | x=∓113, y=0, z=25 | x=∓109, y=−75, z=24 | oben/unten 134,47 mm, mitte 115,73 mm |
+  | `angled` (Default): auf die Scheibenmitte ausgerichtet | x=∓110,54, y=+75,46, z=25,15 | x=∓114,33, y=0, z=25,76 | x=∓110,54, y=−75,46, z=25,15 | oben/unten 136,18 mm, mitte 117,19 mm |
   | `flat` (bis Rev 4.19): flach in der Seitenwand | x=∓115, y=+85, z=28 | x=∓115, y=0, z=28 | x=∓115, y=−85, z=28 | 145,72 / 118,36 mm |
 
-  (∓: links negativ, rechts positiv; mm.) Die Kalibrierung (`DIST<i>`)
+  (∓: links negativ, rechts positiv; mm.) Die `angled`-Werte sind die
+  Positionen des Messelements (Membran) aus der Vermessung vom 15.11.2026:
+  gemessen wurde die Mikrofon-Vorderseite (oben/unten x=∓108,1, y=±73,8,
+  z=24,6; mitte x=∓111,4, y=0, z=25,1), das Messelement liegt 3 mm weiter
+  auf der Linie zur Scheibenmitte. Vorher eingetragen waren x=∓109/∓113,
+  y=±75/0, z=24/25 (134,47 / 115,73 mm) - Geräte mit diesem Stand melden
+  diese Positionen in `mic_pos_um`; der Simulator erkennt sie weiterhin als
+  `angled`. Die Kalibrierung (`DIST<i>`)
   verschiebt jedes Mikrofon entlang seiner Linie zur Scheibenmitte, die
   Richtung bleibt fest. `SET STANDOFFPAPER`/`SET MICHALFX` gibt es nicht mehr.
   **Bis Rev 4.11.0** gab es zusätzlich einen

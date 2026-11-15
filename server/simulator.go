@@ -389,16 +389,30 @@ const (
 )
 
 var micLayouts = map[string]micGeom{
+	// Messelement der Mikrofone laut Vermessung vom 15.11.2026 (board_layout.h)
 	micLayoutAngled: {
-		X: [6]float32{-109, 109, -109, 109, -113, 113},
-		Y: [6]float32{-75, -75, 75, 75, 0, 0},
-		Z: [6]float32{24, 24, 24, 24, 25, 25},
+		X: [6]float32{-110.54, 110.54, -110.54, 110.54, -114.33, 114.33},
+		Y: [6]float32{-75.46, -75.46, 75.46, 75.46, 0, 0},
+		Z: [6]float32{25.15, 25.15, 25.15, 25.15, 25.76, 25.76},
 	},
 	micLayoutFlat: {
 		X: [6]float32{-115, 115, -115, 115, -115, 115},
 		Y: [6]float32{-85, -85, 85, 85, 0, 0},
 		Z: [6]float32{28, 28, 28, 28, 28, 28},
 	},
+}
+
+// micLayoutsLegacy: fruehere Soll-Positionen einer Anordnung, die das Geraet
+// in raw-Telegrammen noch melden kann (Firmware vor der Korrektur) - werden
+// nur zum Erkennen der Anordnung verwendet (rawMicLayout), gerechnet wird mit
+// micLayouts.
+var micLayoutsLegacy = map[string][]micGeom{
+	// "angled" bis zur Vermessung vom 15.11.2026
+	micLayoutAngled: {{
+		X: [6]float32{-109, 109, -109, 109, -113, 113},
+		Y: [6]float32{-75, -75, 75, 75, 0, 0},
+		Z: [6]float32{24, 24, 24, 24, 25, 25},
+	}},
 }
 
 // micGeom: tatsaechlich verwendete Mikrofon-Positionen in mm (MIC_X/MIC_Y/
@@ -419,7 +433,12 @@ func micNominal(layout string) micGeom {
 // entlang seiner Linie zur Scheibenmitte um distUm[i] (0.001mm, positiv =
 // weiter weg) verschoben, die Richtung bleibt fest.
 func micGeometryDist(layout string, distUm [6]float32) micGeom {
-	nom := micNominal(layout)
+	return micNominal(layout).shifted(distUm)
+}
+
+// shifted: Soll-Positionen nom, je Mikrofon um distUm[i] entlang der Linie
+// zur Scheibenmitte verschoben.
+func (nom micGeom) shifted(distUm [6]float32) micGeom {
 	var g micGeom
 	for i := 0; i < 6; i++ {
 		r := float32(math.Sqrt(float64(nom.X[i]*nom.X[i] + nom.Y[i]*nom.Y[i] + nom.Z[i]*nom.Z[i])))

@@ -51,8 +51,9 @@ type RawEdges struct {
 
 // rawMicLayout: Mikrofon-Anordnung, mit der das Geraet laut raw-Telegramm
 // gerechnet hat (Firmware ab Rev 4.20.0, mic_pos_um + mic_dist_um) - die
-// Anordnung, deren Soll-Positionen mit den Korrekturen auf hoechstens 5 um
-// genau die gemeldeten Positionen ergeben; "" = unbekannt (aeltere Firmware).
+// Anordnung, deren Soll-Positionen (aktuelle oder fruehere, micLayoutsLegacy)
+// mit den Korrekturen auf hoechstens 5 um genau die gemeldeten Positionen
+// ergeben; "" = unbekannt (aeltere Firmware).
 func (r *RawEdges) rawMicLayout() string {
 	if r == nil || r.MicPosUm == nil || r.MicDistUm == nil {
 		return ""
@@ -61,18 +62,27 @@ func (r *RawEdges) rawMicLayout() string {
 	for i, v := range r.MicDistUm {
 		d[i] = float32(v)
 	}
-	for _, name := range []string{micLayoutAngled, micLayoutFlat} {
-		g := micGeometryDist(name, d)
-		ok := true
-		for i := 0; i < 6 && ok; i++ {
+	matches := func(nom micGeom) bool {
+		g := nom.shifted(d)
+		for i := 0; i < 6; i++ {
 			for k, v := range [3]float32{g.X[i], g.Y[i], g.Z[i]} {
 				if math.Abs(float64(v)*1000-float64(r.MicPosUm[i][k])) > 5 {
-					ok = false
+					return false
 				}
 			}
 		}
-		if ok {
+		return true
+	}
+	for _, name := range []string{micLayoutAngled, micLayoutFlat} {
+		if matches(micNominal(name)) {
 			return name
+		}
+		// aeltere Soll-Positionen derselben Anordnung (Geraet noch nicht
+		// mit der korrigierten Firmware geflasht)
+		for _, nom := range micLayoutsLegacy[name] {
+			if matches(nom) {
+				return name
+			}
 		}
 	}
 	return ""

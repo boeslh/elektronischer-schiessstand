@@ -170,18 +170,28 @@ func TestSolveShot_SyntheticGroundTruth(t *testing.T) {
 // TestMicGeometry_MatchesDevice: die Geometrie (applyMicGeometry-Port) muss
 // die Mikrofon-Positionen ergeben, die das Geraet im raw-Telegramm meldet
 // (Beispiel aus protokoll-referenz.md 4.5c, Rev 4.20.0), und die Soll-
-// Entfernungen der Anordnung "angled" (134,47 / 115,73 mm).
+// Entfernungen der Anordnung "angled" (136,18 / 117,19 mm, Vermessung vom
+// 15.11.2026). Telegramme von Geraeten mit den frueheren Soll-Positionen
+// werden weiter als "angled" erkannt.
 func TestMicGeometry_MatchesDevice(t *testing.T) {
 	r := RawEdges{
 		MicDistUm: &[6]int64{0, -420, 300, 110, -30, 15},
-		MicPosUm: &[6][3]int64{{-109000, -75000, 24000}, {108660, -74766, 23925}, {-109243, 75167, 24054},
-			{109089, 75061, 24020}, {-112971, 0, 24994}, {113015, 0, 25003}},
+		MicPosUm: &[6][3]int64{{-110540, -75460, 25150}, {110199, -75227, 25072}, {-110784, 75626, 25205},
+			{110629, 75521, 25170}, {-114301, 0, 25753}, {114345, 0, 25763}},
 	}
 	if got := r.rawMicLayout(); got != micLayoutAngled {
 		t.Fatalf("rawMicLayout = %q, want angled", got)
 	}
+	legacy := RawEdges{
+		MicDistUm: &[6]int64{0, -420, 300, 110, -30, 15},
+		MicPosUm: &[6][3]int64{{-109000, -75000, 24000}, {108660, -74766, 23925}, {-109243, 75167, 24054},
+			{109089, 75061, 24020}, {-112971, 0, 24994}, {113015, 0, 25003}},
+	}
+	if got := legacy.rawMicLayout(); got != micLayoutAngled {
+		t.Errorf("rawMicLayout (fruehere Soll-Positionen) = %q, want angled", got)
+	}
 	g := micNominal(micLayoutAngled)
-	for i, want := range []float64{134.47, 134.47, 134.47, 134.47, 115.73, 115.73} {
+	for i, want := range []float64{136.18, 136.18, 136.18, 136.18, 117.19, 117.19} {
 		d := math.Sqrt(float64(g.X[i]*g.X[i] + g.Y[i]*g.Y[i] + g.Z[i]*g.Z[i]))
 		if math.Abs(d-want) > 0.01 {
 			t.Errorf("Mic%d Entfernung %.3f, want %.2f", i, d, want)

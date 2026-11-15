@@ -65,6 +65,37 @@ bestimmt werden; der Stand-PC lehnt es ab, sie auf ein Gerät mit neuer
 Firmware zurückzuspielen, ebenso eine Simulator-Freigabe für eine andere
 Anordnung.
 
+**Positionen der Mikrofone** (Anordnung „angled“, Stand der Vermessung vom
+15.11.2026). Ursprung ist der Mittelpunkt der Papierscheibe, x nach rechts,
+y nach oben, z vor der Scheibe Richtung Schütze (aus Schützensicht), Angaben
+in mm. Die linke Seite ist angegeben, die rechte ist gespiegelt (x positiv).
+Gemessen wurde die Vorderseite der Mikrofone; das eigentliche Messelement
+liegt 3 mm weiter auf der Linie zum Scheibenmittelpunkt. Mit den Positionen
+des Messelements rechnen Firmware und Simulator.
+
+| Mikrofon | Vorderseite x / y / z | Abstand | Messelement x / y / z | Abstand | Neigung zur Scheibe | Richtung in der Ebene |
+|---|---|---|---|---|---|---|
+| oben (AIR2/AIR3) | −108,1 / +73,8 / 24,6 | 133,18 | −110,54 / +75,46 / 25,15 | 136,18 | 10,64° | 34,32° |
+| mitte (AIR4/AIR5) | −111,4 / 0 / 25,1 | 114,19 | −114,33 / 0 / 25,76 | 117,19 | 12,70° | 0° |
+| unten (AIR0/AIR1) | −108,1 / −73,8 / 24,6 | 133,18 | −110,54 / −75,46 / 25,15 | 136,18 | 10,64° | −34,32° |
+
+*Neigung zur Scheibe*: Winkel der Linie Mikrofon → Scheibenmitte gegenüber
+der Papierebene. *Richtung in der Ebene*: Winkel gegenüber der x-Achse, von
+der Seitenwand aus gesehen.
+
+Bis zu dieser Vermessung waren x = ∓109 / ∓113, y = ±75 / 0, z = 24 / 25
+eingetragen (Abstand 134,47 / 115,73 mm). Die Messelemente liegen damit
+1,71 mm (oben/unten) bzw. 1,46 mm (mitte) weiter vom Mittelpunkt entfernt
+als bisher angenommen; quer zur Linie weichen sie 0,99 bzw. 0,45 mm ab.
+Den Längsanteil hätte die Kalibrierung über DIST ausgeglichen, den
+Queranteil nicht. Mit den korrigierten Positionen liegt DIST bei einem
+korrekt aufgebauten Stand nahe 0 – größere Werte zeigen tatsächliche
+Abweichungen beim Einbau (Distanzkontrolle). DIST-Werte, die mit den alten
+Positionen kalibriert wurden, sind entsprechend um rund +1,5 bis +1,7 mm
+verschoben und sollten neu kalibriert werden. Schüsse von Geräten, die noch
+die alten Positionen melden, erkennt der Simulator weiterhin als „angled“
+und rechnet sie mit den korrigierten Positionen nach.
+
 ### Zonen-Kalibrierung
 
 Der Knall eines Treffers klingt je nach getroffenen Papierlagen
@@ -90,7 +121,10 @@ Scheibe der geladenen Serie, auch beim Laden einer gespeicherten Kalibrierung.
 Grundlage ist ein Foto der beschossenen Papierscheibe. Der Maßstab kommt aus
 dem Innenkreis der Scheibe, die Schrauben dienen nur zum Entzerren und
 Ausrichten. Schusslöcher werden auch im schwarzen Bereich erkannt und lassen
-sich von Hand ergänzen oder ausschließen.
+sich von Hand ergänzen oder ausschließen. Ein angeklicktes Loch rastet auf
+die erkannte Lochmitte ein. Mit **Umschalt+Klick** wird es dagegen genau an
+die angeklickte Stelle gesetzt, und ein schon markiertes Loch wird so dorthin
+versetzt. Das hilft, wenn das Einrasten danebenliegt.
 
 **One-Click-Kalibrierung (Zonen):** ordnet die Löcher den Schüssen zu,
 kalibriert den Basissatz an allen Schüssen und je Zone einen eigenen Satz,

@@ -391,6 +391,7 @@ async function restorePhoto(sid) {
 // starker Vergroesserung ist genauer.
 function snapScrew(x, y) {
   if (!$('foto-snap-screws').checked) return {x, y};
+  x = Math.round(x); y = Math.round(y);
   const r = Math.round(Math.max(F.W, F.H) * 0.025);
   const sats = [];
   for (let yy = Math.max(0, y - r); yy <= Math.min(F.H - 1, y + r); yy += 2)
@@ -423,16 +424,44 @@ function snapScrew(x, y) {
 
 // Innenkreis: Flood-Fill der dunklen Flaeche ab dem Klickpunkt (Schwelle per
 // Otsu zwischen Loch und Papier), aeusserer Rand mit Subpixel-Interpolation.
+// Ist viel helle Umgebung im Bild (weisses Gehaeuse, starkes Licht), trennt
+// Otsu Weiss von "Papier + Schwarz" und die Flaeche laeuft ueber das ganze
+// Papier - dann zweiter Versuch mit Otsu nur ueber den dunklen Teil. Genommen
+// wird die erste Flaeche, die rund ist (Flaeche ~ Ellipse der Bounding-Box);
+// ist keine rund (z.B. Klick auf den Schatten einer Schraube), Fehler statt
+// einer Papierflaeche als "Kreis".
 function detectRim(x0, y0) {
+  // Klickpunkt kommt mit Nachkommastellen - ganzzahlig, sonst liest die
+  // Stichprobe lauter undefined und Otsu faellt still auf 128 zurueck
+  x0 = Math.round(x0); y0 = Math.round(y0);
   const W = F.W, H = F.H, L = F.lum;
   const half = Math.round(Math.min(W, H) * 0.25);
   const sample = [];
   for (let y = Math.max(0, y0 - half); y < Math.min(H, y0 + half); y += 3)
     for (let x = Math.max(0, x0 - half); x < Math.min(W, x0 + half); x += 3) sample.push(L[y * W + x]);
-  const thr = otsu(sample);
-  const seed = Math.round(y0) * W + Math.round(x0);
-  if (L[seed] >= thr) return 'Bitte in die schwarze Fläche des Innenkreises klicken.';
+  const thr1 = otsu(sample);
+  const seed = y0 * W + x0;
+  if (L[seed] >= thr1) return 'Bitte in die schwarze Fläche des Innenkreises klicken.';
+  const thrs = [thr1];
+  const dark = sample.filter(v => v < thr1);
+  if (dark.length > 100) {
+    const thr2 = otsu(dark);
+    if (L[seed] < thr2 && thr2 < thr1 - 5) thrs.push(thr2);
+  }
+  let first = null;
+  for (const thr of thrs) {
+    const r = rimAt(seed, thr);
+    if (typeof r !== 'string' && r.round) { F.rim = r.rim; return null; }
+    if (first === null) first = r;
+  }
+  if (typeof first === 'string') return first;
+  return 'Keine runde dunkle Fläche gefunden - bitte mitten in die schwarze Fläche des Innenkreises klicken (nicht auf eine Schraube oder ein Loch daneben).';
+}
 
+// rimAt: dunkle Flaeche ab seed (Luminanz < thr) fluten, aeusseren Rand
+// bestimmen. Liefert {rim, round} oder einen Fehlertext.
+function rimAt(seed, thr) {
+  const W = F.W, H = F.H, L = F.lum;
   const inside = new Uint8Array(W * H);
   const stack = [seed];
   inside[seed] = 1;
@@ -455,6 +484,7 @@ function detectRim(x0, y0) {
   const outside = new Uint8Array(bw * bh);
   const st2 = [0];
   outside[0] = 1;
+  let nOut = 1;
   while (st2.length) {
     const k = st2.pop();
     const lx = k % bw, ly = (k - lx) / bw;
@@ -462,7 +492,7 @@ function detectRim(x0, y0) {
       const nx = lx + dx, ny = ly + dy;
       if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
       const kk = ny * bw + nx;
-      if (!outside[kk] && !inside[(by0 + ny) * W + bx0 + nx]) { outside[kk] = 1; st2.push(kk); }
+      if (!outside[kk] && !inside[(by0 + ny) * W + bx0 + nx]) { outside[kk] = 1; nOut++; st2.push(kk); }
     }
   }
   const rim = [];
@@ -479,8 +509,15 @@ function detectRim(x0, y0) {
     }
   }
   if (rim.length < 20) return 'Kreisrand nicht erkannt.';
-  F.rim = rim;
-  return null;
+  // Rund: umschlossene Flaeche (inkl. heller Loecher im Schwarzen) gegen die
+  // Ellipse der Bounding-Box (Kreis/Ellipse ~1, Rechteck/Papier ~1.27)
+  // und die Randpunkte gegen diese Ellipse (mittlere Abweichung).
+  const fill = (bw * bh - nOut) / (Math.PI / 4 * (bw - 2) * (bh - 2));
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, a = (maxX - minX) / 2, b = (maxY - minY) / 2;
+  let dev = 0;
+  for (const p of rim) dev += Math.abs(Math.hypot((p.x - cx) / a, (p.y - cy) / b) - 1);
+  dev /= rim.length;
+  return {rim, round: fill > 0.85 && fill < 1.1 && dev < 0.09};
 }
 
 // Einschussloch am Klickpunkt einrasten: Schwerpunkt der zusammen-
@@ -755,7 +792,8 @@ function modeHint() {
       : 'Alle 4 Schrauben gesetzt - ein weiterer Klick versetzt die nächstgelegene Schraube.';
   }
   if (F.mode === 'circle') return 'In die schwarze Fläche des Innenkreises klicken - der Rand wird automatisch erkannt. Bei Ringlinien im Schwarzen (LP-Spiegel) in den äußersten schwarzen Ring klicken.';
-  if (F.mode === 'holes') return 'Einschussloch anklicken (rastet auf die Lochmitte ein, im Schwarzen auf den hellen Fleck) - Klick auf ein markiertes Loch entfernt es.';
+  if (F.mode === 'holes') return 'Einschussloch anklicken (rastet auf die Lochmitte ein, im Schwarzen auf den hellen Fleck) - Klick auf ein markiertes Loch entfernt es. '
+    + 'Umschalt+Klick setzt das Loch genau auf die angeklickte Stelle (ohne Einrasten); auf ein markiertes Loch versetzt es dieses dorthin.';
   return 'Mausrad = Zoom, Ziehen = verschieben.';
 }
 
@@ -766,7 +804,7 @@ function setMode(m) {
   draw();
 }
 
-function onImageClick(x, y) {
+function onImageClick(x, y, exact = false) {
   if (F.mode === 'screws') {
     const p = snapScrew(x, y);
     if (F.screws.length < 4) F.screws.push(p);
@@ -785,10 +823,22 @@ function onImageClick(x, y) {
   } else if (F.mode === 'holes') {
     const ppm = pxPerMM(x, y);
     const k = F.holes.findIndex(h => Math.hypot(h.x - x, h.y - y) < Math.max(2.5 * ppm, 8 / F.view.s));
-    if (k >= 0) F.holes.splice(k, 1);
-    else F.holes.push(snapHole(x, y));
+    let msg = null;
+    if (exact) {
+      // Umschalt+Klick: angeklickte Stelle unveraendert uebernehmen; liegt sie
+      // auf einem markierten Loch, wird dieses dorthin versetzt
+      if (k >= 0) F.holes[k] = {x, y}; else F.holes.push({x, y});
+      msg = k >= 0 ? 'Loch auf die angeklickte Stelle versetzt (ohne Einrasten).' : 'Loch genau an der angeklickten Stelle gesetzt (ohne Einrasten).';
+    } else if (k >= 0) F.holes.splice(k, 1);
+    else {
+      const h = snapHole(x, y);
+      F.holes.push(h);
+      const moved = Math.hypot(h.x - x, h.y - y) / ppm;
+      if (moved > 0.3) msg = `Auf Lochmitte eingerastet (${moved.toFixed(1)} mm verschoben). Falsch? Loch anklicken zum Entfernen, dann mit Umschalt+Klick genau setzen.`;
+    }
     F.pairs = []; F.result = null;
     renderPairs(); renderResult();
+    if (msg) { computeGeometry(); updateGeoInfo(); setStatus(msg); draw(); return; }
   }
   computeGeometry();
   updateGeoInfo();
@@ -916,6 +966,7 @@ function draw() {
     const p = pairByHole.get(i);
     const color = p ? (p.include ? '#3dcc6e' : '#888') : '#ff5050';
     ring(hl.x, hl.y, rPx, color);
+    { const [a, b] = toS(hl.x, hl.y); ctx.fillStyle = color; ctx.fillRect(a - 1, b - 1, 2, 2); }
     if (p && F.geo) {
       const res = F.result?.shots.find(r => r.shot_no === p.shot_no);
       const sim = mmToImg(p.sim_x, p.sim_y);
@@ -987,7 +1038,7 @@ function initCanvas() {
   });
   c.addEventListener('pointerup', e => {
     if (drag && !drag.moved && F.img && F.mode !== 'pan') {
-      onImageClick(F.view.ox + e.offsetX / F.view.s, F.view.oy + e.offsetY / F.view.s);
+      onImageClick(F.view.ox + e.offsetX / F.view.s, F.view.oy + e.offsetY / F.view.s, e.shiftKey);
     }
     drag = null;
   });
@@ -1350,8 +1401,8 @@ function renderResult() {
 // Zuordnen (falls noetig) -> Basissatz + Zonen-Saetze kalibrieren ->
 // Abschnitt 2 fuellen -> neu berechnen -> als Kalibrierung speichern. Die
 // Freigabe an den Stand bleibt ein bewusster eigener Schritt (Abschnitt
-// "Uebertragung an den Stand").
-async function oneClickCalibrate() {
+// "Uebertragung an den Stand"). withZones=false: nur Grundwerte, Zonen aus.
+async function oneClickCalibrate(withZones) {
   const st = $('foto-oneclick-status');
   const say = (t, err) => { st.textContent = t; st.style.color = err ? 'var(--red)' : ''; };
   if (!F.geo) { say('Zuerst Schrauben, Innenkreis und Einschusslöcher markieren.', true); return; }
@@ -1384,14 +1435,14 @@ async function oneClickCalibrate() {
   const inRange = shotRange();
   const shotNos = (typeof lastSessionShots !== 'undefined' ? lastSessionShots : [])
     .filter(s => s.has_raw && inRange(s)).map(s => s.shot_no);
-  say(`Kalibriere: ${F.holes.length} Löcher, ${shotNos.length} Schüsse (Zuordnung + Grundwerte + Zonen)…`);
+  say(`Kalibriere: ${F.holes.length} Löcher, ${shotNos.length} Schüsse (Zuordnung + Grundwerte${withZones ? ' + Zonen' : ''})…`);
   let r;
   try {
     r = await api(`/api/sessions/${currentSessionId}/photo-calibrate-zones`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({params: before, optimize: optimizeOpts, zones, pairs,
         holes_mm: F.holes.map(h => imgToMM(h.x, h.y)), shot_nos: shotNos,
-        excluded: userExcluded.map(p => p.shot_no)}),
+        excluded: userExcluded.map(p => p.shot_no), no_zones: !withZones}),
     });
   } catch (e) { say('Fehler: ' + e.message, true); return; }
   applyParams(r.params);
@@ -1413,12 +1464,12 @@ async function oneClickCalibrate() {
   const now = new Date();
   const stamp = now.toLocaleString('de-DE', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'});
   const nUsed = F.pairs.filter(p => p.include).length;
-  const name = `Foto-Zonen ${stamp}${currentLoadedLaneNo != null ? ' – Stand ' + currentLoadedLaneNo : ''} (${nUsed} Schuss)`;
+  const name = `${withZones ? 'Foto-Zonen' : 'Foto'} ${stamp}${currentLoadedLaneNo != null ? ' – Stand ' + currentLoadedLaneNo : ''} (${nUsed} Schuss)`;
   try {
     await api('/api/simulator-configs', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name, lane_no: currentLoadedLaneNo, params: currentParams()})});
     await loadConfigOptions();
-    say(`Übernommen (Grundwerte und Zonen) und als Kalibrierung „${name}“ gespeichert. `
+    say(`Übernommen (${withZones ? 'Grundwerte und Zonen' : 'Grundwerte, Zonen ausgeschaltet'}) und als Kalibrierung „${name}“ gespeichert. `
       + 'Prüfen mit „Messwerte gegen das Foto prüfen“, dann in Abschnitt 5 an den Stand freigeben.');
   } catch (e) { say('Übernommen, aber Speichern fehlgeschlagen: ' + e.message, true); }
 }
@@ -1431,19 +1482,26 @@ function renderZoneResult() {
   const pct = v => Math.round(v * 100) + ' %';
   const st = s => s && s.n ? `${pct(s.below1)} &lt; 1 mm · P50 ${s.p50_mm.toFixed(2)} · P90 ${s.p90_mm.toFixed(2)} mm` : '–';
   const names = {A: 'Loch Vorsatzscheibe', B: 'neben Band', C: 'Band + Vorsatz'};
+  const bad = (r.shots || []).filter(x => x.after_err_mm != null && x.after_err_mm > 3);
+  const badHint = bad.length ? `<div style="color:#ffb347;margin-top:6px">⚠ Mehr als 3 mm daneben: ${bad.map(x => `#${x.shot_no} (${x.after_err_mm.toFixed(1)} mm)`).join(', ')} – Loch und Zuordnung prüfen, ggf. abwählen und erneut kalibrieren.</div>` : '';
+  if (!r.zones || !r.zones.length) { // One-Click ohne Zonen
+    box.innerHTML = `<div><strong>One-Click-Kalibrierung ohne Zonen:</strong> vorher ${st(r.before)} →
+      <strong>nachher ${st(r.after)}</strong> (${(r.shots || []).length} Schüsse)</div>${badHint}
+      <div class="hint" style="margin-top:4px">Werte an denselben Schüssen, an denen kalibriert wurde – auf neue Schüsse übertragen ist das Ergebnis etwas schlechter.</div>`;
+    return;
+  }
   const rows = r.zones.map(z => `<tr><td><strong>${z.zone}</strong> ${names[z.zone]}</td><td>${z.shots}</td><td>${esc(z.fitted)}</td>
     <td>${st(z.before)}</td><td>${st(z.after)}</td>
     <td>${z.check_mm != null ? `Ø ${z.check_mm.toFixed(2)} mm` : '–'}</td>
     <td>${z.set ? z.set.mic_dist_um.join(', ') : '–'}</td></tr>`).join('');
   const weak = r.zones.filter(z => z.shots < 6).map(z => z.zone);
-  const bad = (r.shots || []).filter(x => x.after_err_mm != null && x.after_err_mm > 3);
   box.innerHTML = `
     <div><strong>One-Click-Kalibrierung:</strong> vorher ${st(r.before)} → nur Grundwerte ${st(r.base_only)} →
       <strong>mit Zonen ${st(r.after)}</strong></div>
     <table style="margin-top:6px;width:auto"><thead><tr><th>Zone</th><th>Schüsse</th><th>angepasst</th><th>vorher</th><th>nachher</th>
       <th title="Jeder Schuss der Zone einmal weggelassen, mit den übrigen kalibriert und an ihm gemessen (Fehler bei 5 mm gekappt) – Maß für die Übertragbarkeit auf neue Schüsse">Kreuzprüfung</th><th>DIST0–5 (µm)</th></tr></thead>
       <tbody>${rows}</tbody></table>
-    ${bad.length ? `<div style="color:#ffb347;margin-top:6px">⚠ Mehr als 3 mm daneben: ${bad.map(x => `#${x.shot_no} (${x.after_err_mm.toFixed(1)} mm)`).join(', ')} – Loch und Zuordnung prüfen, ggf. abwählen und erneut kalibrieren.</div>` : ''}
+    ${badHint}
     <div class="hint" style="margin-top:4px">Werte an denselben Schüssen, an denen kalibriert wurde – auf neue Schüsse übertragen ist das Ergebnis etwas schlechter
       (Prüfung an der Serie vom 12.10., jeder Schuss einmal weggelassen und mit den übrigen kalibriert: 72 % &lt; 1 mm, P90 1,8 mm).
       ${weak.length ? `Für Zone ${weak.join(', ')} lagen weniger als 6 Schüsse vor – für einen vollständigen Satz je Zone mindestens 6, besser 10 Schüsse.` : ''}</div>`;
@@ -1578,7 +1636,8 @@ function init() {
   };
   $('foto-match').onclick = () => matchShots();
   $('foto-optimize').onclick = optimize;
-  $('foto-oneclick').onclick = oneClickCalibrate;
+  $('foto-oneclick').onclick = () => oneClickCalibrate(true);
+  $('foto-oneclick-nozones').onclick = () => oneClickCalibrate(false);
   $('foto-verify').onclick = verify;
   $('foto-allpoints').onchange = draw;
   for (const id of ['foto-diameter', 'foto-screwW', 'foto-screwH']) {

@@ -61,3 +61,32 @@ func TestSolveZoned(t *testing.T) {
 		t.Errorf("Zone C darf sich nicht aendern: %+v gegen %+v", zo, plainO)
 	}
 }
+
+// One-Click ohne Zonen: nur Basissatz, Zonen ausgeschaltet (Grenzen bleiben).
+func TestZoneCalibrate_NoZones(t *testing.T) {
+	truth := DefaultSimParams()
+	truth.UsePiezo = piezoNotRequired()
+	truth.MicDistUm = [6]int64{0, 900, -600, 400, -1200, 300}
+	truth.OffsetXUm, truth.OffsetYUm = 2500, -1800
+	var in []zoneCalInput
+	for _, s := range photoCalSyntheticShots(truth) {
+		in = append(in, zoneCalInput{Raw: SimShotRaw{ShotNo: s.ShotNo, AirNs: s.AirNs, HasRaw: true}, TruthX: s.TruthX, TruthY: s.TruthY})
+	}
+	start := DefaultSimParams()
+	start.UsePiezo = piezoNotRequired()
+	zones := ZoneParams{HoleRadiusMM: 7.625, BandHalfMM: 45}
+	rep, err := zoneCalibrate(in, start, PhotoCalOptions{MicDist: true, Offset: true}, zones, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Zones) != 0 {
+		t.Errorf("Zonen-Saetze %d, erwartet keine", len(rep.Zones))
+	}
+	z := rep.Params.Zones
+	if z == nil || z.Enabled || z.A != nil || z.B != nil || z.C != nil || z.HoleRadiusMM != 7.625 {
+		t.Errorf("Zonen = %+v, erwartet ausgeschaltet mit Grenzen", z)
+	}
+	if rep.After.RMSMM > 0.15 || rep.After.RMSMM >= rep.Before.RMSMM {
+		t.Errorf("RMS %.3f -> %.3f mm", rep.Before.RMSMM, rep.After.RMSMM)
+	}
+}

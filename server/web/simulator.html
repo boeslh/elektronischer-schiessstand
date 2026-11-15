@@ -421,8 +421,9 @@
       <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)"
              title="Schraubenmitte automatisch bestimmen - Schatten können das Ergebnis verfälschen, im Zweifel lieber genau klicken">
         <input type="checkbox" id="foto-snap-screws"> Schrauben einrasten</label>
-      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)">
-        <input type="checkbox" id="foto-snap-holes" checked> Löcher einrasten</label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)"
+             title="Lochmitte automatisch bestimmen. Einzelne Löcher ohne Einrasten: Umschalt+Klick setzt genau auf die angeklickte Stelle bzw. versetzt ein markiertes Loch dorthin">
+        <input type="checkbox" id="foto-snap-holes" checked> Löcher einrasten (Umschalt+Klick = genau hier)</label>
     </div>
     <div id="foto-status" class="hint" style="margin-bottom:6px;min-height:18px"></div>
     <div style="width:100%;border:1px solid var(--line);border-radius:6px;overflow:hidden">
@@ -447,8 +448,11 @@
       <div class="row-actions" style="align-items:center;flex-wrap:wrap">
         <button class="btn" id="foto-oneclick"
           title="Löcher zuordnen (falls noch nicht geschehen), Grundwerte an allen Schüssen und je Zone einen eigenen Satz kalibrieren, alles in Abschnitt 2 eintragen und als Kalibrierung speichern.">One-Click-Kalibrierung (Grundwerte + Zonen)</button>
+        <button class="btn" id="foto-oneclick-nozones"
+          title="Wie die One-Click-Kalibrierung, aber nur die Grundwerte an allen Schüssen - die Zonen werden ausgeschaltet. Sinnvoll bei wenigen Schüssen oder einer ersten Kalibrierung.">One-Click ohne Zonen (nur Grundwerte)</button>
         <span class="hint">ordnet die Löcher zu, kalibriert die Grundwerte und je Zone A/B/C einen eigenen Satz, schaltet die Zonen ein,
-          trägt alles in Abschnitt 2 ein und speichert es als Kalibrierung. Lochradius und Bandbreite kommen aus „Zonen“ in Abschnitt 2.</span>
+          trägt alles in Abschnitt 2 ein und speichert es als Kalibrierung. Lochradius und Bandbreite kommen aus „Zonen“ in Abschnitt 2.
+          „Ohne Zonen“ kalibriert nur die Grundwerte und schaltet die Zonen aus.</span>
       </div>
       <div class="hint" style="margin:8px 0 4px">Grundwerte, die dabei mitoptimiert werden (Startwerte = Abschnitt 2; gilt auch für den Einzelschritt unten):</div>
       <div class="row-actions" style="flex-wrap:wrap;gap:14px">

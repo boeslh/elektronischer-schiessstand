@@ -124,6 +124,13 @@ func zoneFitOptions(n int) (PhotoCalOptions, string, bool) {
 
 // ZoneCalibrate: siehe Dateikopf. zones liefert nur Grenzen/Ueberblendung.
 func ZoneCalibrate(in []zoneCalInput, p SimParams, opt PhotoCalOptions, zones ZoneParams) (zoneCalReport, error) {
+	return zoneCalibrate(in, p, opt, zones, true)
+}
+
+// zoneCalibrate: withZones=false kalibriert nur den Basissatz (One-Click
+// ohne Zonen); die Zonen werden dann ausgeschaltet, die Grenzen bleiben fuer
+// die Auswertung je Zone erhalten.
+func zoneCalibrate(in []zoneCalInput, p SimParams, opt PhotoCalOptions, zones ZoneParams, withZones bool) (zoneCalReport, error) {
 	if zones.HoleRadiusMM <= 0 {
 		return zoneCalReport{}, errBadRequest("Lochradius der Vorsatzscheibe fehlt")
 	}
@@ -154,6 +161,9 @@ func ZoneCalibrate(in []zoneCalInput, p SimParams, opt PhotoCalOptions, zones Zo
 	}
 	rep := zoneCalReport{BaseReport: baseRep}
 	for _, name := range zoneNames {
+		if !withZones {
+			break
+		}
 		zs := byZone[name]
 		zr := zoneCalZone{Zone: name, Shots: len(zs)}
 		zr.Set, zr.Fitted, zr.CheckMM = zoneChooseFit(name, zs, global)
@@ -169,6 +179,10 @@ func ZoneCalibrate(in []zoneCalInput, p SimParams, opt PhotoCalOptions, zones Zo
 	}
 	final := global
 	final.Zones = &zp
+	if !withZones {
+		off := ZoneParams{HoleRadiusMM: zp.HoleRadiusMM, BandHalfMM: zp.BandHalfMM, BlendMM: zp.BlendMM}
+		final.Zones = &off
+	}
 	rep.Params = final
 
 	// 3. Bewertung
@@ -232,6 +246,7 @@ func ZoneCalibrate(in []zoneCalInput, p SimParams, opt PhotoCalOptions, zones Zo
 }
 
 // photoCalibrateZones: POST /api/sessions/{id}/photo-calibrate-zones
+// (no_zones: nur Grundwerte kalibrieren, Zonen ausschalten)
 //
 // Mit holes_mm (alle markierten Loecher) ordnet der Server selbst zu (siehe
 // sim_zone_assign.go): Start mit den Paaren aus dem Browser, Kandidaten sind
@@ -249,6 +264,7 @@ func (a *APIServer) photoCalibrateZones(w http.ResponseWriter, r *http.Request) 
 		Holes    [][2]float64 `json:"holes_mm"`
 		ShotNos  []int        `json:"shot_nos"`
 		Excluded []int        `json:"excluded"`
+		NoZones  bool         `json:"no_zones"` // nur Grundwerte, Zonen aus
 	}](r)
 	if err != nil {
 		return nil, errBadRequest("ungueltiger Body: " + err.Error())
@@ -289,7 +305,7 @@ func (a *APIServer) photoCalibrateZones(w http.ResponseWriter, r *http.Request) 
 		}
 		in, pairs = zoneAssign(cands, body.Holes, in, body.Params, body.Optimize)
 	}
-	rep, err := ZoneCalibrate(in, body.Params, body.Optimize, body.Zones)
+	rep, err := zoneCalibrate(in, body.Params, body.Optimize, body.Zones, !body.NoZones)
 	if err != nil {
 		return nil, err
 	}

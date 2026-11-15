@@ -100,11 +100,16 @@
 
 #elif MIC_LAYOUT == MIC_LAYOUT_ANGLED
   #define MIC_LAYOUT_NAME     "angled"
-  // Entfernung zum Scheibenmittelpunkt: oben/unten 134,47 mm, mitte 115,73 mm
-  //                          AIR0    AIR1    AIR2    AIR3    AIR4    AIR5
-  #define MIC_NOM_X_MM      { -109.0f, 109.0f, -109.0f, 109.0f, -113.0f, 113.0f }
-  #define MIC_NOM_Y_MM      {  -75.0f, -75.0f,   75.0f,  75.0f,    0.0f,   0.0f }
-  #define MIC_NOM_Z_MM      {   24.0f,  24.0f,   24.0f,  24.0f,   25.0f,  25.0f }
+  // Messelement (Membran) der Mikrofone, aus der Vermessung der Mikrofon-
+  // Vorderseiten (2026-11-15): Vorderseite oben/unten x=-108,1 y=+-73,8
+  // z=24,6 (133,18 mm), mitte x=-111,4 y=0 z=25,1 (114,19 mm); das
+  // Messelement liegt 3 mm weiter auf der Linie zum Scheibenmittelpunkt.
+  // Entfernung zum Scheibenmittelpunkt: oben/unten 136,18 mm, mitte 117,19 mm
+  // (vorher eingetragen: x=-+109/113, y=+-75/0, z=24/25 - 134,47/115,73 mm).
+  //                          AIR0     AIR1     AIR2     AIR3     AIR4     AIR5
+  #define MIC_NOM_X_MM      { -110.54f, 110.54f, -110.54f, 110.54f, -114.33f, 114.33f }
+  #define MIC_NOM_Y_MM      {  -75.46f, -75.46f,   75.46f,  75.46f,    0.0f,    0.0f  }
+  #define MIC_NOM_Z_MM      {   25.15f,  25.15f,   25.15f,  25.15f,   25.76f,  25.76f }
 
 #else
   #error "Unbekanntes MIC_LAYOUT - siehe include/board_layout.h"
